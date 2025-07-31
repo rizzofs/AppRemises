@@ -45,7 +45,7 @@ export default function EditarRemiseriaDuenioPage({ params }: Props) {
       
       if (response.success && response.data) {
         // Verificar que el dueño tiene acceso a esta remisería
-        const hasAccess = response.data.duenios?.some(d => d.duenioId === user.duenio?.id);
+        const hasAccess = response.data.duenios?.some(d => d.duenioId === user?.duenio?.id);
         
         if (!hasAccess) {
           toast.error('No tienes permisos para editar esta remisería');

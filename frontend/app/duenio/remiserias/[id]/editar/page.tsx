@@ -43,7 +43,7 @@ export default function EditarRemiseriaPage() {
       if (response.success && response.data) {
         // Verificar que el dueño tenga acceso a esta remisería
         const hasAccess = response.data.duenios?.some(
-          duenio => duenio.duenioId === user.duenio?.id
+          duenio => duenio.duenioId === user?.duenio?.id
         );
         
         if (!hasAccess) {

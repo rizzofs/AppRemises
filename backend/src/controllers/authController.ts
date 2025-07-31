@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma';
 import { ApiResponse, LoginRequest, RegisterRequest } from '../types';
+import { JwtPayload } from 'jsonwebtoken';
 
 export const login = async (req: Request, res: Response) => {
   try {
@@ -11,7 +12,20 @@ export const login = async (req: Request, res: Response) => {
     // Buscar usuario
     const user = await prisma.user.findUnique({
       where: { email },
-      include: { duenio: true }
+      include: { 
+        duenio: true,
+        coordinador: {
+          include: {
+            remiseria: {
+              select: {
+                id: true,
+                nombreFantasia: true
+              }
+            }
+          }
+        },
+        cliente: true
+      }
     });
 
     if (!user || !user.activo) {
@@ -73,7 +87,9 @@ export const login = async (req: Request, res: Response) => {
           id: user.id,
           email: user.email,
           rol: user.rol,
-          duenio: user.duenio
+          duenio: user.duenio,
+          coordinador: user.coordinador,
+          cliente: user.cliente
         },
         accessToken,
         refreshToken
@@ -241,6 +257,56 @@ export const refreshToken = async (req: Request, res: Response) => {
     res.status(401).json({
       success: false,
       error: 'Refresh token inválido'
+    });
+  }
+}; 
+
+// Validar token
+export const validateToken = async (req: Request, res: Response) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    
+    if (!token) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Token no proporcionado' 
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload;
+    
+    // Buscar el usuario en la base de datos
+    const user = await prisma.user.findUnique({
+      where: { id: decoded.id },
+      include: {
+        duenio: true,
+        coordinador: true,
+        cliente: true
+      }
+    });
+
+    if (!user || !user.activo) {
+      return res.status(401).json({ 
+        success: false, 
+        error: 'Usuario no encontrado o inactivo' 
+      });
+    }
+
+    // Retornar información del usuario sin la contraseña
+    const { passwordHash, ...userWithoutPassword } = user;
+    
+    res.json({
+      success: true,
+      data: {
+        user: userWithoutPassword,
+        valid: true
+      }
+    });
+  } catch (error) {
+    console.error('Error validando token:', error);
+    res.status(401).json({ 
+      success: false, 
+      error: 'Token inválido' 
     });
   }
 }; 

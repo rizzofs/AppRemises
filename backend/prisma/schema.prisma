@@ -22,6 +22,12 @@ model User {
   // Relación 1:1 con Duenio
   duenio Duenio?
 
+  // Relación 1:1 con Coordinador
+  coordinador Coordinador?
+
+  // Relación 1:1 con Cliente
+  cliente Cliente?
+
   @@map("users")
 }
 
@@ -69,6 +75,9 @@ model Remiseria {
   // Relación 1:N con Viaje
   viajes Viaje[]
 
+  // Relación 1:N con Reserva
+  reservas Reserva[]
+
   @@map("remiserias")
 }
 
@@ -100,7 +109,39 @@ model Coordinador {
   remiseriaId String
   remiseria   Remiseria @relation(fields: [remiseriaId], references: [id], onDelete: Cascade)
 
+  // Relación 1:1 con User
+  userId String? @unique
+  user   User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   @@map("coordinadores")
+}
+
+// Modelo para Clientes
+model Cliente {
+  id        String   @id @default(cuid())
+  nombre    String
+  apellido  String
+  dni       String   @unique
+  telefono  String
+  email     String   @unique
+  direccion String
+  fechaNacimiento DateTime
+  genero    String?  // M, F, O
+  activo    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  userId    String   @unique
+
+  // Relación 1:1 con User
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Relación 1:N con Viaje (como cliente)
+  viajes Viaje[]
+
+  // Relación 1:N con Reserva (como cliente)
+  reservas Reserva[]
+
+  @@map("clientes")
 }
 
 // Modelo para Choferes
@@ -127,6 +168,9 @@ model Chofer {
   // Relación 1:N con Viaje
   viajes Viaje[]
 
+  // Relación 1:N con Reserva
+  reservas Reserva[]
+
   // Relación N:1 con Vehiculo (vehículo asignado actualmente)
   vehiculoId String?
   vehiculo   Vehiculo? @relation("ChoferVehiculo", fields: [vehiculoId], references: [id])
@@ -150,6 +194,10 @@ model Vehiculo {
   vtoMatafuego    DateTime?
   vtoSeguro       DateTime?
   observaciones   String?
+  // Campos para ubicación en tiempo real
+  latitud         Float?
+  longitud        Float?
+  ultimaUbicacion DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -159,6 +207,9 @@ model Vehiculo {
 
   // Relación 1:N con Viaje
   viajes Viaje[]
+
+  // Relación 1:N con Reserva
+  reservas Reserva[]
 
   // Relación 1:N con Chofer (choferes asignados a este vehículo)
   choferes Chofer[] @relation("ChoferVehiculo")
@@ -173,7 +224,52 @@ model Viaje {
   destino     String
   precio      Decimal  @db.Decimal(10, 2)
   fecha       DateTime
-  estado      ViajeEstado @default(COMPLETADO)
+  estado      ViajeEstado @default(PENDIENTE)
+  observaciones String?
+  // Campos adicionales para coordinación
+  clienteNombre String?
+  clienteTelefono String?
+  clienteEmail String?
+  prioridad   Prioridad @default(NORMAL)
+  origenDetallado String?
+  destinoDetallado String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relación N:1 con Remiseria
+  remiseriaId String
+  remiseria   Remiseria @relation(fields: [remiseriaId], references: [id], onDelete: Cascade)
+
+  // Relación N:1 con Cliente (opcional)
+  clienteId String?
+  cliente   Cliente? @relation(fields: [clienteId], references: [id])
+
+  // Relación N:1 con Chofer (opcional, puede estar sin asignar)
+  choferId String?
+  chofer   Chofer? @relation(fields: [choferId], references: [id])
+
+  // Relación N:1 con Vehiculo (opcional, puede estar sin asignar)
+  vehiculoId String?
+  vehiculo   Vehiculo? @relation(fields: [vehiculoId], references: [id])
+
+  @@map("viajes")
+}
+
+// Modelo para Reservas
+model Reserva {
+  id          String   @id @default(cuid())
+  clienteNombre String
+  clienteTelefono String
+  clienteEmail String?
+  origen      String
+  destino     String
+  fechaInicio DateTime
+  fechaFin    DateTime?
+  horaInicio  String
+  horaFin     String?
+  diasSemana  String? // JSON array de días de la semana
+  tipo        TipoReserva @default(UNICA)
+  estado      ReservaEstado @default(ACTIVA)
   observaciones String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -182,15 +278,19 @@ model Viaje {
   remiseriaId String
   remiseria   Remiseria @relation(fields: [remiseriaId], references: [id], onDelete: Cascade)
 
-  // Relación N:1 con Chofer
-  choferId String
-  chofer   Chofer @relation(fields: [choferId], references: [id], onDelete: Cascade)
+  // Relación N:1 con Cliente (opcional)
+  clienteId String?
+  cliente   Cliente? @relation(fields: [clienteId], references: [id])
 
-  // Relación N:1 con Vehiculo
-  vehiculoId String
-  vehiculo   Vehiculo @relation(fields: [vehiculoId], references: [id], onDelete: Cascade)
+  // Relación N:1 con Chofer (opcional)
+  choferId String?
+  chofer   Chofer? @relation(fields: [choferId], references: [id])
 
-  @@map("viajes")
+  // Relación N:1 con Vehiculo (opcional)
+  vehiculoId String?
+  vehiculo   Vehiculo? @relation(fields: [vehiculoId], references: [id])
+
+  @@map("reservas")
 }
 
 // Modelo para monitorear el uso de la app
@@ -210,6 +310,8 @@ model AppUsage {
 enum UserRol {
   ADMIN
   DUENIO
+  COORDINADOR
+  CLIENTE
 }
 
 enum VehiculoEstado {
@@ -229,4 +331,22 @@ enum ViajeEstado {
   EN_CURSO
   COMPLETADO
   CANCELADO
+}
+
+enum Prioridad {
+  BAJA
+  NORMAL
+  ALTA
+  URGENTE
+}
+
+enum TipoReserva {
+  UNICA
+  PERIODICA
+}
+
+enum ReservaEstado {
+  ACTIVA
+  CANCELADA
+  COMPLETADA
 } 

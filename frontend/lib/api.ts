@@ -18,7 +18,12 @@ import {
   UpdateChoferData,
   Vehiculo,
   CreateVehiculoData,
-  UpdateVehiculoData
+  UpdateVehiculoData,
+  SolicitudViajeData,
+  CalculoPrecioData,
+  ReservaClienteData,
+  ViajeCliente,
+  ReservaCliente
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
@@ -96,6 +101,18 @@ export const authService = {
       return {
         success: false,
         message: error.response?.data?.message || 'Error al iniciar sesión',
+      };
+    }
+  },
+  
+  validateToken: async (): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/auth/validate');
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error validando token',
       };
     }
   },
@@ -566,6 +583,267 @@ export const appUsageService = {
       return { success: false, message: 'Error al obtener estadísticas' };
     }
   }
+};
+
+// Servicios para clientes (registro y perfil)
+export const clienteAuthService = {
+  register: async (data: any): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/cliente/register', data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error en el registro',
+      };
+    }
+  },
+
+  getProfile: async (): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/cliente/profile');
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar perfil',
+      };
+    }
+  },
+
+  updateProfile: async (data: any): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.put('/cliente/profile', data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al actualizar perfil',
+      };
+    }
+  }
+};
+
+// Servicios para coordinadores
+export const coordinadorDashboardService = {
+  // Viajes
+  getViajesEnCurso: async (): Promise<ApiResponse<any[]>> => {
+    try {
+      const response = await api.get('/coordinator-dashboard/viajes/en-curso');
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar viajes en curso',
+      };
+    }
+  },
+
+  getViajesSinAsignar: async (): Promise<ApiResponse<any[]>> => {
+    try {
+      const response = await api.get('/coordinator-dashboard/viajes/sin-asignar');
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar viajes sin asignar',
+      };
+    }
+  },
+
+  getViajesReservados: async (): Promise<ApiResponse<any[]>> => {
+    try {
+      const response = await api.get('/coordinator-dashboard/reservas');
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar viajes reservados',
+      };
+    }
+  },
+
+  createViaje: async (data: any): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/coordinator-dashboard/viajes', data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al crear viaje',
+      };
+    }
+  },
+
+  createReserva: async (data: any): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/coordinator-dashboard/reservas', data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al crear reserva',
+      };
+    }
+  },
+
+  // Mapa y ubicaciones
+  getVehiculosTiempoReal: async (): Promise<ApiResponse<any[]>> => {
+    try {
+      const response = await api.get('/coordinator-dashboard/vehiculos/tiempo-real');
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar ubicaciones',
+      };
+    }
+  },
+
+  getChoferesTiempoReal: async (): Promise<ApiResponse<any[]>> => {
+    try {
+      const response = await api.get('/coordinator-dashboard/choferes/tiempo-real');
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar choferes',
+      };
+    }
+  },
+
+  // Reportes
+  getReportes: async (periodo: string = 'hoy'): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get(`/coordinator-dashboard/reportes?periodo=${periodo}`);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar reportes',
+      };
+    }
+  },
+
+  // Estadísticas del dashboard
+  getDashboardStats: async (): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/coordinator-dashboard/stats');
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar estadísticas',
+      };
+    }
+  },
+};
+
+// Servicios del cliente
+export const clienteService = {
+  // Solicitud de viaje
+  solicitarViaje: async (data: SolicitudViajeData): Promise<ApiResponse<ViajeCliente>> => {
+    try {
+      const response = await api.post('/cliente/viajes/solicitar', data);
+      return handleApiResponse<ViajeCliente>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al solicitar viaje',
+      };
+    }
+  },
+
+  // Cálculo de precio
+  calcularPrecio: async (origen: string, destino: string): Promise<ApiResponse<CalculoPrecioData>> => {
+    try {
+      const response = await api.post('/cliente/viajes/calcular-precio', { origen, destino });
+      return handleApiResponse<CalculoPrecioData>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al calcular precio',
+      };
+    }
+  },
+
+  // Crear reserva
+  crearReserva: async (data: ReservaClienteData): Promise<ApiResponse<ReservaCliente>> => {
+    try {
+      const response = await api.post('/cliente/reservas', data);
+      return handleApiResponse<ReservaCliente>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al crear reserva',
+      };
+    }
+  },
+
+  // Obtener viajes del cliente
+  getViajes: async (): Promise<ApiResponse<ViajeCliente[]>> => {
+    try {
+      const response = await api.get('/cliente/viajes');
+      return handleApiResponse<ViajeCliente[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar viajes',
+      };
+    }
+  },
+
+  // Obtener reservas del cliente
+  getReservas: async (): Promise<ApiResponse<ReservaCliente[]>> => {
+    try {
+      const response = await api.get('/cliente/reservas');
+      return handleApiResponse<ReservaCliente[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar reservas',
+      };
+    }
+  },
+
+  // Cancelar viaje
+  cancelarViaje: async (viajeId: string): Promise<ApiResponse<void>> => {
+    try {
+      const response = await api.patch(`/cliente/viajes/${viajeId}/cancelar`);
+      return handleApiResponse<void>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cancelar viaje',
+      };
+    }
+  },
+
+  // Cancelar reserva
+  cancelarReserva: async (reservaId: string): Promise<ApiResponse<void>> => {
+    try {
+      const response = await api.patch(`/cliente/reservas/${reservaId}/cancelar`);
+      return handleApiResponse<void>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cancelar reserva',
+      };
+    }
+  },
+
+  // Obtener ubicación actual
+  getUbicacionActual: async (): Promise<ApiResponse<{ lat: number; lng: number; direccion: string }>> => {
+    try {
+      const response = await api.get('/cliente/ubicacion-actual');
+      return handleApiResponse<{ lat: number; lng: number; direccion: string }>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al obtener ubicación',
+      };
+    }
+  },
 };
 
 export default api; 

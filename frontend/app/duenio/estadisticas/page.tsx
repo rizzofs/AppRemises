@@ -29,9 +29,9 @@ export default function EstadisticasPage() {
       const response = await remiseriaService.getAll();
       
       if (response.success && response.data) {
-        // Filtrar solo las remiserías del dueño actual
-        const userRemiserias = response.data.filter(remiseria => 
-          remiseria.duenios?.some(duenio => duenio.duenioId === user.duenio?.id)
+                // Filtrar solo las remiserías del dueño actual
+        const userRemiserias = response.data.filter(remiseria =>
+          remiseria.duenios?.some(duenio => duenio.duenioId === user?.duenio?.id)
         );
         setRemiserias(userRemiserias);
       } else {

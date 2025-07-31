@@ -4,7 +4,35 @@ export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
     email: string;
-    rol: 'ADMIN' | 'DUENIO';
+    rol: 'ADMIN' | 'DUENIO' | 'COORDINADOR' | 'CLIENTE';
+    duenio?: {
+      id: string;
+      nombre: string;
+      telefono: string;
+      dni: string;
+      userId: string;
+    };
+    coordinador?: {
+      id: string;
+      nombre: string;
+      email: string;
+      activo: boolean;
+      remiseriaId: string;
+      userId: string;
+    };
+    cliente?: {
+      id: string;
+      nombre: string;
+      apellido: string;
+      dni: string;
+      telefono: string;
+      email: string;
+      direccion: string;
+      fechaNacimiento: Date;
+      genero?: string;
+      activo: boolean;
+      userId: string;
+    };
   };
 }
 
@@ -61,7 +89,7 @@ export interface UpdateDuenioRequest {
 export interface JwtPayload {
   id: string;
   email: string;
-  rol: 'ADMIN' | 'DUENIO';
+  rol: 'ADMIN' | 'DUENIO' | 'COORDINADOR' | 'CLIENTE';
 }
 
 export interface ApiResponse<T = any> {

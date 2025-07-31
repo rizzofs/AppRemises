@@ -31,7 +31,7 @@ export default function DuenioDashboard() {
       if (response.success && response.data) {
         // Filtrar solo las remiserías del dueño actual
         const userRemiserias = response.data.filter(remiseria => 
-          remiseria.duenios?.some(duenio => duenio.duenioId === user.duenio?.id)
+          remiseria.duenios?.some(duenio => duenio.duenioId === user?.duenio?.id)
         );
         setRemiserias(userRemiserias);
       } else {

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { login, register, refreshToken } from '../controllers/authController';
+import { login, register, refreshToken, validateToken } from '../controllers/authController';
 import { body } from 'express-validator';
 
 const router = Router();
@@ -21,5 +21,6 @@ const registerValidation = [
 router.post('/login', loginValidation, login);
 router.post('/register', registerValidation, register);
 router.post('/refresh', refreshToken);
+router.get('/validate', validateToken);
 
 export default router; 

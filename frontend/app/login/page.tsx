@@ -8,6 +8,7 @@ import { authService } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoginCredentials } from '@/types';
 import { Eye, EyeOff, Car, User, Lock } from 'lucide-react';
+import Link from 'next/link';
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -34,6 +35,10 @@ export default function LoginPage() {
         // Redirigir según el rol
         if (user.rol === 'ADMIN') {
           router.push('/admin/dashboard');
+        } else if (user.rol === 'COORDINADOR') {
+          router.push('/coordinador/dashboard');
+        } else if (user.rol === 'CLIENTE') {
+          router.push('/cliente/app');
         } else {
           router.push('/duenio/dashboard');
         }
@@ -142,12 +147,15 @@ export default function LoginPage() {
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
               ¿No tienes cuenta?{' '}
-              <button
-                onClick={() => router.push('/register')}
+              <Link
+                href="/registro"
                 className="text-primary-600 hover:text-primary-700 font-medium"
               >
                 Regístrate aquí
-              </button>
+              </Link>
+            </p>
+            <p className="text-xs text-gray-500 mt-2">
+              Solo para clientes - Administradores contacten al soporte
             </p>
           </div>
         </div>

@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User } from '@/types';
+import { authService } from '@/lib/api';
 
 interface AuthContextType {
   user: User | null;
@@ -31,29 +32,51 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Verificar si hay un usuario guardado en localStorage
-    const savedUser = localStorage.getItem('user');
-    const accessToken = localStorage.getItem('accessToken');
+    const validateStoredSession = async () => {
+      // Verificar si hay un usuario guardado en localStorage
+      const savedUser = localStorage.getItem('user');
+      const accessToken = localStorage.getItem('accessToken');
 
-    if (savedUser && accessToken) {
-      try {
-        const userData = JSON.parse(savedUser);
-        // Validar que el usuario tenga la estructura correcta
-        if (userData && userData.id && userData.email && userData.rol) {
-          setUser(userData);
-        } else {
-          throw new Error('Invalid user data structure');
+      if (savedUser && accessToken) {
+        try {
+          const userData = JSON.parse(savedUser);
+          // Validar que el usuario tenga la estructura correcta
+          if (userData && userData.id && userData.email && userData.rol) {
+            // Validar que el rol sea válido
+            const validRoles = ['ADMIN', 'DUENIO', 'COORDINADOR', 'CLIENTE'];
+            if (validRoles.includes(userData.rol)) {
+              // Validar el token con el backend
+              const validationResponse = await authService.validateToken();
+              if (validationResponse.success && validationResponse.data?.valid) {
+                setUser(userData);
+                console.log('Usuario cargado desde localStorage:', userData.email, userData.rol);
+              } else {
+                console.log('Token inválido, limpiando sesión');
+                localStorage.removeItem('user');
+                localStorage.removeItem('accessToken');
+                localStorage.removeItem('refreshToken');
+              }
+            } else {
+              throw new Error('Invalid user role');
+            }
+          } else {
+            throw new Error('Invalid user data structure');
+          }
+        } catch (error) {
+          console.error('Error parsing saved user:', error);
+          // Limpiar datos corruptos
+          localStorage.removeItem('user');
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('refreshToken');
         }
-      } catch (error) {
-        console.error('Error parsing saved user:', error);
-        // Limpiar datos corruptos
-        localStorage.removeItem('user');
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
+      } else {
+        console.log('No hay sesión guardada en localStorage');
       }
-    }
 
-    setLoading(false);
+      setLoading(false);
+    };
+
+    validateStoredSession();
   }, []);
 
   const login = (userData: User, accessToken: string, refreshToken: string) => {

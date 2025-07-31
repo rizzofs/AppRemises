@@ -1,8 +1,10 @@
 export interface User {
   id: string;
   email: string;
-  rol: 'ADMIN' | 'DUENIO';
+  rol: 'ADMIN' | 'DUENIO' | 'COORDINADOR' | 'CLIENTE';
   duenio?: Duenio;
+  coordinador?: Coordinador;
+  cliente?: Cliente;
 }
 
 export interface Duenio {
@@ -58,6 +60,23 @@ export interface Coordinador {
   updatedAt: string;
   remiseriaId: string;
   remiseria?: Remiseria;
+}
+
+export interface Cliente {
+  id: string;
+  nombre: string;
+  apellido: string;
+  dni: string;
+  telefono: string;
+  email: string;
+  direccion: string;
+  fechaNacimiento: string;
+  genero?: string;
+  activo: boolean;
+  createdAt: string;
+  updatedAt: string;
+  userId: string;
+  user?: User;
 }
 
 export interface CreateCoordinadorData {
@@ -284,4 +303,200 @@ export interface AuthResponse {
   user: User;
   accessToken: string;
   refreshToken: string;
+}
+
+// Interfaces para el dashboard de coordinadores
+export interface ViajeCoordinador {
+  id: string;
+  nombreCliente: string;
+  telefonoCliente: string;
+  direccionOrigen: string;
+  direccionDestino: string;
+  fechaHora: string;
+  estado: 'pendiente' | 'en_curso' | 'completado' | 'cancelado';
+  prioridad: 'normal' | 'alta' | 'urgente';
+  metodoContacto: 'app' | 'telefono' | 'personal';
+  choferAsignado?: string;
+  vehiculoAsignado?: string;
+  observaciones?: string;
+  createdAt: string;
+}
+
+export interface ReservaCoordinador {
+  id: string;
+  nombreCliente: string;
+  telefonoCliente: string;
+  direccionOrigen: string;
+  direccionDestino: string;
+  fechaInicio: string;
+  horaInicio: string;
+  tipoReserva: 'unica' | 'periodica';
+  fechaFin?: string;
+  diasSemana?: string[];
+  horaFin?: string;
+  estado: 'activa' | 'completada' | 'cancelada';
+  observaciones?: string;
+  createdAt: string;
+}
+
+export interface VehiculoTiempoReal {
+  id: string;
+  patente: string;
+  chofer: string;
+  estado: 'disponible' | 'en_viaje' | 'fuera_servicio';
+  ubicacion: {
+    lat: number;
+    lng: number;
+  };
+  ultimaActualizacion: string;
+  direccionActual: string;
+}
+
+export interface ChoferTiempoReal {
+  id: string;
+  nombre: string;
+  telefono: string;
+  email: string;
+  estado: 'disponible' | 'en_viaje' | 'fuera_servicio' | 'descanso';
+  vehiculo?: {
+    patente: string;
+    modelo: string;
+  };
+  ubicacion?: {
+    lat: number;
+    lng: number;
+    direccion: string;
+  };
+  ultimaActualizacion: string;
+  viajesHoy: number;
+  calificacion: number;
+}
+
+export interface CreateViajeCoordinadorData {
+  nombreCliente: string;
+  telefonoCliente: string;
+  direccionOrigen: string;
+  direccionDestino: string;
+  fechaHora: string;
+  tipoViaje: 'inmediato' | 'programado';
+  observaciones: string;
+  prioridad: 'normal' | 'alta' | 'urgente';
+  metodoContacto: 'app' | 'telefono' | 'personal';
+}
+
+export interface CreateReservaData {
+  nombreCliente: string;
+  telefonoCliente: string;
+  direccionOrigen: string;
+  direccionDestino: string;
+  fechaInicio: string;
+  horaInicio: string;
+  tipoReserva: 'unica' | 'periodica';
+  fechaFin?: string;
+  diasSemana?: string[];
+  horaFin?: string;
+  observaciones: string;
+  prioridad: 'normal' | 'alta' | 'urgente';
+  metodoContacto: 'app' | 'telefono' | 'personal';
+}
+
+export interface ReporteData {
+  periodo: string;
+  totalViajes: number;
+  viajesCompletados: number;
+  viajesCancelados: number;
+  totalRecaudado: number;
+  promedioCalificacion: number;
+  choferesActivos: number;
+  tiempoPromedioViaje: number;
+  topChoferes: Array<{
+    nombre: string;
+    viajes: number;
+    calificacion: number;
+    recaudacion: number;
+  }>;
+  viajesPorHora: Array<{
+    hora: string;
+    cantidad: number;
+  }>;
+} 
+
+// Tipos para funcionalidad del cliente
+export interface SolicitudViajeData {
+  origen: string;
+  destino: string;
+  fechaHora?: string; // Para viajes programados
+  observaciones?: string;
+  usarUbicacionActual?: boolean;
+  latitudOrigen?: number;
+  longitudOrigen?: number;
+  latitudDestino?: number;
+  longitudDestino?: number;
+}
+
+export interface CalculoPrecioData {
+  origen: string;
+  destino: string;
+  distancia?: number;
+  tiempoEstimado?: number;
+  precioEstimado: number;
+  tarifaBase: number;
+  tarifaPorKm: number;
+  tarifaPorMinuto: number;
+}
+
+export interface ReservaClienteData {
+  origen: string;
+  destino: string;
+  fechaInicio: string;
+  horaInicio: string;
+  tipoReserva: 'unica' | 'periodica';
+  fechaFin?: string;
+  diasSemana?: string[];
+  horaFin?: string;
+  observaciones?: string;
+  latitudOrigen?: number;
+  longitudOrigen?: number;
+  latitudDestino?: number;
+  longitudDestino?: number;
+}
+
+export interface ViajeCliente {
+  id: string;
+  origen: string;
+  destino: string;
+  precio: number;
+  fecha: string;
+  estado: 'PENDIENTE' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO';
+  observaciones?: string;
+  createdAt: string;
+  chofer?: {
+    nombre: string;
+    telefono: string;
+    vehiculo?: {
+      patente: string;
+      marca: string;
+      modelo: string;
+    };
+  };
+  remiseria?: {
+    nombreFantasia: string;
+    telefono: string;
+  };
+}
+
+export interface ReservaCliente {
+  id: string;
+  origen: string;
+  destino: string;
+  fechaInicio: string;
+  horaInicio: string;
+  tipoReserva: 'unica' | 'periodica';
+  fechaFin?: string;
+  diasSemana?: string[];
+  horaFin?: string;
+  estado: 'activa' | 'completada' | 'cancelada';
+  observaciones?: string;
+  createdAt: string;
+  viajesGenerados?: ViajeCliente[];
 } 

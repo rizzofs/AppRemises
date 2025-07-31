@@ -15,6 +15,10 @@ export default function HomePage() {
         // Redirigir según el rol
         if (user.rol === 'ADMIN') {
           router.push('/admin/dashboard');
+        } else if (user.rol === 'COORDINADOR') {
+          router.push('/coordinador/dashboard');
+        } else if (user.rol === 'CLIENTE') {
+          router.push('/cliente/app');
         } else {
           router.push('/duenio/dashboard');
         }

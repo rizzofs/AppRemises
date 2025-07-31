@@ -13,6 +13,8 @@ import coordinadoresRoutes from './routes/coordinadores';
 import choferesRoutes from './routes/choferes';
 import vehiculosRoutes from './routes/vehiculos';
 import appUsageRoutes from './routes/appUsage';
+import coordinatorDashboardRoutes from './routes/coordinatorDashboard';
+import clienteRoutes from './routes/cliente';
 
 // Cargar variables de entorno
 dotenv.config();
@@ -65,6 +67,8 @@ app.use('/api/coordinadores', coordinadoresRoutes);
 app.use('/api/choferes', choferesRoutes);
 app.use('/api/vehiculos', vehiculosRoutes);
 app.use('/api/app-usage', appUsageRoutes);
+app.use('/api/coordinator-dashboard', coordinatorDashboardRoutes);
+app.use('/api/cliente', clienteRoutes);
 
 // Ruta de salud
 app.get('/api/health', (req, res) => {
