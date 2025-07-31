@@ -1,0 +1,232 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  rol          UserRol  @default(DUENIO)
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relación 1:1 con Duenio
+  duenio Duenio?
+
+  @@map("users")
+}
+
+model Duenio {
+  id        String   @id @default(cuid())
+  nombre    String
+  telefono  String
+  dni       String   @unique
+  userId    String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relación 1:1 con User
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Relación N:M con Remiseria
+  remiserias RemiseriaDuenio[]
+
+  @@map("duenios")
+}
+
+model Remiseria {
+  id            String   @id @default(cuid())
+  nombreFantasia String
+  razonSocial   String
+  cuit          String   @unique
+  direccion     String
+  telefono      String
+  estado        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relación N:M con Duenio
+  duenios RemiseriaDuenio[]
+
+  // Relación 1:N con Coordinador
+  coordinadores Coordinador[]
+
+  // Relación 1:N con Chofer
+  choferes Chofer[]
+
+  // Relación 1:N con Vehiculo
+  vehiculos Vehiculo[]
+
+  // Relación 1:N con Viaje
+  viajes Viaje[]
+
+  @@map("remiserias")
+}
+
+model RemiseriaDuenio {
+  id          String   @id @default(cuid())
+  remiseriaId String
+  duenioId    String
+  createdAt   DateTime @default(now())
+
+  // Relaciones
+  remiseria Remiseria @relation(fields: [remiseriaId], references: [id], onDelete: Cascade)
+  duenio    Duenio    @relation(fields: [duenioId], references: [id], onDelete: Cascade)
+
+  @@unique([remiseriaId, duenioId])
+  @@map("remiseria_duenio")
+}
+
+// Modelo para Coordinadores (solo nombre, email y contraseña)
+model Coordinador {
+  id           String   @id @default(cuid())
+  nombre       String
+  email        String   @unique
+  passwordHash String
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relación N:1 con Remiseria
+  remiseriaId String
+  remiseria   Remiseria @relation(fields: [remiseriaId], references: [id], onDelete: Cascade)
+
+  @@map("coordinadores")
+}
+
+// Modelo para Choferes
+model Chofer {
+  id               String   @id @default(cuid())
+  numeroChofer     String   @unique
+  nombre           String
+  apellido         String
+  dni              String   @unique
+  telefono         String
+  email            String?
+  direccion        String?
+  categoriaLicencia String
+  vtoLicencia      DateTime
+  estado           ChoferEstado @default(ACTIVO)
+  observaciones    String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  // Relación N:1 con Remiseria
+  remiseriaId String
+  remiseria   Remiseria @relation(fields: [remiseriaId], references: [id], onDelete: Cascade)
+
+  // Relación 1:N con Viaje
+  viajes Viaje[]
+
+  // Relación N:1 con Vehiculo (vehículo asignado actualmente)
+  vehiculoId String?
+  vehiculo   Vehiculo? @relation("ChoferVehiculo", fields: [vehiculoId], references: [id])
+
+  @@map("choferes")
+}
+
+// Modelo para Vehículos
+model Vehiculo {
+  id              String   @id @default(cuid())
+  patente         String   @unique
+  marca           String
+  modelo          String
+  anio            Int
+  color           String
+  tipo            String
+  capacidad       Int
+  estado          VehiculoEstado @default(ACTIVO)
+  propietario     String
+  vtoVtv          DateTime?
+  vtoMatafuego    DateTime?
+  vtoSeguro       DateTime?
+  observaciones   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relación N:1 con Remiseria
+  remiseriaId String
+  remiseria   Remiseria @relation(fields: [remiseriaId], references: [id], onDelete: Cascade)
+
+  // Relación 1:N con Viaje
+  viajes Viaje[]
+
+  // Relación 1:N con Chofer (choferes asignados a este vehículo)
+  choferes Chofer[] @relation("ChoferVehiculo")
+
+  @@map("vehiculos")
+}
+
+// Modelo para Viajes (recaudación)
+model Viaje {
+  id          String   @id @default(cuid())
+  origen      String
+  destino     String
+  precio      Decimal  @db.Decimal(10, 2)
+  fecha       DateTime
+  estado      ViajeEstado @default(COMPLETADO)
+  observaciones String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relación N:1 con Remiseria
+  remiseriaId String
+  remiseria   Remiseria @relation(fields: [remiseriaId], references: [id], onDelete: Cascade)
+
+  // Relación N:1 con Chofer
+  choferId String
+  chofer   Chofer @relation(fields: [choferId], references: [id], onDelete: Cascade)
+
+  // Relación N:1 con Vehiculo
+  vehiculoId String
+  vehiculo   Vehiculo @relation(fields: [vehiculoId], references: [id], onDelete: Cascade)
+
+  @@map("viajes")
+}
+
+// Modelo para monitorear el uso de la app
+model AppUsage {
+  id        String   @id @default(cuid())
+  userId    String
+  userEmail String
+  action    String   // LOGIN, CREATE_REMISERIA, CREATE_CHOFER, etc.
+  details   String?  // Información adicional en formato JSON
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@map("app_usage")
+}
+
+enum UserRol {
+  ADMIN
+  DUENIO
+}
+
+enum VehiculoEstado {
+  ACTIVO
+  MANTENIMIENTO
+  INACTIVO
+}
+
+enum ChoferEstado {
+  ACTIVO
+  SUSPENDIDO
+  DADO_DE_BAJA
+}
+
+enum ViajeEstado {
+  PENDIENTE
+  EN_CURSO
+  COMPLETADO
+  CANCELADO
+} 
