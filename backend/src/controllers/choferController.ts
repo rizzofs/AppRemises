@@ -1,7 +1,8 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
+import { AuthenticatedRequest } from '../types';
+import bcrypt from 'bcryptjs';
 
-const prisma = new PrismaClient();
 
 export const choferController = {
   // Obtener todos los choferes
@@ -136,7 +137,7 @@ export const choferController = {
   },
 
   // Crear chofer
-  async create(req: Request, res: Response) {
+  async create(req: AuthenticatedRequest, res: Response) {
     try {
       const { 
         numeroChofer, 
@@ -150,7 +151,8 @@ export const choferController = {
         vtoLicencia, 
         observaciones, 
         remiseriaId, 
-        vehiculoId 
+        vehiculoId,
+        esPropietario
       } = req.body;
 
       // Validar campos requeridos
@@ -215,43 +217,91 @@ export const choferController = {
         }
       }
 
-      const chofer = await prisma.chofer.create({
-        data: {
-          numeroChofer,
-          nombre,
-          apellido,
-          dni,
-          telefono,
-          email,
-          direccion,
-          categoriaLicencia,
-          vtoLicencia: new Date(vtoLicencia),
-          observaciones: observaciones || null,
-          remiseriaId,
-          vehiculoId: vehiculoId || null,
-        },
-        include: {
-          remiseria: {
-            select: {
-              id: true,
-              nombreFantasia: true,
-            },
-          },
-          vehiculo: {
-            select: {
-              id: true,
-              patente: true,
-              marca: true,
-              modelo: true,
-            },
-          },
-        },
+      // El email del chofer será el provisto, o si no se provee, generaremos uno temporal para que pueda loguearse
+      const choferEmail = email || `${numeroChofer.toLowerCase()}@remiseria.com`;
+      
+      // Verificar si el email ya está en uso por otro usuario
+      const existingUser = await prisma.user.findUnique({
+        where: { email: choferEmail },
       });
+
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'El email proporcionado ya está en uso por otro usuario. Si no proporcionó uno, el email autogenerado ya existe.',
+        });
+      }
+
+      // La contraseña por defecto será su DNI
+      const passwordHash = await bcrypt.hash(dni, 10);
+
+      // Usar transacción para crear el Usuario y el Chofer
+      const result = await prisma.$transaction(async (prisma) => {
+        const user = await prisma.user.create({
+          data: {
+            email: choferEmail,
+            passwordHash,
+            rol: 'CHOFER',
+            activo: true,
+          },
+        });
+
+        const chofer = await prisma.chofer.create({
+          data: {
+            numeroChofer,
+            nombre,
+            apellido,
+            dni,
+            telefono,
+            email: choferEmail,
+            direccion,
+            categoriaLicencia,
+            vtoLicencia: new Date(vtoLicencia),
+            observaciones: observaciones || null,
+            esPropietario: esPropietario || false,
+            remiseriaId,
+            vehiculoId: vehiculoId || null,
+            userId: user.id,
+          },
+          include: {
+            remiseria: {
+              select: {
+                id: true,
+                nombreFantasia: true,
+              },
+            },
+            vehiculo: {
+              select: {
+                id: true,
+                patente: true,
+                marca: true,
+                modelo: true,
+              },
+            },
+          },
+        });
+
+        return chofer;
+      });
+
+      // Registrar log de auditoría
+      if (req.user) {
+        await prisma.appUsage.create({
+          data: {
+            userId: req.user.id,
+            userEmail: req.user.email,
+            action: 'CREATE_CHOFER',
+            details: JSON.stringify({ choferId: result.id, nombre: `${result.nombre} ${result.apellido}`, numeroChofer: result.numeroChofer }),
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent') || null
+          }
+        });
+      }
 
       res.status(201).json({
         success: true,
-        data: chofer,
-        message: 'Chofer creado exitosamente',
+        data: result,
+        message: 'Chofer creado exitosamente. Contraseña temporal: DNI',
       });
     } catch (error) {
       console.error('Error creating chofer:', error);
@@ -263,7 +313,7 @@ export const choferController = {
   },
 
   // Actualizar chofer
-  async update(req: Request, res: Response) {
+  async update(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
       const { 
@@ -278,7 +328,8 @@ export const choferController = {
         vtoLicencia, 
         observaciones, 
         estado, 
-        vehiculoId 
+        vehiculoId,
+        esPropietario
       } = req.body;
 
       // Verificar que el chofer existe
@@ -357,6 +408,7 @@ export const choferController = {
       if (observaciones !== undefined) updateData.observaciones = observaciones;
       if (estado !== undefined) updateData.estado = estado;
       if (vehiculoId !== undefined) updateData.vehiculoId = vehiculoId;
+      if (esPropietario !== undefined) updateData.esPropietario = esPropietario;
 
       const chofer = await prisma.chofer.update({
         where: { id },
@@ -379,6 +431,20 @@ export const choferController = {
         },
       });
 
+      // Registrar log de auditoría
+      if (req.user) {
+        await prisma.appUsage.create({
+          data: {
+            userId: req.user.id,
+            userEmail: req.user.email,
+            action: 'UPDATE_CHOFER',
+            details: JSON.stringify({ choferId: chofer.id, nombre: `${chofer.nombre} ${chofer.apellido}`, numeroChofer: chofer.numeroChofer }),
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent') || null
+          }
+        });
+      }
+
       res.json({
         success: true,
         data: chofer,
@@ -394,7 +460,7 @@ export const choferController = {
   },
 
   // Baja lógica del chofer
-  async delete(req: Request, res: Response) {
+  async delete(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
 
@@ -418,6 +484,20 @@ export const choferController = {
         data: { estado: 'DADO_DE_BAJA' },
       });
 
+      // Registrar log de auditoría
+      if (req.user) {
+        await prisma.appUsage.create({
+          data: {
+            userId: req.user.id,
+            userEmail: req.user.email,
+            action: 'DELETE_CHOFER',
+            details: JSON.stringify({ choferId: chofer.id, nombre: `${chofer.nombre} ${chofer.apellido}` }),
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent') || null
+          }
+        });
+      }
+
       res.json({
         success: true,
         message: 'Chofer eliminado exitosamente',
@@ -432,7 +512,7 @@ export const choferController = {
   },
 
   // Cambiar estado del chofer (activar/suspender/dar de baja)
-  async toggleStatus(req: Request, res: Response) {
+  async toggleStatus(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
 
@@ -489,6 +569,20 @@ export const choferController = {
           },
         },
       });
+
+      // Registrar log de auditoría
+      if (req.user) {
+        await prisma.appUsage.create({
+          data: {
+            userId: req.user.id,
+            userEmail: req.user.email,
+            action: 'TOGGLE_CHOFER_STATUS',
+            details: JSON.stringify({ choferId: updatedChofer.id, nombre: `${updatedChofer.nombre} ${updatedChofer.apellido}`, estado: newEstado }),
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent') || null
+          }
+        });
+      }
 
       res.json({
         success: true,

@@ -177,77 +177,57 @@ export default function CoordinadoresPage() {
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-             {/* Header */}
-       <div className="bg-white shadow">
-         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-           <div className="flex justify-between items-center py-6">
-             <div className="flex items-center">
-               <button
-                 onClick={() => router.push('/duenio/dashboard')}
-                 className="flex items-center text-gray-600 hover:text-gray-900 mr-4"
-               >
-                 <ArrowLeft className="w-4 h-4 mr-1" />
-                 Volver
-               </button>
-               <div>
-                 <h1 className="text-3xl font-bold text-gray-900">Coordinadores</h1>
-                 <p className="mt-2 text-sm text-gray-600">
-                   Gestiona los coordinadores de tus remiserías
-                 </p>
-               </div>
-             </div>
-             <button
-               onClick={openCreateModal}
-               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center transition-colors duration-200"
-             >
-               <Plus className="w-4 h-4 mr-2" />
-               Nuevo Coordinador
-             </button>
-           </div>
-         </div>
-       </div>
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">Coordinadores</h2>
+          <p className="text-sm text-slate-500">Gestioná los coordinadores de tus remiserías.</p>
+        </div>
+        <button
+          onClick={openCreateModal}
+          className="btn btn-primary shadow-md shadow-primary-500/20"
+        >
+          <Plus className="w-5 h-5 mr-2" />
+          Nuevo Coordinador
+        </button>
+      </div>
 
-      {/* Contenido principal */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Filtros y búsqueda */}
-        <div className="mb-6 flex flex-col sm:flex-row gap-4">
-          <div className="flex-1">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-              <input
-                type="text"
-                placeholder="Buscar coordinadores..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row gap-4">
+          <div className="relative max-w-md flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Buscar por nombre o email..."
+              className="input pl-10 bg-white"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
-          <div className="flex gap-2">
-            <select
-              value={filterActivo}
-              onChange={(e) => setFilterActivo(e.target.value as any)}
-              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="all">Todos</option>
-              <option value="active">Activos</option>
-              <option value="inactive">Inactivos</option>
-            </select>
-          </div>
+          <select
+            value={filterActivo}
+            onChange={(e) => setFilterActivo(e.target.value as any)}
+            className="input max-w-[200px] bg-white cursor-pointer"
+          >
+            <option value="all">Todos los estados</option>
+            <option value="active">Solo Activos</option>
+            <option value="inactive">Solo Inactivos</option>
+          </select>
         </div>
 
         {/* Lista de coordinadores */}
         {loading ? (
-          <div className="text-center py-12">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Cargando coordinadores...</p>
+          <div className="text-center py-16">
+            <div className="loading-spinner border-primary-500 mx-auto"></div>
+            <p className="mt-4 text-slate-500">Cargando coordinadores...</p>
           </div>
         ) : (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="overflow-x-auto">
             {filteredCoordinadores.length === 0 ? (
-              <div className="text-center py-12">
-                <Users className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <div className="text-center py-16">
+                <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Users className="w-10 h-10 text-slate-400" />
+                </div>
                 <h3 className="text-lg font-medium text-gray-900 mb-2">
                   {searchTerm || filterActivo !== 'all' ? 'No se encontraron coordinadores' : 'No hay coordinadores'}
                 </h3>
@@ -258,60 +238,46 @@ export default function CoordinadoresPage() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
-                    <tr>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Coordinador
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Email
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Remisería
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Estado
-                      </th>
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Fecha Creación
-                      </th>
-                      <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                        Acciones
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
-                    {filteredCoordinadores.map((coordinador) => (
-                      <tr key={coordinador.id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-medium text-gray-900">
-                            {coordinador.nombre}
+              <table className="min-w-full divide-y divide-slate-200">
+                <thead className="bg-slate-50/80">
+                  <tr>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Coordinador</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Email</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Remisería</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Alta</th>
+                    <th className="px-6 py-4 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-slate-100">
+                  {filteredCoordinadores.map((coordinador) => (
+                    <tr key={coordinador.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs">
+                            {coordinador.nombre.charAt(0).toUpperCase()}
                           </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">
-                            {coordinador.email}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900">
-                            {coordinador.remiseria?.nombreFantasia || 'N/A'}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                            coordinador.activo
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-red-100 text-red-800'
-                          }`}>
-                            {coordinador.activo ? 'Activo' : 'Inactivo'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {new Date(coordinador.createdAt).toLocaleDateString()}
-                        </td>
+                          <span className="text-sm font-semibold text-slate-900">{coordinador.nombre}</span>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
+                        {coordinador.email}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
+                        {coordinador.remiseria?.nombreFantasia || 'N/A'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-full border ${
+                          coordinador.activo
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-red-50 text-red-700 border-red-200'
+                        }`}>
+                          {coordinador.activo ? 'Activo' : 'Inactivo'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
+                        {new Date(coordinador.createdAt).toLocaleDateString()}
+                      </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                           <div className="flex justify-end space-x-2">
                             <button
@@ -341,7 +307,6 @@ export default function CoordinadoresPage() {
                     ))}
                   </tbody>
                 </table>
-              </div>
             )}
           </div>
         )}

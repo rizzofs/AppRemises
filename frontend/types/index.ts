@@ -1,7 +1,7 @@
 export interface User {
   id: string;
   email: string;
-  rol: 'ADMIN' | 'DUENIO' | 'COORDINADOR' | 'CLIENTE';
+  rol: 'ADMIN' | 'DUENIO' | 'COORDINADOR' | 'CLIENTE' | 'CHOFER';
   duenio?: Duenio;
   coordinador?: Coordinador;
   cliente?: Cliente;
@@ -32,6 +32,9 @@ export interface Remiseria {
   direccion: string;
   telefono: string;
   estado: boolean;
+  valorKm?: number;
+  bajadaBandera?: number;
+  valorHoraEspera?: number;
   createdAt: string;
   updatedAt: string;
   duenios?: RemiseriaDuenio[];
@@ -107,6 +110,7 @@ export interface Chofer {
   vtoLicencia: string;
   estado: 'ACTIVO' | 'SUSPENDIDO' | 'DADO_DE_BAJA';
   observaciones?: string;
+  esPropietario?: boolean;
   createdAt: string;
   updatedAt: string;
   remiseriaId: string;
@@ -128,6 +132,7 @@ export interface CreateChoferData {
   vtoLicencia: string;
   remiseriaId: string;
   vehiculoId?: string;
+  esPropietario?: boolean;
 }
 
 export interface UpdateChoferData {
@@ -143,6 +148,7 @@ export interface UpdateChoferData {
   estado?: 'ACTIVO' | 'SUSPENDIDO' | 'DADO_DE_BAJA';
   observaciones?: string;
   vehiculoId?: string;
+  esPropietario?: boolean;
 }
 
 // Vehículo
@@ -208,7 +214,7 @@ export interface Viaje {
   destino: string;
   precio: number;
   fecha: string;
-  estado: 'PENDIENTE' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO';
+  estado: 'PENDIENTE' | 'ACEPTADO' | 'EN_CAMINO' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO';
   observaciones?: string;
   createdAt: string;
   updatedAt: string;
@@ -236,7 +242,7 @@ export interface UpdateViajeData {
   destino?: string;
   precio?: number;
   fecha?: string;
-  estado?: 'PENDIENTE' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO';
+  estado?: 'PENDIENTE' | 'ACEPTADO' | 'EN_CAMINO' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO';
   observaciones?: string;
   choferId?: string;
   vehiculoId?: string;
@@ -271,6 +277,9 @@ export interface UpdateRemiseriaData {
   telefono?: string;
   estado?: boolean;
   duenioIds?: string[];
+  valorKm?: number;
+  bajadaBandera?: number;
+  valorHoraEspera?: number;
 }
 
 export interface CreateDuenioData {
@@ -467,7 +476,7 @@ export interface ViajeCliente {
   destino: string;
   precio: number;
   fecha: string;
-  estado: 'PENDIENTE' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO';
+  estado: 'PENDIENTE' | 'ACEPTADO' | 'EN_CAMINO' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO';
   observaciones?: string;
   createdAt: string;
   chofer?: {

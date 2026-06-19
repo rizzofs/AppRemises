@@ -26,7 +26,7 @@ async function createAdmin() {
     // Crear usuario administrador
     const admin = await prisma.user.create({
       data: {
-        email: 'admin@appremises.com',
+        email: 'rizzofs@gmail.com',
         passwordHash,
         rol: 'ADMIN',
         activo: true
@@ -34,7 +34,7 @@ async function createAdmin() {
     });
 
     console.log('✅ Usuario administrador creado exitosamente');
-    console.log('📧 Email: admin@appremises.com');
+    console.log('📧 Email: rizzofs@gmail.com');
     console.log('🔑 Contraseña: admin123');
     console.log('🆔 ID:', admin.id);
 

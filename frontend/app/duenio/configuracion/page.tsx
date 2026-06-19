@@ -23,44 +23,38 @@ export default function ConfiguracionPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="loading-spinner"></div>
+      <div className="text-center py-16">
+        <div className="loading-spinner border-primary-500 mx-auto"></div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <button
-                onClick={() => router.push('/duenio/dashboard')}
-                className="flex items-center text-gray-600 hover:text-gray-900 mr-4"
-              >
-                <ArrowLeft className="w-4 h-4 mr-1" />
-                Volver
-              </button>
-              <Settings className="w-8 h-8 text-gray-600 mr-3" />
-              <h1 className="text-xl font-semibold text-gray-900">Configuración</h1>
-            </div>
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+        <div className="flex items-center">
+          <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center mr-4 text-slate-600">
+            <Settings className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-slate-900">Configuración</h2>
+            <p className="text-sm text-slate-500">Ajustes globales de tu cuenta y notificaciones.</p>
           </div>
         </div>
-      </header>
+      </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="card p-8 text-center">
-          <Settings className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">Configuración del Sistema</h3>
-          <p className="text-gray-600 mb-4">
-            Aquí podrás configurar los ajustes de tus remiserías
-          </p>
-          <p className="text-sm text-gray-500">
-            Funcionalidad en desarrollo - Próximamente
-          </p>
+      <div className="bg-white rounded-2xl border border-slate-100 p-12 text-center shadow-sm">
+        <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-slate-100">
+          <Settings className="w-10 h-10 text-slate-400" />
+        </div>
+        <h3 className="text-lg font-bold text-slate-900 mb-2">Configuración del Sistema</h3>
+        <p className="text-slate-500 max-w-sm mx-auto mb-6">
+          Estamos preparando las opciones avanzadas para que puedas ajustar las notificaciones, integraciones y límites de tus remiserías.
+        </p>
+        <div className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-primary-50 text-primary-700 border border-primary-100">
+          🚧 Próximamente
         </div>
       </div>
     </div>
   );
-} 
+}

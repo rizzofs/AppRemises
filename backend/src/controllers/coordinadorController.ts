@@ -1,8 +1,7 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 import bcrypt from 'bcryptjs';
 
-const prisma = new PrismaClient();
 
 export const coordinadorController = {
   // Obtener todos los coordinadores
@@ -155,29 +154,42 @@ export const coordinadorController = {
       }
 
       // Encriptar contraseña
-      const saltRounds = 10;
+      const saltRounds = 12;
       const passwordHash = await bcrypt.hash(password, saltRounds);
 
-      const coordinador = await prisma.coordinador.create({
-        data: {
-          nombre,
-          email,
-          passwordHash,
-          remiseriaId,
-        },
-        include: {
-          remiseria: {
-            select: {
-              id: true,
-              nombreFantasia: true,
+      const result = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email,
+            passwordHash,
+            rol: 'COORDINADOR',
+          }
+        });
+
+        const coordinador = await tx.coordinador.create({
+          data: {
+            nombre,
+            email,
+            passwordHash,
+            remiseriaId,
+            userId: user.id
+          },
+          include: {
+            remiseria: {
+              select: {
+                id: true,
+                nombreFantasia: true,
+              },
             },
           },
-        },
+        });
+
+        return coordinador;
       });
 
       res.status(201).json({
         success: true,
-        data: coordinador,
+        data: result,
         message: 'Coordinador creado exitosamente',
       });
     } catch (error) {
@@ -229,33 +241,52 @@ export const coordinadorController = {
       }
 
       // Preparar datos de actualización
-      const updateData: any = {};
-      if (nombre) updateData.nombre = nombre;
-      if (email) updateData.email = email;
-      if (activo !== undefined) updateData.activo = activo;
-
-      // Si se proporciona nueva contraseña, encriptarla
+      let passwordHash: string | undefined;
       if (password) {
-        const saltRounds = 10;
-        updateData.passwordHash = await bcrypt.hash(password, saltRounds);
+        const saltRounds = 12;
+        passwordHash = await bcrypt.hash(password, saltRounds);
       }
 
-      const coordinador = await prisma.coordinador.update({
-        where: { id },
-        data: updateData,
-        include: {
-          remiseria: {
-            select: {
-              id: true,
-              nombreFantasia: true,
+      const result = await prisma.$transaction(async (tx) => {
+        const updateData: any = {};
+        if (nombre) updateData.nombre = nombre;
+        if (email) updateData.email = email;
+        if (activo !== undefined) updateData.activo = activo;
+        if (passwordHash) updateData.passwordHash = passwordHash;
+
+        const coordinador = await tx.coordinador.update({
+          where: { id },
+          data: updateData,
+          include: {
+            remiseria: {
+              select: {
+                id: true,
+                nombreFantasia: true,
+              },
             },
           },
-        },
+        });
+
+        if (existingCoordinador.userId) {
+          const userUpdateData: any = {};
+          if (email) userUpdateData.email = email;
+          if (activo !== undefined) userUpdateData.activo = activo;
+          if (passwordHash) userUpdateData.passwordHash = passwordHash;
+
+          if (Object.keys(userUpdateData).length > 0) {
+            await tx.user.update({
+              where: { id: existingCoordinador.userId },
+              data: userUpdateData
+            });
+          }
+        }
+
+        return coordinador;
       });
 
       res.json({
         success: true,
-        data: coordinador,
+        data: result,
         message: 'Coordinador actualizado exitosamente',
       });
     } catch (error) {
@@ -288,9 +319,18 @@ export const coordinadorController = {
       }
 
       // Baja lógica (marcar como inactivo)
-      await prisma.coordinador.update({
-        where: { id },
-        data: { activo: false },
+      await prisma.$transaction(async (tx) => {
+        await tx.coordinador.update({
+          where: { id },
+          data: { activo: false },
+        });
+
+        if (coordinador.userId) {
+          await tx.user.update({
+            where: { id: coordinador.userId },
+            data: { activo: false }
+          });
+        }
       });
 
       res.json({
@@ -322,17 +362,30 @@ export const coordinadorController = {
         });
       }
 
-      const updatedCoordinador = await prisma.coordinador.update({
-        where: { id },
-        data: { activo: !coordinador.activo },
-        include: {
-          remiseria: {
-            select: {
-              id: true,
-              nombreFantasia: true,
+      const newStatus = !coordinador.activo;
+
+      const updatedCoordinador = await prisma.$transaction(async (tx) => {
+        const coord = await tx.coordinador.update({
+          where: { id },
+          data: { activo: newStatus },
+          include: {
+            remiseria: {
+              select: {
+                id: true,
+                nombreFantasia: true,
+              },
             },
           },
-        },
+        });
+
+        if (coordinador.userId) {
+          await tx.user.update({
+            where: { id: coordinador.userId },
+            data: { activo: newStatus }
+          });
+        }
+
+        return coord;
       });
 
       res.json({

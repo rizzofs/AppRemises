@@ -1,8 +1,8 @@
 import axios from 'axios';
-import { 
-  LoginCredentials, 
-  RegisterData, 
-  ApiResponse, 
+import {
+  LoginCredentials,
+  RegisterData,
+  ApiResponse,
   AuthResponse,
   Remiseria,
   Duenio,
@@ -104,7 +104,7 @@ export const authService = {
       };
     }
   },
-  
+
   validateToken: async (): Promise<ApiResponse<any>> => {
     try {
       const response = await api.get('/auth/validate');
@@ -125,6 +125,18 @@ export const authService = {
       return {
         success: false,
         message: error.response?.data?.message || 'Error al registrar usuario',
+      };
+    }
+  },
+
+  registerCliente: async (data: any): Promise<ApiResponse<AuthResponse>> => {
+    try {
+      const response = await api.post('/auth/register-cliente', data);
+      return handleApiResponse<AuthResponse>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.error || error.response?.data?.message || 'Error al registrar cliente',
       };
     }
   },
@@ -621,6 +633,18 @@ export const clienteAuthService = {
         message: error.response?.data?.message || 'Error al actualizar perfil',
       };
     }
+  },
+
+  buscarClientePorDni: async (dni: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get(`/cliente/buscar-dni/${dni}`);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al buscar cliente',
+      };
+    }
   }
 };
 
@@ -739,7 +763,72 @@ export const coordinadorDashboardService = {
   },
 };
 
+// Servicios de reportes para el Dueño
+
+export const duenioReportesService = {
+  getMisRemiserias: async (): Promise<ApiResponse<{ id: string; nombre: string }[]>> => {
+    try {
+      const response = await api.get('/reportes/mis-remiserias');
+      return handleApiResponse<{ id: string; nombre: string }[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar remiserías del dueño',
+      };
+    }
+  },
+
+  getInformeDiario: async (remiseriaId?: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/reportes/diario', { params: { remiseriaId } });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar informe diario',
+      };
+    }
+  },
+
+  getInformeSemanal: async (remiseriaId?: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/reportes/semanal', { params: { remiseriaId } });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar informe semanal',
+      };
+    }
+  },
+
+  getInformeMensual: async (remiseriaId?: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/reportes/mensual', { params: { remiseriaId } });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar informe mensual',
+      };
+    }
+  },
+
+  getInformeChoferes: async (remiseriaId?: string): Promise<ApiResponse<any[]>> => {
+    try {
+      const response = await api.get('/reportes/choferes', { params: { remiseriaId } });
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar liquidación de choferes',
+      };
+    }
+  },
+};
+
 // Servicios del cliente
+
 export const clienteService = {
   // Solicitud de viaje
   solicitarViaje: async (data: SolicitudViajeData): Promise<ApiResponse<ViajeCliente>> => {
@@ -846,4 +935,4 @@ export const clienteService = {
   },
 };
 
-export default api; 
+export default api;

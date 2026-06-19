@@ -56,7 +56,10 @@ export default function EditarRemiseriaDuenioPage({ params }: Props) {
         setRemiseria(response.data);
         reset({
           direccion: response.data.direccion,
-          telefono: response.data.telefono
+          telefono: response.data.telefono,
+          valorKm: response.data.valorKm || 1200,
+          bajadaBandera: response.data.bajadaBandera || 3500,
+          valorHoraEspera: response.data.valorHoraEspera || 10000,
         });
       } else {
         toast.error('Error al cargar remisería');
@@ -260,6 +263,89 @@ export default function EditarRemiseriaDuenioPage({ params }: Props) {
                 {errors.telefono && (
                   <p className="mt-1 text-sm text-red-600">{errors.telefono.message}</p>
                 )}
+              </div>
+            </div>
+
+            <div className="pt-6 border-t border-gray-200">
+              <h3 className="text-lg font-medium text-gray-900 mb-4">Configuración de Tarifas</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div>
+                  <label htmlFor="valorKm" className="block text-sm font-medium text-gray-700 mb-2">
+                    Valor por Km ($)
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <span className="text-gray-500 sm:text-sm">$</span>
+                    </div>
+                    <input
+                      {...register('valorKm', {
+                        required: 'El valor por Km es requerido',
+                        min: { value: 0, message: 'Debe ser mayor a 0' },
+                        valueAsNumber: true,
+                      })}
+                      type="number"
+                      step="0.01"
+                      id="valorKm"
+                      className="input pl-7"
+                      placeholder="1200"
+                    />
+                  </div>
+                  {errors.valorKm && (
+                    <p className="mt-1 text-sm text-red-600">{errors.valorKm.message}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="bajadaBandera" className="block text-sm font-medium text-gray-700 mb-2">
+                    Bajada de Bandera ($)
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <span className="text-gray-500 sm:text-sm">$</span>
+                    </div>
+                    <input
+                      {...register('bajadaBandera', {
+                        required: 'La bajada de bandera es requerida',
+                        min: { value: 0, message: 'Debe ser mayor a 0' },
+                        valueAsNumber: true,
+                      })}
+                      type="number"
+                      step="0.01"
+                      id="bajadaBandera"
+                      className="input pl-7"
+                      placeholder="3500"
+                    />
+                  </div>
+                  {errors.bajadaBandera && (
+                    <p className="mt-1 text-sm text-red-600">{errors.bajadaBandera.message}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="valorHoraEspera" className="block text-sm font-medium text-gray-700 mb-2">
+                    Valor Tiempo Espera/Hora ($)
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                      <span className="text-gray-500 sm:text-sm">$</span>
+                    </div>
+                    <input
+                      {...register('valorHoraEspera', {
+                        required: 'El valor de espera es requerido',
+                        min: { value: 0, message: 'Debe ser mayor a 0' },
+                        valueAsNumber: true,
+                      })}
+                      type="number"
+                      step="0.01"
+                      id="valorHoraEspera"
+                      className="input pl-7"
+                      placeholder="10000"
+                    />
+                  </div>
+                  {errors.valorHoraEspera && (
+                    <p className="mt-1 text-sm text-red-600">{errors.valorHoraEspera.message}</p>
+                  )}
+                </div>
               </div>
             </div>
 

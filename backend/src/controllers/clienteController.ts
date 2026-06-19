@@ -710,3 +710,48 @@ async function calcularPrecioViaje(origen: string, destino: string): Promise<num
   
   return Math.round(precio);
 } 
+// Buscar cliente por DNI
+export const buscarClientePorDni = async (req: Request, res: Response) => {
+  try {
+    const { dni } = req.params;
+
+    if (!dni) {
+      return res.status(400).json({
+        success: false,
+        error: 'DNI es requerido'
+      });
+    }
+
+    const cliente = await prisma.cliente.findUnique({
+      where: { dni },
+      select: {
+        id: true,
+        nombre: true,
+        apellido: true,
+        dni: true,
+        telefono: true,
+        email: true,
+        direccion: true
+      }
+    });
+
+    if (!cliente) {
+      return res.status(404).json({
+        success: false,
+        message: 'Cliente no encontrado'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: cliente,
+      message: 'Cliente encontrado'
+    });
+  } catch (error) {
+    console.error('Error buscando cliente por DNI:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor'
+    });
+  }
+};

@@ -1,8 +1,7 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
 import { AuthenticatedRequest } from '../types';
 
-const prisma = new PrismaClient();
 
 export const trackAppUsage = async (req: AuthenticatedRequest, res: Response) => {
   try {

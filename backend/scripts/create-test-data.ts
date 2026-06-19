@@ -8,7 +8,7 @@ async function createTestData() {
     console.log('🔧 Creando datos de prueba...');
 
     // Verificar si el usuario dueño ya existe
-    let duenio = await prisma.user.findUnique({
+    let duenio: any = await prisma.user.findUnique({
       where: { email: 'duenio@appremises.com' },
       include: { duenio: true }
     });
@@ -27,7 +27,8 @@ async function createTestData() {
           duenio: {
             create: {
               nombre: 'Juan Pérez',
-              telefono: '1234567890'
+              telefono: '1234567890',
+              dni: '20-99999999-9'
             }
           }
         },
@@ -62,18 +63,21 @@ async function createTestData() {
       {
         nombreFantasia: 'Remises Express',
         razonSocial: 'Remises Express S.A.',
+        cuit: '20-11111111-9',
         direccion: 'Av. San Martín 123',
         telefono: '011-1234-5678'
       },
       {
         nombreFantasia: 'Taxi Seguro',
         razonSocial: 'Taxi Seguro S.R.L.',
+        cuit: '20-22222222-9',
         direccion: 'Belgrano 456',
         telefono: '011-8765-4321'
       },
       {
         nombreFantasia: 'Remises 24/7',
         razonSocial: 'Remises 24/7 S.A.',
+        cuit: '20-33333333-9',
         direccion: 'Rivadavia 789',
         telefono: '011-1122-3344'
       }

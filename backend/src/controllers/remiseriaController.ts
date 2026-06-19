@@ -283,7 +283,7 @@ export const updateRemiseria = async (req: AuthenticatedRequest, res: Response) 
   try {
     const { id } = req.params;
     const { rol, id: userId } = req.user!;
-    const { nombreFantasia, razonSocial, cuit, direccion, telefono, estado, duenioIds }: UpdateRemiseriaRequest = req.body;
+    const { nombreFantasia, razonSocial, cuit, direccion, telefono, estado, duenioIds, valorKm, bajadaBandera, valorHoraEspera }: UpdateRemiseriaRequest = req.body;
 
     // Verificar acceso
     if (rol === 'DUENIO') {
@@ -326,9 +326,12 @@ export const updateRemiseria = async (req: AuthenticatedRequest, res: Response) 
       if (estado !== undefined) updateData.estado = estado;
     }
     
-    // Ambos pueden modificar dirección y teléfono
+    // Ambos pueden modificar dirección y teléfono y configuración de precios
     if (direccion !== undefined) updateData.direccion = direccion;
     if (telefono !== undefined) updateData.telefono = telefono;
+    if (valorKm !== undefined) updateData.valorKm = valorKm;
+    if (bajadaBandera !== undefined) updateData.bajadaBandera = bajadaBandera;
+    if (valorHoraEspera !== undefined) updateData.valorHoraEspera = valorHoraEspera;
 
     const remiseria = await prisma.remiseria.update({
       where: { id },

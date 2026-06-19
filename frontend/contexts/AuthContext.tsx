@@ -34,6 +34,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const validateStoredSession = async () => {
       // Verificar si hay un usuario guardado en localStorage
+      // Solo ejecutar en el cliente para evitar problemas de hidratación
+      if (typeof window === 'undefined') {
+        setLoading(false);
+        return;
+      }
+
       const savedUser = localStorage.getItem('user');
       const accessToken = localStorage.getItem('accessToken');
 
@@ -43,19 +49,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           // Validar que el usuario tenga la estructura correcta
           if (userData && userData.id && userData.email && userData.rol) {
             // Validar que el rol sea válido
-            const validRoles = ['ADMIN', 'DUENIO', 'COORDINADOR', 'CLIENTE'];
+            const validRoles = ['ADMIN', 'DUENIO', 'COORDINADOR', 'CLIENTE', 'CHOFER'];
             if (validRoles.includes(userData.rol)) {
-              // Validar el token con el backend
-              const validationResponse = await authService.validateToken();
-              if (validationResponse.success && validationResponse.data?.valid) {
-                setUser(userData);
-                console.log('Usuario cargado desde localStorage:', userData.email, userData.rol);
-              } else {
-                console.log('Token inválido, limpiando sesión');
-                localStorage.removeItem('user');
-                localStorage.removeItem('accessToken');
-                localStorage.removeItem('refreshToken');
-              }
+              // Para modo demo, no validamos con el backend
+              setUser(userData);
+              console.log('Usuario cargado desde localStorage (modo demo):', userData.email, userData.rol);
             } else {
               throw new Error('Invalid user role');
             }

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../lib/prisma';
+import { AuthenticatedRequest } from '../types';
 
-const prisma = new PrismaClient();
 
 export const vehiculoController = {
   // Obtener todos los vehículos
@@ -136,7 +136,7 @@ export const vehiculoController = {
   },
 
   // Crear vehículo
-  async create(req: Request, res: Response) {
+  async create(req: AuthenticatedRequest, res: Response) {
     try {
       const { 
         patente, 
@@ -222,6 +222,20 @@ export const vehiculoController = {
         },
       });
 
+      // Registrar log de auditoría
+      if (req.user) {
+        await prisma.appUsage.create({
+          data: {
+            userId: req.user.id,
+            userEmail: req.user.email,
+            action: 'CREATE_VEHICULO',
+            details: JSON.stringify({ vehiculoId: vehiculo.id, patente: vehiculo.patente, modelo: `${vehiculo.marca} ${vehiculo.modelo}` }),
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent') || null
+          }
+        });
+      }
+
       res.status(201).json({
         success: true,
         data: vehiculo,
@@ -237,7 +251,7 @@ export const vehiculoController = {
   },
 
   // Actualizar vehículo
-  async update(req: Request, res: Response) {
+  async update(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
       const { 
@@ -324,6 +338,20 @@ export const vehiculoController = {
         },
       });
 
+      // Registrar log de auditoría
+      if (req.user) {
+        await prisma.appUsage.create({
+          data: {
+            userId: req.user.id,
+            userEmail: req.user.email,
+            action: 'UPDATE_VEHICULO',
+            details: JSON.stringify({ vehiculoId: vehiculo.id, patente: vehiculo.patente, modelo: `${vehiculo.marca} ${vehiculo.modelo}` }),
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent') || null
+          }
+        });
+      }
+
       res.json({
         success: true,
         data: vehiculo,
@@ -339,7 +367,7 @@ export const vehiculoController = {
   },
 
   // Baja lógica del vehículo
-  async delete(req: Request, res: Response) {
+  async delete(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
 
@@ -363,6 +391,20 @@ export const vehiculoController = {
         data: { estado: 'INACTIVO' },
       });
 
+      // Registrar log de auditoría
+      if (req.user) {
+        await prisma.appUsage.create({
+          data: {
+            userId: req.user.id,
+            userEmail: req.user.email,
+            action: 'DELETE_VEHICULO',
+            details: JSON.stringify({ vehiculoId: vehiculo.id, patente: vehiculo.patente }),
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent') || null
+          }
+        });
+      }
+
       res.json({
         success: true,
         message: 'Vehículo eliminado exitosamente',
@@ -377,7 +419,7 @@ export const vehiculoController = {
   },
 
   // Cambiar estado del vehículo
-  async updateStatus(req: Request, res: Response) {
+  async updateStatus(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
       const { estado } = req.body;
@@ -412,6 +454,20 @@ export const vehiculoController = {
           },
         },
       });
+
+      // Registrar log de auditoría
+      if (req.user) {
+        await prisma.appUsage.create({
+          data: {
+            userId: req.user.id,
+            userEmail: req.user.email,
+            action: 'UPDATE_VEHICULO_STATUS',
+            details: JSON.stringify({ vehiculoId: updatedVehiculo.id, patente: updatedVehiculo.patente, estado }),
+            ipAddress: req.ip,
+            userAgent: req.get('User-Agent') || null
+          }
+        });
+      }
 
       res.json({
         success: true,

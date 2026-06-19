@@ -1,16 +1,17 @@
 import express from 'express';
-import { 
-  registerCliente, 
-  getClienteProfile, 
-  updateClienteProfile, 
-  getClienteViajes, 
+import {
+  registerCliente,
+  getClienteProfile,
+  updateClienteProfile,
+  getClienteViajes,
   getClienteReservas,
   solicitarViaje,
   calcularPrecio,
   crearReserva,
   cancelarViaje,
   cancelarReserva,
-  getUbicacionActual
+  getUbicacionActual,
+  buscarClientePorDni
 } from '../controllers/clienteController';
 import { authenticateToken } from '../middleware/auth';
 
@@ -19,6 +20,7 @@ const router = express.Router();
 // Rutas públicas
 router.post('/register', registerCliente);
 router.post('/viajes/calcular-precio', calcularPrecio);
+router.get('/buscar-dni/:dni', buscarClientePorDni);
 
 // Rutas protegidas
 router.get('/profile', authenticateToken, getClienteProfile);
@@ -33,4 +35,4 @@ router.patch('/viajes/:id/cancelar', authenticateToken, cancelarViaje);
 router.patch('/reservas/:id/cancelar', authenticateToken, cancelarReserva);
 router.get('/ubicacion-actual', authenticateToken, getUbicacionActual);
 
-export default router; 
+export default router;

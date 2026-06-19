@@ -1,0 +1,80 @@
+/* Leaflet CSS - Importado automáticamente por react-leaflet */
+
+/* Personalizaciones adicionales para el mapa */
+.leaflet-container {
+  font-family: inherit;
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 8px;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.leaflet-popup-content {
+  margin: 0;
+  padding: 0;
+}
+
+.leaflet-popup-tip {
+  background: white;
+  border: none;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Estilos para los marcadores personalizados */
+.leaflet-marker-icon {
+  border: none !important;
+  background: transparent !important;
+}
+
+/* Animaciones suaves */
+.leaflet-marker-icon {
+  transition: transform 0.2s ease-in-out;
+}
+
+.leaflet-marker-icon:hover {
+  transform: scale(1.1);
+}
+
+/* Estilos para el control de zoom */
+.leaflet-control-zoom a {
+  background-color: white;
+  border: 1px solid #d1d5db;
+  color: #374151;
+  font-weight: 600;
+}
+
+.leaflet-control-zoom a:hover {
+  background-color: #f9fafb;
+  border-color: #9ca3af;
+}
+
+/* Estilos para la leyenda del mapa */
+.map-legend {
+  background: white;
+  padding: 10px;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.map-legend h4 {
+  margin: 0 0 8px 0;
+  font-weight: 600;
+  color: #374151;
+}
+
+.map-legend-item {
+  display: flex;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.map-legend-color {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 8px;
+  border: 1px solid #d1d5db;
+}

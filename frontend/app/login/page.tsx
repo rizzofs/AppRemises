@@ -9,6 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { LoginCredentials } from '@/types';
 import { Eye, EyeOff, Car, User, Lock } from 'lucide-react';
 import Link from 'next/link';
+import Image from 'next/image';
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -19,18 +20,20 @@ export default function LoginPage() {
   const {
     register,
     handleSubmit,
+    setValue,
     formState: { errors },
   } = useForm<LoginCredentials>();
 
   const onSubmit = async (data: LoginCredentials) => {
     setIsLoading(true);
     try {
+      // 1. Intentar iniciar sesión real en el Backend (Supabase)
       const response = await authService.login(data);
       
       if (response.success && response.data) {
         const { user, accessToken, refreshToken } = response.data;
-        login(user, accessToken, refreshToken);
-        toast.success('¡Bienvenido!');
+        login(user as any, accessToken, refreshToken);
+        toast.success('¡Sesión iniciada correctamente!');
         
         // Redirigir según el rol
         if (user.rol === 'ADMIN') {
@@ -39,15 +42,18 @@ export default function LoginPage() {
           router.push('/coordinador/dashboard');
         } else if (user.rol === 'CLIENTE') {
           router.push('/cliente/app');
+        } else if (user.rol === 'CHOFER') {
+          router.push('/chofer/app');
         } else {
           router.push('/duenio/dashboard');
         }
+        return;
       } else {
-        toast.error(response.error || 'Error en el login');
+        toast.error(response.message || 'Credenciales inválidas');
       }
     } catch (error: any) {
       console.error('Error en login:', error);
-      toast.error(error.response?.data?.error || 'Error en el login');
+      toast.error(error.response?.data?.message || 'Error al conectar con el servidor');
     } finally {
       setIsLoading(false);
     }
@@ -58,8 +64,14 @@ export default function LoginPage() {
       <div className="max-w-md w-full">
         <div className="card p-8">
           <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-100 rounded-full mb-4">
-              <Car className="w-8 h-8 text-primary-600" />
+            <div className="flex justify-center mb-6">
+              <Image 
+                src="/Isologo.png" 
+                alt="RZCore Logo" 
+                width={120} 
+                height={120}
+                className="object-contain drop-shadow-md"
+              />
             </div>
             <h1 className="text-2xl font-bold text-gray-900">App Remises</h1>
             <p className="text-gray-600 mt-2">Inicia sesión en tu cuenta</p>
@@ -131,6 +143,15 @@ export default function LoginPage() {
               )}
             </div>
 
+            <div className="flex justify-end">
+              <Link
+                href="/forgot-password"
+                className="text-sm text-primary-600 hover:text-primary-700 transition-colors"
+              >
+                ¿Olvidaste tu contraseña?
+              </Link>
+            </div>
+
             <button
               type="submit"
               disabled={isLoading}
@@ -154,9 +175,26 @@ export default function LoginPage() {
                 Regístrate aquí
               </Link>
             </p>
-            <p className="text-xs text-gray-500 mt-2">
-              Solo para clientes - Administradores contacten al soporte
-            </p>
+            <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+              <p className="text-sm font-medium text-blue-800 mb-2">Credenciales Demo (Click para autocompletar):</p>
+              <div className="text-xs text-blue-700 space-y-1">
+                <button type="button" onClick={() => { setValue('email', 'coord@appremises.com'); setValue('password', 'coord123'); }} className="block w-full text-left hover:bg-blue-100 p-1.5 rounded transition-colors">
+                  <strong>Coordinador:</strong> coord@appremises.com / coord123
+                </button>
+                <button type="button" onClick={() => { setValue('email', 'admin@test.com'); setValue('password', 'admin123'); }} className="block w-full text-left hover:bg-blue-100 p-1.5 rounded transition-colors">
+                  <strong>Admin:</strong> admin@test.com / admin123
+                </button>
+                <button type="button" onClick={() => { setValue('email', 'duenio@appremises.com'); setValue('password', 'duenio123'); }} className="block w-full text-left hover:bg-blue-100 p-1.5 rounded transition-colors">
+                  <strong>Dueño:</strong> duenio@appremises.com / duenio123
+                </button>
+                <button type="button" onClick={() => { setValue('email', 'cliente@test.com'); setValue('password', 'cliente123'); }} className="block w-full text-left hover:bg-blue-100 p-1.5 rounded transition-colors">
+                  <strong>Cliente:</strong> cliente@test.com / cliente123
+                </button>
+                <button type="button" onClick={() => { setValue('email', 'chofer@test.com'); setValue('password', 'chofer123'); }} className="block w-full text-left hover:bg-green-100 p-1.5 rounded transition-colors">
+                  <strong>Chofer:</strong> chofer@test.com / chofer123
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

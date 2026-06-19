@@ -19,7 +19,8 @@ import {
   User,
   AlertTriangle,
   CheckCircle,
-  XCircle
+  XCircle,
+  Car
 } from 'lucide-react';
 
 export default function VehiculosPage() {
@@ -267,176 +268,161 @@ export default function VehiculosPage() {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="text-center py-16">
+        <div className="loading-spinner border-primary-500 mx-auto"></div>
+        <p className="mt-4 text-slate-500">Cargando vehículos...</p>
       </div>
     );
   }
 
   return (
-    <div className="container mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div className="flex items-center space-x-4">
-          <button
-            onClick={() => router.push('/duenio/dashboard')}
-            className="flex items-center text-gray-600 hover:text-gray-800 transition-colors"
-          >
-            <ArrowLeft className="w-5 h-5 mr-2" />
-            Volver
-          </button>
-          <h1 className="text-3xl font-bold text-gray-900">Gestión de Vehículos</h1>
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
+        <div>
+          <h2 className="text-xl font-bold text-slate-900">Vehículos</h2>
+          <p className="text-sm text-slate-500">Gestioná la flota de vehículos de tus remiserías.</p>
         </div>
         <button
           onClick={openCreateModal}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg transition-colors duration-200 flex items-center shadow-lg hover:shadow-xl"
+          className="btn btn-primary shadow-md shadow-primary-500/20"
         >
           <Plus className="w-5 h-5 mr-2" />
           Nuevo Vehículo
         </button>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
-        <div className="flex flex-col md:flex-row gap-4">
-          <div className="flex-1">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Buscar por patente, marca, modelo o propietario..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row gap-4">
+          <div className="relative max-w-md flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Buscar por patente, marca, modelo o propietario..."
+              className="input pl-10 bg-white"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
-          <div className="flex items-center space-x-2">
-            <Filter className="w-5 h-5 text-gray-400" />
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="all">Todos los estados</option>
-              <option value="ACTIVO">Activo</option>
-              <option value="MANTENIMIENTO">En Mantenimiento</option>
-              <option value="INACTIVO">Inactivo</option>
-            </select>
-          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as any)}
+            className="input max-w-[200px] bg-white cursor-pointer"
+          >
+            <option value="all">Todos los estados</option>
+            <option value="ACTIVO">Activos</option>
+            <option value="MANTENIMIENTO">En Mantenimiento</option>
+            <option value="INACTIVO">Inactivos</option>
+          </select>
         </div>
-      </div>
 
-      {/* Vehicles Table */}
-      <div className="bg-white rounded-lg shadow-md overflow-hidden">
+        {/* Vehicles Table */}
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Vehículo
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Propietario
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Capacidad
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Vencimientos
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Estado
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Acciones
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {filteredVehiculos.map((vehiculo) => (
-                <tr key={vehiculo.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">
-                        {vehiculo.patente}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        {vehiculo.marca} {vehiculo.modelo} ({vehiculo.anio})
-                      </div>
-                      <div className="text-xs text-gray-400">
-                        {vehiculo.color} • {vehiculo.tipo}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{vehiculo.propietario}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-gray-900">{vehiculo.capacidad} pasajeros</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-xs text-gray-500 space-y-1">
-                      {vehiculo.vtoVtv && (
-                        <div>VTV: {new Date(vehiculo.vtoVtv).toLocaleDateString()}</div>
-                      )}
-                      {vehiculo.vtoMatafuego && (
-                        <div>Matafuego: {new Date(vehiculo.vtoMatafuego).toLocaleDateString()}</div>
-                      )}
-                      {vehiculo.vtoSeguro && (
-                        <div>Seguro: {new Date(vehiculo.vtoSeguro).toLocaleDateString()}</div>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      {getStatusIcon(vehiculo.estado)}
-                      <span className="ml-2 text-sm text-gray-900">
-                        {getStatusText(vehiculo.estado)}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                    <div className="flex space-x-2">
-                      <button
-                        onClick={() => openEditModal(vehiculo)}
-                        className="text-blue-600 hover:text-blue-900 transition-colors"
-                      >
-                        <Edit className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleToggleStatus(vehiculo)}
-                        className="text-yellow-600 hover:text-yellow-900 transition-colors"
-                      >
-                        {vehiculo.estado === 'ACTIVO' ? 'Suspender' : 'Activar'}
-                      </button>
-                      <button
-                        onClick={() => handleDelete(vehiculo.id)}
-                        className="text-red-600 hover:text-red-900 transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        
-        {filteredVehiculos.length === 0 && (
-          <div className="text-center py-12">
-            <Truck className="mx-auto h-12 w-12 text-gray-400" />
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No hay vehículos</h3>
-            <p className="mt-1 text-sm text-gray-500">
-              {searchTerm || statusFilter !== 'all' 
-                ? 'No se encontraron vehículos con los filtros aplicados.'
-                : 'Comienza creando tu primer vehículo.'
-              }
-            </p>
+          {filteredVehiculos.length === 0 ? (
+              <div className="text-center py-16">
+                <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Car className="w-10 h-10 text-slate-400" />
+                </div>
+                <h3 className="text-lg font-medium text-slate-900 mb-2">No hay vehículos</h3>
+                <p className="text-slate-500">
+                  {searchTerm || statusFilter !== 'all' 
+                    ? 'No se encontraron vehículos con los filtros aplicados.'
+                    : 'Comienza creando tu primer vehículo.'
+                  }
+                </p>
+              </div>
+            ) : (
+              <table className="min-w-full divide-y divide-slate-200">
+                <thead className="bg-slate-50/80">
+                  <tr>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Vehículo</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Propietario</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Capacidad</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Vencimientos</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
+                    <th className="px-6 py-4 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-slate-100">
+                  {filteredVehiculos.map((vehiculo) => (
+                    <tr key={vehiculo.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center">
+                            <Car className="w-5 h-5 text-slate-500" />
+                          </div>
+                          <div>
+                            <div className="text-sm font-bold text-slate-900">
+                              {vehiculo.patente}
+                            </div>
+                            <div className="text-sm text-slate-600">
+                              {vehiculo.marca} {vehiculo.modelo} ({vehiculo.anio})
+                            </div>
+                            <div className="text-xs text-slate-400">
+                              {vehiculo.color} • {vehiculo.tipo}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-slate-700">{vehiculo.propietario}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-slate-700">{vehiculo.capacidad} pasajeros</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-xs text-slate-500 space-y-1">
+                          {vehiculo.vtoVtv && (
+                            <div><span className="font-medium text-slate-700">VTV:</span> {new Date(vehiculo.vtoVtv).toLocaleDateString()}</div>
+                          )}
+                          {vehiculo.vtoMatafuego && (
+                            <div><span className="font-medium text-slate-700">Matafuego:</span> {new Date(vehiculo.vtoMatafuego).toLocaleDateString()}</div>
+                          )}
+                          {vehiculo.vtoSeguro && (
+                            <div><span className="font-medium text-slate-700">Seguro:</span> {new Date(vehiculo.vtoSeguro).toLocaleDateString()}</div>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-full border ${
+                          vehiculo.estado === 'ACTIVO' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                          vehiculo.estado === 'MANTENIMIENTO' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                          'bg-red-50 text-red-700 border-red-200'
+                        }`}>
+                          {getStatusText(vehiculo.estado)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <div className="flex justify-end gap-2">
+                          <button
+                            onClick={() => openEditModal(vehiculo)}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                            title="Editar"
+                          >
+                            <Edit className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleToggleStatus(vehiculo)}
+                            className={`p-1.5 rounded-lg transition-colors ${vehiculo.estado === 'ACTIVO' ? 'text-amber-500 hover:bg-amber-50' : 'text-emerald-500 hover:bg-emerald-50'}`}
+                            title={vehiculo.estado === 'ACTIVO' ? 'Suspender' : 'Activar'}
+                          >
+                            <Truck className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(vehiculo.id)}
+                            className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Eliminar"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </div>
-        )}
-      </div>
+        </div>
 
       {/* Create Modal */}
       {showCreateModal && (

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'react-hot-toast';
 import { Eye, EyeOff, User, Mail, Lock, Phone, MapPin, Calendar, UserCheck } from 'lucide-react';
+import { clienteAuthService } from '@/lib/api';
 
 interface RegisterFormData {
   nombre: string;
@@ -44,31 +45,23 @@ export default function RegistroPage() {
     setIsLoading(true);
 
     try {
-      const response = await fetch('/api/cliente/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          nombre: data.nombre,
-          apellido: data.apellido,
-          dni: data.dni,
-          telefono: data.telefono,
-          email: data.email,
-          password: data.password,
-          direccion: data.direccion,
-          fechaNacimiento: data.fechaNacimiento,
-          genero: data.genero
-        }),
+      const response = await clienteAuthService.register({
+        nombre: data.nombre,
+        apellido: data.apellido,
+        dni: data.dni,
+        telefono: data.telefono,
+        email: data.email,
+        password: data.password,
+        direccion: data.direccion,
+        fechaNacimiento: data.fechaNacimiento,
+        genero: data.genero
       });
 
-      const result = await response.json();
-
-      if (result.success) {
+      if (response.success) {
         toast.success('¡Registro exitoso!');
         router.push('/login');
       } else {
-        toast.error(result.error || 'Error en el registro');
+        toast.error(response.message || 'Error en el registro');
       }
     } catch (error) {
       console.error('Error en registro:', error);
@@ -141,7 +134,7 @@ export default function RegistroPage() {
               </label>
               <div className="mt-1 relative">
                 <input
-                  {...register('dni', { 
+                  {...register('dni', {
                     required: 'El DNI es requerido',
                     pattern: {
                       value: /^\d{7,8}$/,
@@ -166,7 +159,7 @@ export default function RegistroPage() {
               </label>
               <div className="mt-1 relative">
                 <input
-                  {...register('email', { 
+                  {...register('email', {
                     required: 'El email es requerido',
                     pattern: {
                       value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
@@ -267,7 +260,7 @@ export default function RegistroPage() {
               </label>
               <div className="mt-1 relative">
                 <input
-                  {...register('password', { 
+                  {...register('password', {
                     required: 'La contraseña es requerida',
                     minLength: {
                       value: 6,
@@ -302,7 +295,7 @@ export default function RegistroPage() {
               </label>
               <div className="mt-1 relative">
                 <input
-                  {...register('confirmPassword', { 
+                  {...register('confirmPassword', {
                     required: 'Confirma tu contraseña',
                     validate: value => value === password || 'Las contraseñas no coinciden'
                   })}
@@ -350,4 +343,4 @@ export default function RegistroPage() {
       </div>
     </div>
   );
-} 
+}

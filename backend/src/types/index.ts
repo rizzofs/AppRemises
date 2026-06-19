@@ -4,7 +4,7 @@ export interface AuthenticatedRequest extends Request {
   user?: {
     id: string;
     email: string;
-    rol: 'ADMIN' | 'DUENIO' | 'COORDINADOR' | 'CLIENTE';
+    rol: 'ADMIN' | 'DUENIO' | 'COORDINADOR' | 'CLIENTE' | 'CHOFER';
     duenio?: {
       id: string;
       nombre: string;
@@ -32,6 +32,13 @@ export interface AuthenticatedRequest extends Request {
       genero?: string;
       activo: boolean;
       userId: string;
+    };
+    chofer?: {
+      id: string;
+      numeroChofer: string;
+      nombre: string;
+      apellido: string;
+      remiseriaId: string;
     };
   };
 }
@@ -65,6 +72,9 @@ export interface UpdateRemiseriaRequest {
   telefono?: string;
   estado?: boolean;
   duenioIds?: string[];
+  valorKm?: number;
+  bajadaBandera?: number;
+  valorHoraEspera?: number;
 }
 
 export interface CreateDuenioRequest {
@@ -89,7 +99,7 @@ export interface UpdateDuenioRequest {
 export interface JwtPayload {
   id: string;
   email: string;
-  rol: 'ADMIN' | 'DUENIO' | 'COORDINADOR' | 'CLIENTE';
+  rol: 'ADMIN' | 'DUENIO' | 'COORDINADOR' | 'CLIENTE' | 'CHOFER';
 }
 
 export interface ApiResponse<T = any> {

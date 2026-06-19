@@ -105,8 +105,12 @@ export default function AdminDashboard() {
       'UPDATE_DUENIO': 'Actualizar dueño',
       'CREATE_CHOFER': 'Crear chofer',
       'UPDATE_CHOFER': 'Actualizar chofer',
+      'DELETE_CHOFER': 'Dar de baja chofer',
+      'TOGGLE_CHOFER_STATUS': 'Cambiar estado chofer',
       'CREATE_VEHICULO': 'Crear vehículo',
       'UPDATE_VEHICULO': 'Actualizar vehículo',
+      'DELETE_VEHICULO': 'Dar de baja vehículo',
+      'UPDATE_VEHICULO_STATUS': 'Cambiar estado vehículo',
       'CREATE_VIAJE': 'Crear viaje',
       'UPDATE_VIAJE': 'Actualizar viaje'
     };
