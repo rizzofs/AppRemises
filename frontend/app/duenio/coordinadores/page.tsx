@@ -19,6 +19,7 @@ export default function CoordinadoresPage() {
   const [selectedCoordinador, setSelectedCoordinador] = useState<Coordinador | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterActivo, setFilterActivo] = useState<'all' | 'active' | 'inactive'>('all');
+  const [filterRemiseria, setFilterRemiseria] = useState<string>('all');
   const [showPassword, setShowPassword] = useState(false);
 
   // Formulario de creación/edición
@@ -170,8 +171,10 @@ export default function CoordinadoresPage() {
     const matchesFilter = filterActivo === 'all' || 
                          (filterActivo === 'active' && coordinador.activo) ||
                          (filterActivo === 'inactive' && !coordinador.activo);
+
+    const matchesRemiseria = filterRemiseria === 'all' || coordinador.remiseriaId === filterRemiseria;
     
-    return matchesSearch && matchesFilter;
+    return matchesSearch && matchesFilter && matchesRemiseria;
   });
 
   if (!user) return null;
@@ -212,6 +215,16 @@ export default function CoordinadoresPage() {
             <option value="all">Todos los estados</option>
             <option value="active">Solo Activos</option>
             <option value="inactive">Solo Inactivos</option>
+          </select>
+          <select
+            value={filterRemiseria}
+            onChange={(e) => setFilterRemiseria(e.target.value)}
+            className="input max-w-[200px] bg-white cursor-pointer"
+          >
+            <option value="all">Todas las remiserías</option>
+            {remiserias.map(r => (
+              <option key={r.id} value={r.id}>{r.nombreFantasia}</option>
+            ))}
           </select>
         </div>
 

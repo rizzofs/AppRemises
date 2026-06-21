@@ -16,7 +16,8 @@ import {
   LogOut,
   Menu,
   X,
-  Bell
+  Bell,
+  DollarSign
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -36,6 +37,7 @@ export default function DuenioLayout({
     { name: 'Coordinadores', href: '/duenio/coordinadores', icon: Users },
     { name: 'Choferes', href: '/duenio/choferes', icon: Truck },
     { name: 'Vehículos', href: '/duenio/vehiculos', icon: Car },
+    { name: 'Liquidaciones', href: '/duenio/liquidaciones', icon: DollarSign },
     { name: 'Reportes', href: '/duenio/informes/mensual', icon: BarChart3 },
     { name: 'Configuración', href: '/duenio/configuracion', icon: Settings },
   ];

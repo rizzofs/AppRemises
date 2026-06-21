@@ -1,16 +1,32 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { prisma } from '../lib/prisma';
+import { AuthenticatedRequest } from '../types';
 import bcrypt from 'bcryptjs';
 
 
 export const coordinadorController = {
   // Obtener todos los coordinadores
-  async getAll(req: Request, res: Response) {
+  async getAll(req: AuthenticatedRequest, res: Response) {
     try {
+      const { rol, id: userId } = req.user!;
+      let whereClause: any = {};
+
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } }
+        });
+        const remiseriaIds = duenio?.remiserias.map(r => r.remiseriaId) || [];
+        whereClause = { remiseriaId: { in: remiseriaIds } };
+      } else if (rol === 'COORDINADOR') {
+        const coordinador = await prisma.coordinador.findFirst({
+          where: { userId }
+        });
+        whereClause = { remiseriaId: coordinador?.remiseriaId || '' };
+      }
+
       const coordinadores = await prisma.coordinador.findMany({
-        where: {
-          // Removemos el filtro de activo para obtener todos
-        },
+        where: whereClause,
         include: {
           remiseria: {
             select: {
@@ -38,9 +54,35 @@ export const coordinadorController = {
   },
 
   // Obtener coordinadores por remisería
-  async getByRemiseria(req: Request, res: Response) {
+  async getByRemiseria(req: AuthenticatedRequest, res: Response) {
     try {
       const { remiseriaId } = req.params;
+      const { rol, id: userId } = req.user!;
+
+      // Validar acceso a la remiseriaId
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } }
+        });
+        const remiseriaIds = duenio?.remiserias.map(r => r.remiseriaId) || [];
+        if (!remiseriaIds.includes(remiseriaId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para acceder a esta remisería',
+          });
+        }
+      } else if (rol === 'COORDINADOR') {
+        const coordinador = await prisma.coordinador.findFirst({
+          where: { userId }
+        });
+        if (coordinador?.remiseriaId !== remiseriaId) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para acceder a esta remisería',
+          });
+        }
+      }
 
       const coordinadores = await prisma.coordinador.findMany({
         where: {
@@ -74,9 +116,10 @@ export const coordinadorController = {
   },
 
   // Obtener coordinador por ID
-  async getById(req: Request, res: Response) {
+  async getById(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
+      const { rol, id: userId } = req.user!;
 
       const coordinador = await prisma.coordinador.findFirst({
         where: {
@@ -100,6 +143,31 @@ export const coordinadorController = {
         });
       }
 
+      // Validar acceso
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } }
+        });
+        const remiseriaIds = duenio?.remiserias.map(r => r.remiseriaId) || [];
+        if (!remiseriaIds.includes(coordinador.remiseriaId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para ver este coordinador',
+          });
+        }
+      } else if (rol === 'COORDINADOR') {
+        const loggedCoord = await prisma.coordinador.findFirst({
+          where: { userId }
+        });
+        if (loggedCoord?.remiseriaId !== coordinador.remiseriaId) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para ver este coordinador',
+          });
+        }
+      }
+
       res.json({
         success: true,
         data: coordinador,
@@ -114,15 +182,36 @@ export const coordinadorController = {
   },
 
   // Crear coordinador
-  async create(req: Request, res: Response) {
+  async create(req: AuthenticatedRequest, res: Response) {
     try {
       const { nombre, email, password, remiseriaId } = req.body;
+      const { rol, id: userId } = req.user!;
 
       // Validar campos requeridos
       if (!nombre || !email || !password || !remiseriaId) {
         return res.status(400).json({
           success: false,
           message: 'Todos los campos son requeridos',
+        });
+      }
+
+      // Validar acceso a la remisería
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } }
+        });
+        const remiseriaIds = duenio?.remiserias.map(r => r.remiseriaId) || [];
+        if (!remiseriaIds.includes(remiseriaId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para crear coordinadores en esta remisería',
+          });
+        }
+      } else if (rol === 'COORDINADOR') {
+        return res.status(403).json({
+          success: false,
+          message: 'No tienes permisos para crear coordinadores',
         });
       }
 
@@ -202,10 +291,11 @@ export const coordinadorController = {
   },
 
   // Actualizar coordinador
-  async update(req: Request, res: Response) {
+  async update(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
       const { nombre, email, password, activo } = req.body;
+      const { rol, id: userId } = req.user!;
 
       // Verificar que el coordinador existe
       const existingCoordinador = await prisma.coordinador.findFirst({
@@ -220,6 +310,28 @@ export const coordinadorController = {
           success: false,
           message: 'Coordinador no encontrado',
         });
+      }
+
+      // Validar acceso
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } }
+        });
+        const remiseriaIds = duenio?.remiserias.map(r => r.remiseriaId) || [];
+        if (!remiseriaIds.includes(existingCoordinador.remiseriaId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para modificar este coordinador',
+          });
+        }
+      } else if (rol === 'COORDINADOR') {
+        if (userId !== existingCoordinador.userId) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para modificar este coordinador',
+          });
+        }
       }
 
       // Si se está cambiando el email, verificar que no exista
@@ -299,9 +411,10 @@ export const coordinadorController = {
   },
 
   // Baja lógica del coordinador
-  async delete(req: Request, res: Response) {
+  async delete(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
+      const { rol, id: userId } = req.user!;
 
       // Verificar que el coordinador existe
       const coordinador = await prisma.coordinador.findFirst({
@@ -315,6 +428,26 @@ export const coordinadorController = {
         return res.status(404).json({
           success: false,
           message: 'Coordinador no encontrado',
+        });
+      }
+
+      // Validar acceso
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } }
+        });
+        const remiseriaIds = duenio?.remiserias.map(r => r.remiseriaId) || [];
+        if (!remiseriaIds.includes(coordinador.remiseriaId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para eliminar este coordinador',
+          });
+        }
+      } else if (rol === 'COORDINADOR') {
+        return res.status(403).json({
+          success: false,
+          message: 'No tienes permisos para eliminar coordinadores',
         });
       }
 
@@ -347,9 +480,10 @@ export const coordinadorController = {
   },
 
   // Cambiar estado del coordinador (activar/desactivar)
-  async toggleStatus(req: Request, res: Response) {
+  async toggleStatus(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
+      const { rol, id: userId } = req.user!;
 
       const coordinador = await prisma.coordinador.findUnique({
         where: { id },
@@ -359,6 +493,26 @@ export const coordinadorController = {
         return res.status(404).json({
           success: false,
           message: 'Coordinador no encontrado',
+        });
+      }
+
+      // Validar acceso
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } }
+        });
+        const remiseriaIds = duenio?.remiserias.map(r => r.remiseriaId) || [];
+        if (!remiseriaIds.includes(coordinador.remiseriaId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para modificar este coordinador',
+          });
+        }
+      } else if (rol === 'COORDINADOR') {
+        return res.status(403).json({
+          success: false,
+          message: 'No tienes permisos para modificar coordinadores',
         });
       }
 

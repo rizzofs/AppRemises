@@ -60,6 +60,7 @@ export default function EditarRemiseriaDuenioPage({ params }: Props) {
           valorKm: response.data.valorKm || 1200,
           bajadaBandera: response.data.bajadaBandera || 3500,
           valorHoraEspera: response.data.valorHoraEspera || 10000,
+          comisionDuenioAuto: response.data.comisionDuenioAuto !== undefined ? response.data.comisionDuenioAuto : 20,
         });
       } else {
         toast.error('Error al cargar remisería');
@@ -268,7 +269,7 @@ export default function EditarRemiseriaDuenioPage({ params }: Props) {
 
             <div className="pt-6 border-t border-gray-200">
               <h3 className="text-lg font-medium text-gray-900 mb-4">Configuración de Tarifas</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div>
                   <label htmlFor="valorKm" className="block text-sm font-medium text-gray-700 mb-2">
                     Valor por Km ($)
@@ -344,6 +345,33 @@ export default function EditarRemiseriaDuenioPage({ params }: Props) {
                   </div>
                   {errors.valorHoraEspera && (
                     <p className="mt-1 text-sm text-red-600">{errors.valorHoraEspera.message}</p>
+                  )}
+                </div>
+
+                <div>
+                  <label htmlFor="comisionDuenioAuto" className="block text-sm font-medium text-gray-700 mb-2">
+                    Comisión Agencia p/ Dueños Auto (%)
+                  </label>
+                  <div className="relative">
+                    <input
+                      {...register('comisionDuenioAuto', {
+                        required: 'La comisión es requerida',
+                        min: { value: 0, message: 'Debe ser mayor o igual a 0' },
+                        max: { value: 100, message: 'No puede superar el 100%' },
+                        valueAsNumber: true,
+                      })}
+                      type="number"
+                      step="0.1"
+                      id="comisionDuenioAuto"
+                      className="input pr-8"
+                      placeholder="20"
+                    />
+                    <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                      <span className="text-gray-500 sm:text-sm">%</span>
+                    </div>
+                  </div>
+                  {errors.comisionDuenioAuto && (
+                    <p className="mt-1 text-sm text-red-600">{errors.comisionDuenioAuto.message}</p>
                   )}
                 </div>
               </div>

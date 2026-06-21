@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
 import { MapPin, Navigation, Car, AlertTriangle, CheckCircle } from 'lucide-react';
+import { choferService } from '@/lib/api';
 
 export default function ChoferApp() {
   const { user } = useAuth();
@@ -16,17 +17,28 @@ export default function ChoferApp() {
   const [alertaViaje, setAlertaViaje] = useState<any>(null);
 
   useEffect(() => {
-    if (!user || user.rol !== 'CHOFER') {
-      router.push('/login');
-      return;
+    // Cargar estado de conexión guardado temporalmente
+    const savedState = localStorage.getItem('chofer_isActive');
+    if (savedState !== null) {
+      setIsActive(JSON.parse(savedState));
     }
     // TODO: Cargar estado real del chofer desde el backend
-  }, [user, router]);
+  }, [user]);
 
   const toggleStatus = async () => {
-    // TODO: Actualizar estado en el backend
-    setIsActive(!isActive);
-    if (!isActive) {
+    const newState = !isActive;
+    
+    // Actualizar estado en el backend
+    const response = await choferService.updateOnlineStatus(newState);
+    if (!response.success) {
+      toast.error(response.message || 'Error al actualizar estado en el servidor');
+      return;
+    }
+
+    setIsActive(newState);
+    localStorage.setItem('chofer_isActive', JSON.stringify(newState));
+    
+    if (newState) {
       toast.success('Ahora estás Activo. Esperando viajes...');
     } else {
       toast.success('Te has desconectado.');

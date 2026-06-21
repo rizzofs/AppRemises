@@ -5,6 +5,7 @@ export interface User {
   duenio?: Duenio;
   coordinador?: Coordinador;
   cliente?: Cliente;
+  chofer?: Chofer;
 }
 
 export interface Duenio {
@@ -35,6 +36,8 @@ export interface Remiseria {
   valorKm?: number;
   bajadaBandera?: number;
   valorHoraEspera?: number;
+  comisionDuenioAuto?: number;
+  comisionPorcentaje?: number;
   createdAt: string;
   updatedAt: string;
   duenios?: RemiseriaDuenio[];
@@ -111,6 +114,7 @@ export interface Chofer {
   estado: 'ACTIVO' | 'SUSPENDIDO' | 'DADO_DE_BAJA';
   observaciones?: string;
   esPropietario?: boolean;
+  comisionPorcentaje?: number;
   createdAt: string;
   updatedAt: string;
   remiseriaId: string;
@@ -133,6 +137,7 @@ export interface CreateChoferData {
   remiseriaId: string;
   vehiculoId?: string;
   esPropietario?: boolean;
+  comisionPorcentaje?: number;
 }
 
 export interface UpdateChoferData {
@@ -149,6 +154,7 @@ export interface UpdateChoferData {
   observaciones?: string;
   vehiculoId?: string;
   esPropietario?: boolean;
+  comisionPorcentaje?: number;
 }
 
 // Vehículo
@@ -221,6 +227,9 @@ export interface Viaje {
   remiseriaId: string;
   choferId: string;
   vehiculoId: string;
+  clienteNombre?: string;
+  clienteTelefono?: string;
+  clienteEmail?: string;
   remiseria?: Remiseria;
   chofer?: Chofer;
   vehiculo?: Vehiculo;
@@ -280,6 +289,8 @@ export interface UpdateRemiseriaData {
   valorKm?: number;
   bajadaBandera?: number;
   valorHoraEspera?: number;
+  comisionDuenioAuto?: number;
+  comisionPorcentaje?: number;
 }
 
 export interface CreateDuenioData {
@@ -508,4 +519,38 @@ export interface ReservaCliente {
   observaciones?: string;
   createdAt: string;
   viajesGenerados?: ViajeCliente[];
+} 
+
+export interface Liquidacion {
+  id: string;
+  fecha: string;
+  choferId: string;
+  coordinadorId: string;
+  totalRecaudado: number;
+  combustible: number;
+  comisionChofer: number;
+  comisionAgencia: number;
+  gananciaPropietario: number;
+  observaciones?: string;
+  createdAt: string;
+}
+
+export interface LiquidacionPendienteResumen {
+  chofer: {
+    id: string;
+    nombre: string;
+    apellido: string;
+    numeroChofer: string;
+    esPropietario: boolean;
+    comisionPorcentaje: number;
+    comisionDuenioAuto: number;
+  };
+  viajes: Viaje[];
+  resumen: {
+    totalRecaudado: number;
+    comisionChofer: number;
+    comisionAgencia: number;
+    combustible: number;
+    gananciaPropietario: number;
+  };
 } 

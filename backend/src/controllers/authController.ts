@@ -27,7 +27,11 @@ export const login = async (req: Request, res: Response) => {
           }
         },
         cliente: true,
-        chofer: true
+        chofer: {
+          include: {
+            vehiculo: true
+          }
+        }
       }
     });
 
@@ -350,7 +354,16 @@ export const refreshToken = async (req: Request, res: Response) => {
     // Buscar usuario
     const user = await prisma.user.findUnique({
       where: { id: decoded.id },
-      include: { duenio: true, chofer: true, cliente: true, coordinador: true }
+      include: { 
+        duenio: true, 
+        cliente: true, 
+        coordinador: true,
+        chofer: {
+          include: {
+            vehiculo: true
+          }
+        }
+      }
     });
 
     if (!user || !user.activo) {
@@ -406,7 +419,11 @@ export const validateToken = async (req: Request, res: Response) => {
         duenio: true,
         coordinador: true,
         cliente: true,
-        chofer: true
+        chofer: {
+          include: {
+            vehiculo: true
+          }
+        }
       }
     });
 

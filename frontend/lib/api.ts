@@ -464,6 +464,18 @@ export const choferService = {
       };
     }
   },
+
+  updateOnlineStatus: async (isOnline: boolean): Promise<ApiResponse<Chofer>> => {
+    try {
+      const response = await api.patch('/choferes/online-status', { isOnline });
+      return handleApiResponse<Chofer>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al actualizar estado online',
+      };
+    }
+  },
 };
 
 // Servicios de vehículos
@@ -699,6 +711,49 @@ export const coordinadorDashboardService = {
     }
   },
 
+  createCliente: async (data: any): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/coordinator-dashboard/clientes', data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al crear cliente',
+      };
+    }
+  },
+
+  calcularPrecio: async (origen: string, destino: string, coords?: { latOrigen?: number; lonOrigen?: number; latDestino?: number; lonDestino?: number }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/coordinator-dashboard/viajes/calcular-precio', { 
+        origen, 
+        destino,
+        latOrigen: coords?.latOrigen,
+        lonOrigen: coords?.lonOrigen,
+        latDestino: coords?.latDestino,
+        lonDestino: coords?.lonDestino
+      });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al calcular precio',
+      };
+    }
+  },
+
+  geocode: async (q: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/coordinator-dashboard/geocode', { params: { q } });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al buscar direcciones',
+      };
+    }
+  },
+
   createReserva: async (data: any): Promise<ApiResponse<any>> => {
     try {
       const response = await api.post('/coordinator-dashboard/reservas', data);
@@ -758,6 +813,66 @@ export const coordinadorDashboardService = {
       return {
         success: false,
         message: error.response?.data?.message || 'Error al cargar estadísticas',
+      };
+    }
+  },
+
+  getLiquidacionesPendientes: async (choferId: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get(`/coordinator-dashboard/liquidaciones/pendientes/${choferId}`);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar liquidaciones pendientes',
+      };
+    }
+  },
+
+  crearLiquidacion: async (payload: { choferId: string; combustible: number; observaciones?: string }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/coordinator-dashboard/liquidaciones/crear', payload);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al registrar liquidación',
+      };
+    }
+  },
+
+  getResumenCoordinador: async (): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/coordinator-dashboard/liquidaciones/resumen-coordinador');
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar resumen del turno',
+      };
+    }
+  },
+
+  getHistorialDuenio: async (): Promise<ApiResponse<any[]>> => {
+    try {
+      const response = await api.get('/coordinator-dashboard/liquidaciones/duenio/historial');
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar historial de liquidaciones',
+      };
+    }
+  },
+
+  getHistorialChofer: async (): Promise<ApiResponse<any[]>> => {
+    try {
+      const response = await api.get('/coordinator-dashboard/liquidaciones/chofer/historial');
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar historial de liquidaciones del chofer',
       };
     }
   },

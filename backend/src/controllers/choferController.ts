@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { AuthenticatedRequest } from '../types';
 import bcrypt from 'bcryptjs';
@@ -6,12 +6,27 @@ import bcrypt from 'bcryptjs';
 
 export const choferController = {
   // Obtener todos los choferes
-  async getAll(req: Request, res: Response) {
+  async getAll(req: AuthenticatedRequest, res: Response) {
     try {
+      const { rol, id: userId } = req.user!;
+      let whereClause: any = {};
+
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } }
+        });
+        const remiseriaIds = duenio?.remiserias.map(r => r.remiseriaId) || [];
+        whereClause = { remiseriaId: { in: remiseriaIds } };
+      } else if (rol === 'COORDINADOR') {
+        const coordinador = await prisma.coordinador.findFirst({
+          where: { userId }
+        });
+        whereClause = { remiseriaId: coordinador?.remiseriaId || '' };
+      }
+
       const choferes = await prisma.chofer.findMany({
-        where: {
-          // Removemos el filtro de activo para obtener todos
-        },
+        where: whereClause,
         include: {
           remiseria: {
             select: {
@@ -47,9 +62,35 @@ export const choferController = {
   },
 
   // Obtener choferes por remisería
-  async getByRemiseria(req: Request, res: Response) {
+  async getByRemiseria(req: AuthenticatedRequest, res: Response) {
     try {
       const { remiseriaId } = req.params;
+      const { rol, id: userId } = req.user!;
+
+      // Validar acceso a la remiseriaId
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } }
+        });
+        const remiseriaIds = duenio?.remiserias.map(r => r.remiseriaId) || [];
+        if (!remiseriaIds.includes(remiseriaId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para acceder a esta remisería',
+          });
+        }
+      } else if (rol === 'COORDINADOR') {
+        const coordinador = await prisma.coordinador.findFirst({
+          where: { userId }
+        });
+        if (coordinador?.remiseriaId !== remiseriaId) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para acceder a esta remisería',
+          });
+        }
+      }
 
       const choferes = await prisma.chofer.findMany({
         where: {
@@ -90,9 +131,10 @@ export const choferController = {
   },
 
   // Obtener chofer por ID
-  async getById(req: Request, res: Response) {
+  async getById(req: AuthenticatedRequest, res: Response) {
     try {
       const { id } = req.params;
+      const { rol, id: userId } = req.user!;
 
       const chofer = await prisma.chofer.findFirst({
         where: {
@@ -121,6 +163,31 @@ export const choferController = {
           success: false,
           message: 'Chofer no encontrado',
         });
+      }
+
+      // Validar acceso
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } }
+        });
+        const remiseriaIds = duenio?.remiserias.map(r => r.remiseriaId) || [];
+        if (!remiseriaIds.includes(chofer.remiseriaId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para ver este chofer',
+          });
+        }
+      } else if (rol === 'COORDINADOR') {
+        const coordinador = await prisma.coordinador.findFirst({
+          where: { userId }
+        });
+        if (coordinador?.remiseriaId !== chofer.remiseriaId) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para ver este chofer',
+          });
+        }
       }
 
       res.json({
@@ -152,7 +219,8 @@ export const choferController = {
         observaciones, 
         remiseriaId, 
         vehiculoId,
-        esPropietario
+        esPropietario,
+        comisionPorcentaje
       } = req.body;
 
       // Validar campos requeridos
@@ -201,6 +269,32 @@ export const choferController = {
           success: false,
           message: 'Remisería no encontrada',
         });
+      }
+
+      // Validar acceso del usuario creador a la remisería
+      const { rol, id: userId } = req.user!;
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } }
+        });
+        const remiseriaIds = duenio?.remiserias.map(r => r.remiseriaId) || [];
+        if (!remiseriaIds.includes(remiseriaId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para crear choferes en esta remisería',
+          });
+        }
+      } else if (rol === 'COORDINADOR') {
+        const coordinador = await prisma.coordinador.findFirst({
+          where: { userId }
+        });
+        if (coordinador?.remiseriaId !== remiseriaId) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para crear choferes en esta remisería',
+          });
+        }
       }
 
       // Verificar que el vehículo existe si se proporciona
@@ -259,6 +353,7 @@ export const choferController = {
             vtoLicencia: new Date(vtoLicencia),
             observaciones: observaciones || null,
             esPropietario: esPropietario || false,
+            comisionPorcentaje: comisionPorcentaje !== undefined ? parseFloat(comisionPorcentaje) : 30.0,
             remiseriaId,
             vehiculoId: vehiculoId || null,
             userId: user.id,
@@ -329,7 +424,8 @@ export const choferController = {
         observaciones, 
         estado, 
         vehiculoId,
-        esPropietario
+        esPropietario,
+        comisionPorcentaje
       } = req.body;
 
       // Verificar que el chofer existe
@@ -344,6 +440,32 @@ export const choferController = {
           success: false,
           message: 'Chofer no encontrado',
         });
+      }
+
+      // Validar acceso
+      const { rol, id: userId } = req.user!;
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } }
+        });
+        const remiseriaIds = duenio?.remiserias.map(r => r.remiseriaId) || [];
+        if (!remiseriaIds.includes(existingChofer.remiseriaId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para modificar choferes de esta remisería',
+          });
+        }
+      } else if (rol === 'COORDINADOR') {
+        const coordinador = await prisma.coordinador.findFirst({
+          where: { userId }
+        });
+        if (coordinador?.remiseriaId !== existingChofer.remiseriaId) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para modificar choferes de esta remisería',
+          });
+        }
       }
 
       // Si se está cambiando el número de chofer, verificar que no exista
@@ -409,6 +531,7 @@ export const choferController = {
       if (estado !== undefined) updateData.estado = estado;
       if (vehiculoId !== undefined) updateData.vehiculoId = vehiculoId;
       if (esPropietario !== undefined) updateData.esPropietario = esPropietario;
+      if (comisionPorcentaje !== undefined) updateData.comisionPorcentaje = parseFloat(comisionPorcentaje);
 
       const chofer = await prisma.chofer.update({
         where: { id },
@@ -478,6 +601,32 @@ export const choferController = {
         });
       }
 
+      // Validar acceso
+      const { rol, id: userId } = req.user!;
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } }
+        });
+        const remiseriaIds = duenio?.remiserias.map(r => r.remiseriaId) || [];
+        if (!remiseriaIds.includes(chofer.remiseriaId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para eliminar choferes de esta remisería',
+          });
+        }
+      } else if (rol === 'COORDINADOR') {
+        const coordinador = await prisma.coordinador.findFirst({
+          where: { userId }
+        });
+        if (coordinador?.remiseriaId !== chofer.remiseriaId) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para eliminar choferes de esta remisería',
+          });
+        }
+      }
+
       // Baja lógica (marcar como dado de baja)
       await prisma.chofer.update({
         where: { id },
@@ -525,6 +674,32 @@ export const choferController = {
           success: false,
           message: 'Chofer no encontrado',
         });
+      }
+
+      // Validar acceso
+      const { rol, id: userId } = req.user!;
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } }
+        });
+        const remiseriaIds = duenio?.remiserias.map(r => r.remiseriaId) || [];
+        if (!remiseriaIds.includes(chofer.remiseriaId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para modificar choferes de esta remisería',
+          });
+        }
+      } else if (rol === 'COORDINADOR') {
+        const coordinador = await prisma.coordinador.findFirst({
+          where: { userId }
+        });
+        if (coordinador?.remiseriaId !== chofer.remiseriaId) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos para modificar choferes de esta remisería',
+          });
+        }
       }
 
       // Cambiar estado: ACTIVO -> SUSPENDIDO -> DADO_DE_BAJA -> ACTIVO
@@ -591,6 +766,44 @@ export const choferController = {
       });
     } catch (error) {
       console.error('Error toggling chofer status:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+  // Cambiar estado online del chofer
+  async updateOnlineStatus(req: AuthenticatedRequest, res: Response) {
+    try {
+      const choferId = req.user?.chofer?.id;
+      const { isOnline } = req.body;
+
+      if (!choferId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Usuario no es un chofer',
+        });
+      }
+
+      if (typeof isOnline !== 'boolean') {
+        return res.status(400).json({
+          success: false,
+          message: 'El estado isOnline es requerido',
+        });
+      }
+
+      const updatedChofer = await prisma.chofer.update({
+        where: { id: choferId },
+        data: { isOnline },
+      });
+
+      res.json({
+        success: true,
+        data: updatedChofer,
+        message: isOnline ? 'Chofer conectado exitosamente' : 'Chofer desconectado exitosamente',
+      });
+    } catch (error) {
+      console.error('Error updating online status:', error);
       res.status(500).json({
         success: false,
         message: 'Error interno del servidor',

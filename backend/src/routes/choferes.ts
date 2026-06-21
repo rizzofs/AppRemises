@@ -28,4 +28,7 @@ router.delete('/:id', choferController.delete);
 // Cambiar estado del chofer
 router.patch('/:id/toggle-status', choferController.toggleStatus);
 
+// Cambiar estado online del chofer
+router.patch('/online-status', choferController.updateOnlineStatus);
+
 export default router; 

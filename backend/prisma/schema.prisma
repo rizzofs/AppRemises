@@ -34,6 +34,9 @@ model User {
   // Relación 1:1 con Chofer
   chofer Chofer?
 
+  // Relación 1:N con Liquidacion
+  liquidaciones Liquidacion[]
+
   @@map("users")
 }
 
@@ -64,6 +67,7 @@ model Remiseria {
   telefono      String
   estado        Boolean  @default(true)
   comisionPorcentaje Float @default(30.0)
+  comisionDuenioAuto Float @default(20.0)
   valorKm       Float    @default(1200)
   bajadaBandera Float    @default(3500)
   valorHoraEspera Float  @default(10000)
@@ -171,6 +175,8 @@ model Chofer {
   estado           ChoferEstado @default(ACTIVO)
   observaciones    String?
   esPropietario    Boolean  @default(false)
+  comisionPorcentaje Float  @default(30.0)
+  isOnline         Boolean  @default(false)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -191,6 +197,9 @@ model Chofer {
   // Relación 1:1 con User
   userId String? @unique
   user   User?  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Relación 1:N con Liquidacion
+  liquidaciones Liquidacion[]
 
   @@map("choferes")
 }
@@ -268,6 +277,10 @@ model Viaje {
   // Relación N:1 con Vehiculo (opcional, puede estar sin asignar)
   vehiculoId String?
   vehiculo   Vehiculo? @relation(fields: [vehiculoId], references: [id])
+
+  // Relación N:1 con Liquidacion
+  liquidacionId String?
+  liquidacion   Liquidacion? @relation(fields: [liquidacionId], references: [id])
 
   @@map("viajes")
 }
@@ -369,4 +382,25 @@ enum ReservaEstado {
   ACTIVA
   CANCELADA
   COMPLETADA
+}
+
+model Liquidacion {
+  id                  String    @id @default(cuid())
+  fecha               DateTime  @default(now())
+  choferId            String
+  chofer              Chofer    @relation(fields: [choferId], references: [id], onDelete: Cascade)
+  coordinadorId       String
+  coordinador         User      @relation(fields: [coordinadorId], references: [id], onDelete: Cascade)
+  totalRecaudado      Float
+  combustible         Float     @default(0.0)
+  comisionChofer      Float     @default(0.0)
+  comisionAgencia     Float     @default(0.0)
+  gananciaPropietario Float     @default(0.0)
+  observaciones       String?
+  createdAt           DateTime  @default(now())
+
+  // Relación con los viajes asociados a este cierre
+  viajes              Viaje[]
+
+  @@map("liquidaciones")
 } 

@@ -75,6 +75,8 @@ export interface UpdateRemiseriaRequest {
   valorKm?: number;
   bajadaBandera?: number;
   valorHoraEspera?: number;
+  comisionDuenioAuto?: number;
+  comisionPorcentaje?: number;
 }
 
 export interface CreateDuenioRequest {

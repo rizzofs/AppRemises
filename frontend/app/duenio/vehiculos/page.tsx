@@ -31,6 +31,7 @@ export default function VehiculosPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'ACTIVO' | 'MANTENIMIENTO' | 'INACTIVO'>('all');
+  const [filterRemiseria, setFilterRemiseria] = useState<string>('all');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editingVehiculo, setEditingVehiculo] = useState<Vehiculo | null>(null);
@@ -262,8 +263,9 @@ export default function VehiculosPage() {
       vehiculo.propietario.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesStatus = statusFilter === 'all' || vehiculo.estado === statusFilter;
+    const matchesRemiseria = filterRemiseria === 'all' || vehiculo.remiseriaId === filterRemiseria;
     
-    return matchesSearch && matchesStatus;
+    return matchesSearch && matchesStatus && matchesRemiseria;
   });
 
   if (loading) {
@@ -313,6 +315,16 @@ export default function VehiculosPage() {
             <option value="MANTENIMIENTO">En Mantenimiento</option>
             <option value="INACTIVO">Inactivos</option>
           </select>
+          <select
+            value={filterRemiseria}
+            onChange={(e) => setFilterRemiseria(e.target.value)}
+            className="input max-w-[200px] bg-white cursor-pointer"
+          >
+            <option value="all">Todas las remiserías</option>
+            {remiserias.map(r => (
+              <option key={r.id} value={r.id}>{r.nombreFantasia}</option>
+            ))}
+          </select>
         </div>
 
         {/* Vehicles Table */}
@@ -336,6 +348,7 @@ export default function VehiculosPage() {
                   <tr>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Vehículo</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Propietario</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Remisería</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Capacidad</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Vencimientos</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
@@ -365,6 +378,11 @@ export default function VehiculosPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-slate-700">{vehiculo.propietario}</div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-slate-600">
+                          {vehiculo.remiseria?.nombreFantasia || 'N/A'}
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-slate-700">{vehiculo.capacidad} pasajeros</div>

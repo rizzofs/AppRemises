@@ -20,6 +20,7 @@ export default function ChoferesPage() {
   const [selectedChofer, setSelectedChofer] = useState<Chofer | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterEstado, setFilterEstado] = useState<'all' | 'ACTIVO' | 'SUSPENDIDO' | 'DADO_DE_BAJA'>('all');
+  const [filterRemiseria, setFilterRemiseria] = useState<string>('all');
 
   // Formulario de creación/edición
   const [formData, setFormData] = useState<CreateChoferData>({
@@ -34,7 +35,8 @@ export default function ChoferesPage() {
     vtoLicencia: '',
     remiseriaId: '',
     vehiculoId: '',
-    esPropietario: false
+    esPropietario: false,
+    comisionPorcentaje: 30
   });
 
   useEffect(() => {
@@ -139,7 +141,8 @@ export default function ChoferesPage() {
         categoriaLicencia: formData.categoriaLicencia,
         vtoLicencia: formData.vtoLicencia,
         vehiculoId: formData.vehiculoId,
-        esPropietario: formData.esPropietario
+        esPropietario: formData.esPropietario,
+        comisionPorcentaje: formData.comisionPorcentaje
       };
 
       const response = await choferService.update(selectedChofer.id, updateData);
@@ -214,10 +217,11 @@ export default function ChoferesPage() {
       email: chofer.email || '',
       direccion: chofer.direccion || '',
       categoriaLicencia: chofer.categoriaLicencia,
-      vtoLicencia: chofer.vtoLicencia,
+      vtoLicencia: chofer.vtoLicencia.split('T')[0], // format date for input type=date
       remiseriaId: chofer.remiseriaId,
       vehiculoId: chofer.vehiculoId || '',
-      esPropietario: chofer.esPropietario || false
+      esPropietario: chofer.esPropietario || false,
+      comisionPorcentaje: chofer.comisionPorcentaje !== undefined ? chofer.comisionPorcentaje : 30
     });
     setShowEditModal(true);
   };
@@ -235,7 +239,8 @@ export default function ChoferesPage() {
       vtoLicencia: '',
       remiseriaId: '',
       vehiculoId: '',
-      esPropietario: false
+      esPropietario: false,
+      comisionPorcentaje: 30
     });
     setShowCreateModal(true);
   };
@@ -249,8 +254,9 @@ export default function ChoferesPage() {
       chofer.dni.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesFilter = filterEstado === 'all' || chofer.estado === filterEstado;
+    const matchesRemiseria = filterRemiseria === 'all' || chofer.remiseriaId === filterRemiseria;
     
-    return matchesSearch && matchesFilter;
+    return matchesSearch && matchesFilter && matchesRemiseria;
   });
 
   const getEstadoColor = (estado: string) => {
@@ -319,6 +325,16 @@ export default function ChoferesPage() {
             <option value="SUSPENDIDO">Suspendidos</option>
             <option value="DADO_DE_BAJA">Dados de Baja</option>
           </select>
+          <select
+            value={filterRemiseria}
+            onChange={(e) => setFilterRemiseria(e.target.value)}
+            className="input max-w-[200px] bg-white cursor-pointer"
+          >
+            <option value="all">Todas las remiserías</option>
+            {remiserias.map(r => (
+              <option key={r.id} value={r.id}>{r.nombreFantasia}</option>
+            ))}
+          </select>
         </div>
 
         {/* Lista de choferes */}
@@ -349,6 +365,7 @@ export default function ChoferesPage() {
                   <tr>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Chofer</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Contacto</th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Remisería</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Tipo</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Vehículo Asignado</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
@@ -388,13 +405,18 @@ export default function ChoferesPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="text-sm text-slate-600">
+                          {chofer.remiseria?.nombreFantasia || 'N/A'}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-slate-700">
                           <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-md ${
                             chofer.esPropietario 
                               ? 'bg-purple-100 text-purple-800 border border-purple-200' 
                               : 'bg-blue-100 text-blue-800 border border-blue-200'
                           }`}>
-                            {chofer.esPropietario ? 'Propietario' : 'Asignado'}
+                            {chofer.esPropietario ? 'Propietario' : `Asignado (${chofer.comisionPorcentaje}%)`}
                           </span>
                         </div>
                       </td>
@@ -641,6 +663,27 @@ export default function ChoferesPage() {
                     <span className="ml-2 text-sm text-gray-700">Dueño del vehículo (Propietario)</span>
                   </label>
                 </div>
+                {formData.esPropietario === false && (
+                  <div className="mt-4 max-w-xs">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Comisión del Chofer (%)
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.5"
+                        value={formData.comisionPorcentaje !== undefined ? formData.comisionPorcentaje : 30}
+                        onChange={(e) => setFormData({ ...formData, comisionPorcentaje: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                        <span className="text-gray-500 sm:text-sm">%</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Asignación */}
@@ -852,6 +895,27 @@ export default function ChoferesPage() {
                       </label>
                     </div>
                   </div>
+                  {formData.esPropietario === false && (
+                    <div className="md:col-span-2">
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Comisión del Chofer (%)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.5"
+                          value={formData.comisionPorcentaje !== undefined ? formData.comisionPorcentaje : 30}
+                          onChange={(e) => setFormData({ ...formData, comisionPorcentaje: parseFloat(e.target.value) || 0 })}
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        />
+                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                          <span className="text-gray-500 sm:text-sm">%</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Vehículo Asignado

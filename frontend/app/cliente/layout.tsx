@@ -1,3 +1,5 @@
+import LogoutButton from '@/components/LogoutButton';
+
 export default function ClienteLayout({
   children,
 }: {
@@ -7,10 +9,13 @@ export default function ClienteLayout({
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <header className="bg-white p-4 shadow-sm sticky top-0 z-10 flex justify-between items-center border-b border-gray-100">
         <h1 className="text-xl font-bold text-gray-800">AppRemises</h1>
-        <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-600">
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
-          </svg>
+        <div className="flex items-center space-x-2">
+          <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-primary-600">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
+            </svg>
+          </div>
+          <LogoutButton className="text-gray-500 hover:text-red-500" />
         </div>
       </header>
 

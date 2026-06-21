@@ -742,9 +742,31 @@ export const buscarClientePorDni = async (req: Request, res: Response) => {
       });
     }
 
+    // Buscar viajes del cliente para obtener direcciones frecuentes
+    const pastVoyages = await prisma.viaje.findMany({
+      where: { clienteId: cliente.id },
+      select: {
+        origen: true,
+        destino: true
+      },
+      orderBy: {
+        fecha: 'desc'
+      },
+      take: 20
+    });
+
+    const uniqueOrigins = Array.from(new Set(pastVoyages.map(v => v.origen).filter(Boolean)));
+    const uniqueDestinations = Array.from(new Set(pastVoyages.map(v => v.destino).filter(Boolean)));
+
     res.json({
       success: true,
-      data: cliente,
+      data: {
+        ...cliente,
+        direccionesFrecuentes: {
+          origenes: uniqueOrigins,
+          destinos: uniqueDestinations
+        }
+      },
       message: 'Cliente encontrado'
     });
   } catch (error) {
