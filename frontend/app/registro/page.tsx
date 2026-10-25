@@ -331,11 +331,17 @@ export default function RegistroPage() {
             </button>
           </div>
 
-          <div className="text-center">
+          <div className="text-center space-y-2">
             <p className="text-sm text-gray-600">
               ¿Ya tienes una cuenta?{' '}
               <Link href="/login" className="font-medium text-blue-600 hover:text-blue-500">
                 Inicia sesión
+              </Link>
+            </p>
+            <p className="text-sm text-gray-600">
+              ¿Sos chofer?{' '}
+              <Link href="/registro-chofer" className="font-semibold text-emerald-600 hover:text-emerald-700">
+                Postulate aquí
               </Link>
             </p>
           </div>

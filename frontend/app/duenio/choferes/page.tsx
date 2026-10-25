@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { choferService, remiseriaService, vehiculoService } from '@/lib/api';
 import { Chofer, CreateChoferData, Remiseria, Vehiculo } from '@/types';
-import { Truck, Plus, Edit, Trash2, Eye, EyeOff, Search, Filter, ArrowLeft, User, Calendar, Phone, Mail, MapPin, FileText } from 'lucide-react';
+import { Truck, Plus, Edit, Trash2, Eye, EyeOff, Search, Filter, ArrowLeft, User, Calendar, Phone, Mail, MapPin, FileText, CheckCircle, XCircle, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function ChoferesPage() {
@@ -19,8 +19,16 @@ export default function ChoferesPage() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedChofer, setSelectedChofer] = useState<Chofer | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterEstado, setFilterEstado] = useState<'all' | 'ACTIVO' | 'SUSPENDIDO' | 'DADO_DE_BAJA'>('all');
+  const [filterEstado, setFilterEstado] = useState<'all' | 'PENDIENTE_APROBACION' | 'ACTIVO' | 'SUSPENDIDO' | 'RECHAZADO' | 'DADO_DE_BAJA'>('all');
   const [filterRemiseria, setFilterRemiseria] = useState<string>('all');
+
+  // Estado para modal de Aprobación y Rechazo
+  const [choferParaAprobar, setChoferParaAprobar] = useState<Chofer | null>(null);
+  const [choferParaRechazar, setChoferParaRechazar] = useState<Chofer | null>(null);
+  const [aprobarComision, setAprobarComision] = useState<number>(30);
+  const [aprobarVehiculoId, setAprobarVehiculoId] = useState<string>('');
+  const [motivoRechazoInput, setMotivoRechazoInput] = useState<string>('');
+  const [actionSubmitting, setActionSubmitting] = useState<boolean>(false);
 
   // Formulario de creación/edición
   const [formData, setFormData] = useState<CreateChoferData>({
@@ -259,16 +267,64 @@ export default function ChoferesPage() {
     return matchesSearch && matchesFilter && matchesRemiseria;
   });
 
+  const handleAprobarChofer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!choferParaAprobar) return;
+    setActionSubmitting(true);
+    try {
+      const res = await choferService.aprobar(choferParaAprobar.id, {
+        comisionPorcentaje: Number(aprobarComision),
+        vehiculoId: aprobarVehiculoId || undefined,
+      });
+      if (res.success) {
+        toast.success(res.message || 'Chofer aprobado exitosamente');
+        setChoferParaAprobar(null);
+        await loadChoferes();
+      } else {
+        toast.error(res.message || 'Error al aprobar chofer');
+      }
+    } catch {
+      toast.error('Error al aprobar chofer');
+    } finally {
+      setActionSubmitting(false);
+    }
+  };
+
+  const handleRechazarChofer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!choferParaRechazar) return;
+    setActionSubmitting(true);
+    try {
+      const res = await choferService.rechazar(choferParaRechazar.id, motivoRechazoInput);
+      if (res.success) {
+        toast.success('Solicitud rechazada');
+        setChoferParaRechazar(null);
+        setMotivoRechazoInput('');
+        await loadChoferes();
+      } else {
+        toast.error(res.message || 'Error al rechazar chofer');
+      }
+    } catch {
+      toast.error('Error al rechazar chofer');
+    } finally {
+      setActionSubmitting(false);
+    }
+  };
+
   const getEstadoColor = (estado: string) => {
     switch (estado) {
       case 'ACTIVO':
-        return 'bg-green-100 text-green-800';
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      case 'PENDIENTE_APROBACION':
+        return 'bg-amber-50 text-amber-700 border-amber-300 ring-1 ring-amber-300';
       case 'SUSPENDIDO':
-        return 'bg-yellow-100 text-yellow-800';
+        return 'bg-yellow-50 text-yellow-700 border-yellow-200';
+      case 'RECHAZADO':
+        return 'bg-rose-50 text-rose-700 border-rose-200';
       case 'DADO_DE_BAJA':
-        return 'bg-red-100 text-red-800';
+        return 'bg-red-50 text-red-700 border-red-200';
       default:
-        return 'bg-gray-100 text-gray-800';
+        return 'bg-gray-100 text-gray-800 border-gray-200';
     }
   };
 
@@ -276,8 +332,12 @@ export default function ChoferesPage() {
     switch (estado) {
       case 'ACTIVO':
         return 'Activo';
+      case 'PENDIENTE_APROBACION':
+        return '⏳ Pendiente Aprobación';
       case 'SUSPENDIDO':
         return 'Suspendido';
+      case 'RECHAZADO':
+        return 'Rechazado';
       case 'DADO_DE_BAJA':
         return 'Dado de Baja';
       default:
@@ -287,19 +347,48 @@ export default function ChoferesPage() {
 
   if (!user) return null;
 
+  const solicitudesPendientes = choferes.filter((c) => c.estado === 'PENDIENTE_APROBACION');
+
   return (
     <div className="space-y-6">
+      {/* Alerta de Choferes Pendientes de Aprobación */}
+      {solicitudesPendientes.length > 0 && filterEstado !== 'PENDIENTE_APROBACION' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold text-base shadow-xs">
+              <Clock className="w-5 h-5 animate-pulse" />
+            </div>
+            <div>
+              <p className="font-bold text-amber-900 text-sm">
+                {solicitudesPendientes.length === 1
+                  ? 'Tienes 1 nueva solicitud de chofer pendiente'
+                  : `Tienes ${solicitudesPendientes.length} nuevas solicitudes de choferes pendientes`}
+              </p>
+              <p className="text-xs text-amber-700">
+                Choferes que completaron su registro con documentación y esperan tu aprobación para operar.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setFilterEstado('PENDIENTE_APROBACION')}
+            className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors shrink-0"
+          >
+            Ver Pendientes ({solicitudesPendientes.length})
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
         <div>
           <h2 className="text-xl font-bold text-slate-900">Choferes</h2>
-          <p className="text-sm text-slate-500">Gestioná los choferes de tus remiserías.</p>
+          <p className="text-sm text-slate-500">Gestioná las postulaciones y choferes de tus remiserías.</p>
         </div>
         <button
           onClick={openCreateModal}
           className="btn btn-primary shadow-md shadow-primary-500/20"
         >
           <Plus className="w-5 h-5 mr-2" />
-          Nuevo Chofer
+          Nuevo Chofer (Manual)
         </button>
       </div>
 
@@ -318,11 +407,13 @@ export default function ChoferesPage() {
           <select
             value={filterEstado}
             onChange={(e) => setFilterEstado(e.target.value as any)}
-            className="input max-w-[200px] bg-white cursor-pointer"
+            className="input max-w-[220px] bg-white cursor-pointer font-medium text-xs"
           >
             <option value="all">Todos los estados</option>
+            <option value="PENDIENTE_APROBACION">⏳ Pendientes de Aprobación</option>
             <option value="ACTIVO">Activos</option>
             <option value="SUSPENDIDO">Suspendidos</option>
+            <option value="RECHAZADO">Rechazados</option>
             <option value="DADO_DE_BAJA">Dados de Baja</option>
           </select>
           <select
@@ -435,38 +526,62 @@ export default function ChoferesPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-full border ${
-                          chofer.estado === 'ACTIVO' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                          chofer.estado === 'SUSPENDIDO' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                          'bg-red-50 text-red-700 border-red-200'
-                        }`}>
+                        <span className={`inline-flex px-2.5 py-1 text-xs font-semibold rounded-full border ${getEstadoColor(chofer.estado)}`}>
                           {getEstadoText(chofer.estado)}
                         </span>
                       </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <div className="flex justify-end space-x-2">
-                            <button
-                              onClick={() => handleToggleStatus(chofer.id)}
-                              className="text-blue-600 hover:text-blue-900"
-                              title="Cambiar estado"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => openEditModal(chofer)}
-                              className="text-indigo-600 hover:text-indigo-900"
-                              title="Editar"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDelete(chofer.id)}
-                              className="text-red-600 hover:text-red-900"
-                              title="Eliminar"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
+                          {chofer.estado === 'PENDIENTE_APROBACION' ? (
+                            <div className="flex justify-end items-center space-x-2">
+                              <button
+                                onClick={() => {
+                                  setChoferParaAprobar(chofer);
+                                  setAprobarComision(chofer.comisionPorcentaje || 30);
+                                  setAprobarVehiculoId(chofer.vehiculoId || '');
+                                }}
+                                className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                                title="Aprobar Solicitud"
+                              >
+                                <CheckCircle className="w-3.5 h-3.5" />
+                                Aprobar
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setChoferParaRechazar(chofer);
+                                  setMotivoRechazoInput('');
+                                }}
+                                className="inline-flex items-center gap-1 px-3 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                                title="Rechazar Solicitud"
+                              >
+                                <XCircle className="w-3.5 h-3.5" />
+                                Rechazar
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex justify-end space-x-2">
+                              <button
+                                onClick={() => handleToggleStatus(chofer.id)}
+                                className="text-blue-600 hover:text-blue-900"
+                                title="Cambiar estado"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => openEditModal(chofer)}
+                                className="text-indigo-600 hover:text-indigo-900"
+                                title="Editar"
+                              >
+                                <Edit className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDelete(chofer.id)}
+                                className="text-red-600 hover:text-red-900"
+                                title="Eliminar"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -951,6 +1066,164 @@ export default function ChoferesPage() {
                 </div>
               </form>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Modal de Aprobación de Chofer */}
+      {choferParaAprobar && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+          <div className="relative mx-auto p-6 border w-full max-w-lg shadow-xl rounded-2xl bg-white animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                  <CheckCircle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Aprobar Chofer</h3>
+                  <p className="text-xs text-gray-500">
+                    {choferParaAprobar.nombre} {choferParaAprobar.apellido} ({choferParaAprobar.numeroChofer})
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setChoferParaAprobar(null)}
+                className="text-gray-400 hover:text-gray-600 rounded-lg p-1 hover:bg-gray-100"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleAprobarChofer} className="mt-4 space-y-4">
+              <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-xs space-y-1">
+                <div className="text-slate-500"><span className="font-semibold text-slate-700">DNI:</span> {choferParaAprobar.dni}</div>
+                <div className="text-slate-500"><span className="font-semibold text-slate-700">Teléfono:</span> {choferParaAprobar.telefono}</div>
+                <div className="text-slate-500"><span className="font-semibold text-slate-700">Licencia:</span> {choferParaAprobar.categoriaLicencia} (Vence: {new Date(choferParaAprobar.vtoLicencia).toLocaleDateString()})</div>
+                <div className="text-slate-500"><span className="font-semibold text-slate-700">Tipo:</span> {choferParaAprobar.esPropietario ? 'Propietario de auto propio' : 'Chofer de flota (Asignado)'}</div>
+              </div>
+
+              {!choferParaAprobar.esPropietario && (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Comisión de Chofer Asignado (%)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.5"
+                      required
+                      value={aprobarComision}
+                      onChange={(e) => setAprobarComision(parseFloat(e.target.value) || 0)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
+                    />
+                    <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-gray-400 text-sm">
+                      %
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">Porcentaje que le corresponde al chofer por viaje.</p>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Vehículo Asignado {choferParaAprobar.esPropietario ? '(Opcional o auto propio)' : '(Opcional, puede asignarse luego)'}
+                </label>
+                <select
+                  value={aprobarVehiculoId}
+                  onChange={(e) => setAprobarVehiculoId(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-transparent text-sm"
+                >
+                  <option value="">Sin asignar por ahora</option>
+                  {vehiculos.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.patente} - {v.marca} {v.modelo} ({v.anio})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setChoferParaAprobar(null)}
+                  disabled={actionSubmitting}
+                  className="px-4 py-2 border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionSubmitting}
+                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-medium transition-colors flex items-center gap-2 shadow-sm"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  {actionSubmitting ? 'Aprobando...' : 'Confirmar Aprobación'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Rechazo de Chofer */}
+      {choferParaRechazar && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs overflow-y-auto h-full w-full z-50 flex items-center justify-center p-4">
+          <div className="relative mx-auto p-6 border w-full max-w-md shadow-xl rounded-2xl bg-white animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center">
+                  <XCircle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Rechazar Solicitud</h3>
+                  <p className="text-xs text-gray-500">
+                    {choferParaRechazar.nombre} {choferParaRechazar.apellido}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setChoferParaRechazar(null)}
+                className="text-gray-400 hover:text-gray-600 rounded-lg p-1 hover:bg-gray-100"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleRechazarChofer} className="mt-4 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-1">
+                  Motivo del Rechazo (Opcional)
+                </label>
+                <textarea
+                  rows={3}
+                  value={motivoRechazoInput}
+                  onChange={(e) => setMotivoRechazoInput(e.target.value)}
+                  placeholder="Ej: Licencia vencida, documentación ilegible, cupo completo..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-rose-500 focus:border-transparent text-sm resize-none"
+                />
+                <p className="text-xs text-gray-500 mt-1">El chofer podrá ver este motivo al intentar ingresar a la aplicación.</p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setChoferParaRechazar(null)}
+                  disabled={actionSubmitting}
+                  className="px-4 py-2 border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={actionSubmitting}
+                  className="px-5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-medium transition-colors flex items-center gap-2 shadow-sm"
+                >
+                  <XCircle className="w-4 h-4" />
+                  {actionSubmitting ? 'Rechazando...' : 'Confirmar Rechazo'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

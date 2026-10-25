@@ -165,9 +165,9 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <div className="mt-6 text-center">
+          <div className="mt-6 text-center space-y-2">
             <p className="text-sm text-gray-600">
-              ¿No tienes cuenta?{' '}
+              ¿No tienes cuenta de cliente?{' '}
               <Link
                 href="/registro"
                 className="text-primary-600 hover:text-primary-700 font-medium"
@@ -175,7 +175,16 @@ export default function LoginPage() {
                 Regístrate aquí
               </Link>
             </p>
-            <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <p className="text-sm text-gray-600">
+              ¿Querés trabajar de chofer?{' '}
+              <Link
+                href="/registro-chofer"
+                className="text-emerald-600 hover:text-emerald-700 font-semibold"
+              >
+                Postulate como chofer aquí
+              </Link>
+            </p>
+            <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200 text-left">
               <p className="text-sm font-medium text-blue-800 mb-2">Credenciales Demo (Click para autocompletar):</p>
               <div className="text-xs text-blue-700 space-y-1">
                 <button type="button" onClick={() => { setValue('email', 'coord@appremises.com'); setValue('password', 'coord123'); }} className="block w-full text-left hover:bg-blue-100 p-1.5 rounded transition-colors">

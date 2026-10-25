@@ -39,6 +39,8 @@ export interface AuthenticatedRequest extends Request {
       nombre: string;
       apellido: string;
       remiseriaId: string;
+      estado?: string;
+      motivoRechazo?: string | null;
     };
   };
 }

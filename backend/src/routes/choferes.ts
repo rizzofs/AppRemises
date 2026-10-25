@@ -4,8 +4,31 @@ import { authenticateToken } from '../middleware/auth';
 
 const router = express.Router();
 
-// Aplicar middleware de autenticación a todas las rutas
+// Rutas públicas de auto-registro del chofer (sin token)
+router.post('/registro', choferController.registroPublico);
+router.get('/remiserias-disponibles', choferController.getRemiseriasDisponibles);
+
+// Aplicar middleware de autenticación a todas las rutas protegidas
 router.use(authenticateToken);
+
+// Rutas de la App del Chofer (deben ir antes de /:id)
+router.get('/mi-estado', choferController.getMiEstado);
+router.get('/mis-viajes', choferController.getMisViajes);
+router.patch('/online-status', choferController.updateOnlineStatus);
+router.post('/viajes/:viajeId/aceptar', choferController.aceptarViaje);
+router.patch('/viajes/:viajeId/estado', choferController.actualizarEstadoViaje);
+
+// Rutas de Turno y Tracking de Kilometraje
+router.get('/turno/activo', choferController.getTurnoActivo);
+router.post('/turno/iniciar', choferController.iniciarTurno);
+router.post('/turno/finalizar', choferController.finalizarTurno);
+router.patch('/turno/actualizar-km', choferController.actualizarKmTurno);
+
+// Rutas de Gastos y Finanzas del Chofer
+router.get('/gastos', choferController.getMisGastos);
+router.post('/gastos', choferController.crearGasto);
+router.delete('/gastos/:gastoId', choferController.eliminarGasto);
+router.get('/resumen-financiero', choferController.getResumenFinanciero);
 
 // Obtener todos los choferes
 router.get('/', choferController.getAll);
@@ -28,7 +51,8 @@ router.delete('/:id', choferController.delete);
 // Cambiar estado del chofer
 router.patch('/:id/toggle-status', choferController.toggleStatus);
 
-// Cambiar estado online del chofer
-router.patch('/online-status', choferController.updateOnlineStatus);
+// Aprobar o rechazar solicitud de chofer (Dueño / Coordinador)
+router.patch('/:id/aprobar', choferController.aprobarChofer);
+router.patch('/:id/rechazar', choferController.rechazarChofer);
 
 export default router; 

@@ -4,190 +4,626 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
-import { MapPin, Navigation, Car, CreditCard, Clock } from 'lucide-react';
+import { 
+  MapPin, 
+  Navigation, 
+  Car, 
+  CreditCard, 
+  Clock, 
+  Search,
+  MessageSquare,
+  Phone,
+  Trash2,
+  Calendar,
+  Compass,
+  ArrowRight,
+  Info
+} from 'lucide-react';
+import { clienteService, coordinadorDashboardService } from '@/lib/api';
+import Link from 'next/link';
 
 export default function ClienteApp() {
   const { user } = useAuth();
   const router = useRouter();
 
+  // Inputs y Autocompletado
   const [origen, setOrigen] = useState('');
   const [destino, setDestino] = useState('');
+  const [origenSuggestions, setOrigenSuggestions] = useState<any[]>([]);
+  const [destinoSuggestions, setDestinoSuggestions] = useState<any[]>([]);
+  const [isOrigenSelected, setIsOrigenSelected] = useState(false);
+  const [isDestinoSelected, setIsDestinoSelected] = useState(false);
+  
+  // Coordenadas
+  const [origenCoords, setOrigenCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [destinoCoords, setDestinoCoords] = useState<{ lat: number; lon: number } | null>(null);
+
+  // Estados del Proceso
   const [isCalculando, setIsCalculando] = useState(false);
   const [presupuesto, setPresupuesto] = useState<any>(null);
-  const [estadoViaje, setEstadoViaje] = useState<'IDLE' | 'BUSCANDO' | 'ACEPTADO' | 'EN_CAMINO'>('IDLE');
+  const [observaciones, setObservaciones] = useState('');
+  
+  // Viaje Activo y Polling
+  const [activeViaje, setActiveViaje] = useState<any | null>(null);
+  const [estadoViaje, setEstadoViaje] = useState<'IDLE' | 'BUSCANDO' | 'ACEPTADO' | 'EN_CAMINO' | 'EN_CURSO'>('IDLE');
+  const [isRequesting, setIsRequesting] = useState(false);
+  const [isCanceling, setIsCanceling] = useState(false);
+  const [disponibilidad, setDisponibilidad] = useState<{
+    hayAutosDisponibles: boolean;
+    autosDisponibles: number;
+    autosEnViaje: number;
+    choferesConectados: number;
+    totalVehiculosActivos: number;
+    viajesPendientes: number;
+    todosOcupados: boolean;
+    demoraMin: number;
+    demoraMax: number;
+  } | null>(null);
+
+  const cargarDisponibilidad = async () => {
+    try {
+      const res = await clienteService.getDisponibilidad();
+      if (res.success && res.data) {
+        setDisponibilidad(res.data);
+      }
+    } catch (error) {
+      console.error('Error consultando disponibilidad:', error);
+    }
+  };
 
   useEffect(() => {
     if (!user || user.rol !== 'CLIENTE') {
       router.push('/login');
       return;
     }
+    // Buscar si ya tiene un viaje activo en curso y consultar disponibilidad
+    buscarViajeActivo();
+    cargarDisponibilidad();
+
+    const dispInterval = setInterval(cargarDisponibilidad, 6000);
+    return () => clearInterval(dispInterval);
   }, [user, router]);
 
-  // Simulación de auto-completar mi ubicación actual
-  const usarUbicacionActual = () => {
-    toast.success('Ubicación obtenida');
-    setOrigen('Av. Corrientes 1234, CABA');
+  // Buscar viaje activo inicial
+  const buscarViajeActivo = async () => {
+    try {
+      const res = await clienteService.getViajes();
+      if (res.success && res.data) {
+        const activos = res.data.filter((v: any) => 
+          ['PENDIENTE', 'ACEPTADO', 'EN_CAMINO', 'EN_CURSO'].includes(v.estado)
+        );
+        if (activos.length > 0) {
+          // Tomar el más reciente
+          const viaje = activos[0];
+          actualizarEstadoSegunViaje(viaje);
+        }
+      }
+    } catch (error) {
+      console.error('Error buscando viajes activos:', error);
+    }
   };
 
-  const calcularPrecio = () => {
+  // Ayudante para setear estado según viaje
+  const actualizarEstadoSegunViaje = (viaje: any) => {
+    setActiveViaje(viaje);
+    if (viaje.estado === 'PENDIENTE') {
+      setEstadoViaje('BUSCANDO');
+    } else if (viaje.estado === 'ACEPTADO') {
+      setEstadoViaje('ACEPTADO');
+    } else if (viaje.estado === 'EN_CAMINO') {
+      setEstadoViaje('EN_CAMINO');
+    } else if (viaje.estado === 'EN_CURSO') {
+      setEstadoViaje('EN_CURSO');
+    }
+  };
+
+  // Polling del viaje activo cada 5 segundos
+  useEffect(() => {
+    if (!activeViaje) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await clienteService.getViajes();
+        if (res.success && res.data) {
+          const vActualizado = res.data.find((v: any) => v.id === activeViaje.id);
+          
+          if (!vActualizado) {
+            // El viaje desapareció o se limpió
+            resetRequestState();
+            return;
+          }
+
+          if (vActualizado.estado === 'COMPLETADO') {
+            toast.success('¡Viaje finalizado! Gracias por viajar con nosotros.', { duration: 6000 });
+            resetRequestState();
+          } else if (vActualizado.estado === 'CANCELADO') {
+            toast.error('El viaje fue cancelado.');
+            resetRequestState();
+          } else {
+            actualizarEstadoSegunViaje(vActualizado);
+          }
+        }
+      } catch (error) {
+        console.error('Error en polling de viaje:', error);
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [activeViaje]);
+
+  // Limpiar estados de pedido de auto
+  const resetRequestState = () => {
+    setActiveViaje(null);
+    setEstadoViaje('IDLE');
+    setPresupuesto(null);
+    setOrigen('');
+    setDestino('');
+    setOrigenCoords(null);
+    setDestinoCoords(null);
+    setIsOrigenSelected(false);
+    setIsDestinoSelected(false);
+    setObservaciones('');
+  };
+
+  // Autocompletado de dirección de origen
+  useEffect(() => {
+    if (isOrigenSelected || !origen || origen.length < 3) {
+      setOrigenSuggestions([]);
+      return;
+    }
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const res = await coordinadorDashboardService.geocode(origen);
+        if (res.success && res.data) {
+          setOrigenSuggestions(res.data);
+        }
+      } catch (err) {
+        console.error('Error en geocodificación origen:', err);
+      }
+    }, 400);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [origen, isOrigenSelected]);
+
+  // Autocompletado de dirección de destino
+  useEffect(() => {
+    if (isDestinoSelected || !destino || destino.length < 3) {
+      setDestinoSuggestions([]);
+      return;
+    }
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const res = await coordinadorDashboardService.geocode(destino);
+        if (res.success && res.data) {
+          setDestinoSuggestions(res.data);
+        }
+      } catch (err) {
+        console.error('Error en geocodificación destino:', err);
+      }
+    }, 400);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [destino, isDestinoSelected]);
+
+  const handleSelectOrigen = (s: any) => {
+    setIsOrigenSelected(true);
+    setOrigen(s.display_name);
+    setOrigenCoords({
+      lat: parseFloat(s.lat),
+      lon: parseFloat(s.lon)
+    });
+    setOrigenSuggestions([]);
+    setPresupuesto(null);
+  };
+
+  const handleSelectDestino = (s: any) => {
+    setIsDestinoSelected(true);
+    setDestino(s.display_name);
+    setDestinoCoords({
+      lat: parseFloat(s.lat),
+      lon: parseFloat(s.lon)
+    });
+    setDestinoSuggestions([]);
+    setPresupuesto(null);
+  };
+
+  const usarUbicacionActual = async () => {
+    try {
+      const res = await clienteService.getUbicacionActual();
+      if (res.success && res.data) {
+        setIsOrigenSelected(true);
+        setOrigen(res.data.direccion);
+        setOrigenCoords({
+          lat: res.data.lat,
+          lon: res.data.lng
+        });
+        toast.success('Ubicación obtenida exitosamente');
+      } else {
+        toast.error('No se pudo obtener la ubicación');
+      }
+    } catch (error) {
+      toast.error('Error al obtener ubicación actual');
+    }
+  };
+
+  const calcularPrecio = async () => {
     if (!origen || !destino) {
       toast.error('Por favor ingresa un origen y un destino');
       return;
     }
     
     setIsCalculando(true);
-    // Simulamos un delay de API y cálculo
-    setTimeout(() => {
-      setPresupuesto({
-        precio: 3500,
-        distancia: '2.5 km',
-        tiempo: '10 min',
-      });
+    try {
+      const payload: any = {
+        origen,
+        destino
+      };
+      if (origenCoords) {
+        payload.latitudOrigen = origenCoords.lat;
+        payload.longitudOrigen = origenCoords.lon;
+      }
+      if (destinoCoords) {
+        payload.latitudDestino = destinoCoords.lat;
+        payload.longitudDestino = destinoCoords.lon;
+      }
+
+      const res = await clienteService.calcularPrecio(
+        origen,
+        destino,
+        origenCoords?.lat,
+        origenCoords?.lon,
+        destinoCoords?.lat,
+        destinoCoords?.lon
+      );
+      
+      // Si la API no devolvió coordenadas reales o falló, podemos meter OSRM local o confiar en el backend
+      if (res.success && res.data) {
+        setPresupuesto({
+          precio: res.data.precioEstimado,
+          distancia: res.data.distancia ? `${res.data.distancia} km` : 'Calculada',
+          tiempo: res.data.tiempoEstimado ? `${res.data.tiempoEstimado} min` : '10-15 min',
+        });
+      } else {
+        toast.error('Error al calcular el precio del viaje');
+      }
+    } catch (error) {
+      console.error('Error calculando precio:', error);
+      toast.error('Error al cotizar viaje');
+    } finally {
       setIsCalculando(false);
-    }, 1000);
+    }
   };
 
-  const pedirAuto = () => {
+  const pedirAuto = async () => {
+    if (!origen || !destino || !presupuesto) return;
+    setIsRequesting(true);
     setEstadoViaje('BUSCANDO');
-    toast.success('Buscando el auto más cercano...');
     
-    // Simulamos que un chofer acepta el viaje a los 4 segundos
-    setTimeout(() => {
-      setEstadoViaje('ACEPTADO');
-      toast.success('¡Un chofer ha aceptado tu viaje!');
-    }, 4000);
+    try {
+      const payload = {
+        origen,
+        destino,
+        latitudOrigen: origenCoords?.lat,
+        longitudOrigen: origenCoords?.lon,
+        latitudDestino: destinoCoords?.lat,
+        longitudDestino: destinoCoords?.lon,
+        observaciones: observaciones || undefined
+      };
+
+      const res = await clienteService.solicitarViaje(payload);
+      if (res.success && res.data) {
+        setActiveViaje(res.data);
+        toast.success('Buscando el auto más cercano...');
+      } else {
+        toast.error(res.message || 'Error al solicitar el viaje');
+        setEstadoViaje('IDLE');
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error('Error de red al solicitar viaje');
+      setEstadoViaje('IDLE');
+    } finally {
+      setIsRequesting(false);
+    }
   };
 
-  const cancelarViaje = () => {
-    if (window.confirm('¿Estás seguro de que quieres cancelar el viaje?')) {
-      setEstadoViaje('IDLE');
-      setPresupuesto(null);
-      setOrigen('');
-      setDestino('');
-      toast.error('Viaje cancelado');
+  const cancelarViaje = async () => {
+    if (!activeViaje) return;
+    if (!window.confirm('¿Estás seguro de que quieres cancelar el viaje?')) return;
+
+    setIsCanceling(true);
+    try {
+      const res = await clienteService.cancelarViaje(activeViaje.id);
+      if (res.success) {
+        toast.success('Viaje cancelado exitosamente');
+        resetRequestState();
+      } else {
+        toast.error(res.message || 'Error al cancelar viaje');
+      }
+    } catch (error) {
+      toast.error('Error al intentar cancelar viaje');
+    } finally {
+      setIsCanceling(false);
     }
   };
 
   if (!user) return null;
 
   return (
-    <div className="relative flex flex-col h-[calc(100vh-8rem)]">
+    <div className="relative flex flex-col h-[calc(100vh-8rem)] bg-gray-50">
       
-      {/* MAPA PLACEHOLDER */}
-      <div className="absolute inset-0 bg-gray-200 z-0">
-        <div className="w-full h-full flex flex-col items-center justify-center text-gray-400">
-          <MapPin className="w-12 h-12 mb-2" />
-          <span>(Mapa interactivo irá aquí)</span>
-        </div>
+      {/* MAPA DE FONDO (Usa Google Maps si hay API Key configurada, o el mapa libre sin requerir API Key) */}
+      <div className="absolute inset-0 bg-slate-100 z-0">
+        {process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? (
+          <div
+            className="w-full h-full bg-cover bg-center opacity-30"
+            style={{
+              backgroundImage: `url(https://maps.googleapis.com/maps/api/staticmap?center=-34.6037,-58.3816&zoom=13&size=800x600&maptype=roadmap&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY})`,
+              filter: 'grayscale(60%) contrast(90%)'
+            }}
+          ></div>
+        ) : (
+          <div
+            className="w-full h-full opacity-35"
+            style={{
+              backgroundImage:
+                'radial-gradient(#94a3b8 1px, transparent 1px), linear-gradient(to right, #e2e8f0 1px, transparent 1px), linear-gradient(to bottom, #e2e8f0 1px, transparent 1px)',
+              backgroundSize: '20px 20px, 80px 80px, 80px 80px'
+            }}
+          ></div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-b from-white/60 via-transparent to-white/90"></div>
+        {estadoViaje === 'IDLE' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 p-8 text-center select-none pointer-events-none">
+            <Compass className="w-16 h-16 mb-2 text-slate-300 animate-pulse" />
+            <h3 className="font-bold text-slate-700 text-sm">¿A dónde quieres ir hoy?</h3>
+            <p className="text-xs text-slate-500 max-w-xs mt-1">Ingresa el origen y destino para comenzar tu viaje en remís</p>
+          </div>
+        )}
       </div>
 
-      {/* CONTROLES SUPERIORES */}
+      {/* CONTROLES SUPERIORES (Ingreso de dirección) */}
       {estadoViaje === 'IDLE' && (
-        <div className="z-10 p-4">
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+        <div className="z-20 p-4 w-full max-w-lg mx-auto">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-150">
             <div className="p-4 space-y-4">
               
               {/* Input de Origen */}
-              <div className="flex gap-3 items-center">
-                <div className="w-4 h-4 bg-gray-200 rounded-full flex items-center justify-center">
-                  <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+              <div className="relative z-20">
+                <div className="flex gap-3 items-center">
+                  <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  </div>
+                  <div className="flex-1 relative">
+                    <input 
+                      type="text" 
+                      value={origen}
+                      onChange={(e) => {
+                        setOrigen(e.target.value);
+                        setIsOrigenSelected(false);
+                        setOrigenCoords(null);
+                        setPresupuesto(null);
+                      }}
+                      placeholder="¿Dónde te buscamos? (Origen)"
+                      className="w-full bg-gray-50 border-none rounded-xl p-3 pr-9 text-sm focus:ring-2 focus:ring-primary-500 text-gray-900 font-medium placeholder-gray-500"
+                    />
+                    <button 
+                      type="button"
+                      onClick={usarUbicacionActual}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-primary-600 hover:text-primary-800 transition-colors"
+                      title="Usar mi ubicación actual"
+                    >
+                      <Navigation className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex-1 relative">
-                  <input 
-                    type="text" 
-                    value={origen}
-                    onChange={(e) => setOrigen(e.target.value)}
-                    placeholder="¿Dónde estás?"
-                    className="w-full bg-gray-50 border-none rounded-xl p-3 text-sm focus:ring-2 focus:ring-primary-500"
-                  />
-                  <button 
-                    onClick={usarUbicacionActual}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-primary-600"
-                    title="Usar mi ubicación actual"
-                  >
-                    <Navigation className="w-4 h-4" />
-                  </button>
-                </div>
+
+                {/* Sugerencias Origen */}
+                {origenSuggestions.length > 0 && (
+                  <div className="absolute left-7 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
+                    {origenSuggestions.map((s, idx) => (
+                      <button
+                        type="button"
+                        key={idx}
+                        onClick={() => handleSelectOrigen(s)}
+                        className="w-full text-left p-3 text-xs hover:bg-gray-50 border-b border-gray-100 last:border-0 text-gray-800 font-medium truncate block"
+                      >
+                        {s.display_name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <div className="w-0.5 h-6 bg-gray-200 ml-[11px] -my-2"></div>
+              <div className="w-0.5 h-4 bg-gray-200 ml-[7px] -my-2"></div>
 
               {/* Input de Destino */}
-              <div className="flex gap-3 items-center">
-                <div className="w-4 h-4 bg-gray-200 flex items-center justify-center">
-                  <div className="w-2 h-2 bg-red-500"></div>
+              <div className="relative z-10">
+                <div className="flex gap-3 items-center">
+                  <div className="w-4 h-4 rounded-full flex items-center justify-center shrink-0">
+                    <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                  </div>
+                  <div className="flex-1">
+                    <input 
+                      type="text" 
+                      value={destino}
+                      onChange={(e) => {
+                        setDestino(e.target.value);
+                        setIsDestinoSelected(false);
+                        setDestinoCoords(null);
+                        setPresupuesto(null);
+                      }}
+                      placeholder="¿A dónde quieres ir? (Destino)"
+                      className="w-full bg-gray-50 border-none rounded-xl p-3 text-sm focus:ring-2 focus:ring-primary-500 text-gray-900 font-medium placeholder-gray-500"
+                    />
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <input 
-                    type="text" 
-                    value={destino}
-                    onChange={(e) => setDestino(e.target.value)}
-                    placeholder="¿A dónde vas?"
-                    className="w-full bg-gray-50 border-none rounded-xl p-3 text-sm focus:ring-2 focus:ring-primary-500"
-                  />
-                </div>
+
+                {/* Sugerencias Destino */}
+                {destinoSuggestions.length > 0 && (
+                  <div className="absolute left-7 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
+                    {destinoSuggestions.map((s, idx) => (
+                      <button
+                        type="button"
+                        key={idx}
+                        onClick={() => handleSelectDestino(s)}
+                        className="w-full text-left p-3 text-xs hover:bg-gray-50 border-b border-gray-100 last:border-0 text-gray-800 font-medium truncate block"
+                      >
+                        {s.display_name}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
 
             </div>
           </div>
+
+          {/* Indicador de Disponibilidad de Vehículos y Tarjeta de Demora Aproximada */}
+          {disponibilidad && (
+            <div className="mt-3 space-y-2 relative z-0">
+              {disponibilidad.hayAutosDisponibles ? (
+                <div className="bg-emerald-50/95 backdrop-blur-sm border border-emerald-200 rounded-xl px-4 py-3 shadow-sm flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <span className="relative flex h-3 w-3 shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                    </span>
+                    <div>
+                      <p className="text-xs font-bold text-emerald-900">
+                        {disponibilidad.autosDisponibles === 1
+                          ? '1 auto disponible ahora'
+                          : `${disponibilidad.autosDisponibles} autos disponibles ahora`}
+                      </p>
+                      <p className="text-[11px] text-emerald-700">
+                        Conductores activos en línea para asignarte de inmediato
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-lg border border-emerald-100 text-emerald-800 text-xs font-bold shrink-0">
+                    <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>{disponibilidad.demoraMin}-{disponibilidad.demoraMax} min</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-amber-50/95 backdrop-blur-sm border border-amber-200 rounded-xl p-3.5 shadow-sm space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-2.5">
+                      <span className="relative flex h-3 w-3 shrink-0 mt-1">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+                      </span>
+                      <div>
+                        <p className="text-xs font-bold text-amber-950">
+                          {disponibilidad.todosOcupados
+                            ? 'Todos los vehículos están ocupados en este momento'
+                            : 'No hay vehículos libres en línea en este instante'}
+                        </p>
+                        <p className="text-[11px] text-amber-800 mt-0.5">
+                          {disponibilidad.todosOcupados
+                            ? `Hay ${disponibilidad.autosEnViaje} ${
+                                disponibilidad.autosEnViaje === 1 ? 'auto realizando un viaje' : 'autos realizando viajes'
+                              }. Tu pedido será asignado apenas se libere una unidad.`
+                            : 'Puedes solicitar tu viaje igualmente y el coordinador en base te asignará una unidad.'}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white border border-amber-200 rounded-xl px-3 py-1.5 text-right shrink-0 shadow-xs">
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-amber-600">
+                        Demora aprox.
+                      </span>
+                      <span className="text-xs font-extrabold text-amber-950 flex items-center justify-end gap-1">
+                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                        {disponibilidad.demoraMin} - {disponibilidad.demoraMax} min
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* ÁREA INFERIOR (Presupuesto o Estado del Viaje) */}
-      <div className="mt-auto z-10 w-full animate-slide-up">
+      {/* ÁREA INFERIOR (Presupuesto o Estado del Viaje en curso) */}
+      <div className="mt-auto z-10 w-full max-w-lg mx-auto p-4 animate-slide-up">
         
         {/* Caso 1: Ingresó origen y destino pero no calculó */}
         {estadoViaje === 'IDLE' && origen && destino && !presupuesto && !isCalculando && (
-          <div className="p-4 bg-gradient-to-t from-white via-white to-transparent">
-            <button 
-              onClick={calcularPrecio}
-              className="w-full bg-primary-600 text-white font-bold rounded-xl py-4 shadow-lg active:scale-95 transition-transform"
-            >
-              Confirmar Destino
-            </button>
-          </div>
+          <button 
+            onClick={calcularPrecio}
+            className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold rounded-xl py-4 shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2 text-sm"
+          >
+            <span>Confirmar Destino</span>
+            <ArrowRight className="w-4 h-4" />
+          </button>
         )}
 
         {/* Caso 2: Calculando */}
         {isCalculando && (
-          <div className="p-6 bg-white rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.1)] text-center">
+          <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-xl text-center space-y-3">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600 font-medium">Calculando mejor ruta...</p>
+            <p className="text-gray-600 font-semibold text-sm">Cotizando viaje y buscando mejor ruta...</p>
           </div>
         )}
 
         {/* Caso 3: Presupuesto Listo para pedir */}
         {estadoViaje === 'IDLE' && presupuesto && !isCalculando && (
-          <div className="bg-white rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.1)] overflow-hidden">
-            <div className="p-6 space-y-6">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-150 overflow-hidden">
+            <div className="p-5 space-y-4">
               
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center pb-3 border-b border-gray-100">
                 <div className="flex items-center gap-3">
-                  <div className="bg-gray-100 p-3 rounded-xl">
-                    <Car className="w-6 h-6 text-gray-700" />
+                  <div className="bg-primary-50 p-2.5 rounded-xl text-primary-600">
+                    <Car className="w-6 h-6" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-gray-900">Remís Clásico</h3>
-                    <p className="text-sm text-gray-500 flex items-center gap-1">
-                      <Clock className="w-3 h-3" /> {presupuesto.tiempo} ({presupuesto.distancia})
+                    <h3 className="font-bold text-gray-900 text-sm">Remís de la Agencia</h3>
+                    <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                      <Clock className="w-3.5 h-3.5" />
+                      Estimado: {presupuesto.tiempo} ({presupuesto.distancia})
                     </p>
                   </div>
                 </div>
-                <span className="text-2xl font-bold text-gray-900">${presupuesto.precio}</span>
+                <div className="text-right">
+                  <span className="text-2xl font-black text-gray-950">${presupuesto.precio}</span>
+                  <span className="text-xxs text-gray-400 block">Tarifa fija</span>
+                </div>
+              </div>
+
+              {/* Notas opcionales */}
+              <div>
+                <label className="block text-xxs font-bold text-gray-500 uppercase tracking-wider mb-1">Indicaciones para el chofer</label>
+                <input 
+                  type="text" 
+                  value={observaciones}
+                  onChange={(e) => setObservaciones(e.target.value)}
+                  placeholder="Ej: Portón verde, depto B..."
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs text-gray-900 placeholder-gray-400 focus:ring-1 focus:ring-primary-500"
+                />
               </div>
 
               <div className="flex gap-2">
-                <button className="flex-1 bg-gray-50 border border-gray-200 text-gray-700 py-2 rounded-xl flex items-center justify-center gap-2 font-medium text-sm">
-                  <CreditCard className="w-4 h-4" />
-                  Efectivo
-                </button>
+                <div className="flex-1 bg-slate-50 border border-gray-200 text-gray-700 py-2.5 rounded-xl flex items-center justify-center gap-2 font-semibold text-xs select-none">
+                  <CreditCard className="w-4 h-4 text-slate-500" />
+                  Pago en Efectivo
+                </div>
               </div>
 
               <button 
                 onClick={pedirAuto}
-                className="w-full bg-primary-600 text-white font-bold rounded-xl py-4 shadow-lg shadow-primary-500/30 active:scale-95 transition-transform"
+                disabled={isRequesting}
+                className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold rounded-xl py-4 shadow-lg shadow-primary-500/25 active:scale-95 transition-transform flex items-center justify-center gap-2 text-sm"
               >
-                PEDIR AUTO AHORA
+                {isRequesting ? (
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                ) : (
+                  <>
+                    <Car className="w-4 h-4" />
+                    <span>PEDIR REMÍS AHORA</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
@@ -195,72 +631,125 @@ export default function ClienteApp() {
 
         {/* Caso 4: Buscando Chofer */}
         {estadoViaje === 'BUSCANDO' && (
-          <div className="bg-white rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.1)] p-6 text-center space-y-4">
+          <div className="bg-white rounded-2xl border border-gray-250 shadow-xl p-6 text-center space-y-4">
             <div className="relative w-16 h-16 mx-auto">
-              <div className="absolute inset-0 bg-blue-100 rounded-full animate-ping"></div>
-              <div className="relative bg-blue-600 text-white w-16 h-16 rounded-full flex items-center justify-center shadow-lg">
-                <Navigation className="w-8 h-8" />
+              <div className="absolute inset-0 bg-primary-100 rounded-full animate-ping"></div>
+              <div className="relative bg-primary-600 text-white w-16 h-16 rounded-full flex items-center justify-center shadow-lg">
+                <Navigation className="w-8 h-8 rotate-45" />
               </div>
             </div>
             <div>
-              <h3 className="font-bold text-xl text-gray-900">Buscando conductor...</h3>
-              <p className="text-gray-500 mt-1">Conectando con el remís más cercano</p>
+              <h3 className="font-bold text-lg text-gray-900">Buscando conductor...</h3>
+              <p className="text-xs text-gray-500 mt-1">Tu solicitud ha sido enviada al coordinador de la remisería</p>
+              {disponibilidad && !disponibilidad.hayAutosDisponibles && (
+                <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-xs font-semibold">
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  <span>
+                    Demora estimada: {disponibilidad.demoraMin} a {disponibilidad.demoraMax} min
+                  </span>
+                </div>
+              )}
             </div>
             
-            <div className="h-1 w-full bg-gray-100 rounded-full overflow-hidden mt-6">
-              <div className="h-full bg-blue-600 w-1/2 animate-slide-right"></div>
+            <div className="h-1.5 w-full bg-gray-150 rounded-full overflow-hidden mt-6">
+              <div className="h-full bg-primary-600 w-1/3 rounded-full animate-pulse-loader"></div>
             </div>
 
             <button 
               onClick={cancelarViaje}
-              className="mt-6 text-red-500 font-semibold"
+              disabled={isCanceling}
+              className="mt-6 text-red-500 hover:text-red-700 font-bold text-xs flex items-center justify-center mx-auto gap-1 py-2 px-4 hover:bg-red-50 rounded-xl"
             >
-              Cancelar búsqueda
+              {isCanceling ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>
+              ) : (
+                <Trash2 className="w-4 h-4" />
+              )}
+              <span>Cancelar solicitud de viaje</span>
             </button>
           </div>
         )}
 
         {/* Caso 5: Viaje Aceptado / Chofer en camino */}
-        {estadoViaje === 'ACEPTADO' && (
-          <div className="bg-white rounded-t-3xl shadow-[0_-10px_40px_rgba(0,0,0,0.1)] overflow-hidden">
-            <div className="bg-green-600 text-white p-4 text-center">
-              <h3 className="font-bold text-lg">¡Tu remís está en camino!</h3>
-              <p className="text-sm text-green-100">Llegará en aprox. 5 minutos</p>
+        {['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'].includes(estadoViaje) && activeViaje && (
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-150 overflow-hidden">
+            <div className="bg-emerald-600 text-white p-4 text-center">
+              <h3 className="font-bold text-sm flex items-center justify-center gap-2">
+                <Car className="w-4 h-4" />
+                {estadoViaje === 'EN_CURSO' ? '¡Estás en viaje!' : '¡Tu remís está asignado!'}
+              </h3>
+              <p className="text-xxs text-emerald-100 mt-0.5">
+                {estadoViaje === 'EN_CURSO' ? 'Buen viaje a tu destino' : 'El chofer se encuentra en camino'}
+              </p>
             </div>
             
-            <div className="p-6 space-y-6">
+            <div className="p-5 space-y-4">
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center">
-                  <Car className="w-8 h-8 text-gray-600" />
+                <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-black text-sm">
+                  {activeViaje.chofer?.nombre?.charAt(0) || 'C'}
                 </div>
                 <div className="flex-1">
-                  <h4 className="font-bold text-lg">Carlos Pérez</h4>
-                  <div className="flex gap-2 text-sm text-gray-600 mt-1">
-                    <span className="font-semibold bg-gray-100 px-2 py-0.5 rounded">AF 123 CD</span>
-                    <span>• Fiat Cronos</span>
-                  </div>
+                  <h4 className="font-bold text-sm text-gray-900">
+                    {activeViaje.chofer
+                      ? `${activeViaje.chofer.nombre} ${activeViaje.chofer.apellido || ''}`.trim()
+                      : 'Conductor asignado'}
+                  </h4>
+                  {(activeViaje.vehiculo || activeViaje.chofer?.vehiculo) ? (
+                    <div className="flex gap-2 items-center text-xs text-gray-500 mt-1">
+                      <span className="font-bold bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded">
+                        {(activeViaje.vehiculo || activeViaje.chofer?.vehiculo).patente}
+                      </span>
+                      <span>
+                        • {(activeViaje.vehiculo || activeViaje.chofer?.vehiculo).marca}{' '}
+                        {(activeViaje.vehiculo || activeViaje.chofer?.vehiculo).modelo}
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-500 mt-0.5">Auto de la agencia</p>
+                  )}
                 </div>
                 <div className="text-right">
-                  <span className="text-xs text-gray-500">Total</span>
-                  <p className="font-bold text-xl">${presupuesto.precio}</p>
+                  <span className="text-xxs text-gray-400 block">Total</span>
+                  <p className="font-black text-lg text-gray-950">${activeViaje.precio}</p>
                 </div>
               </div>
 
-              <div className="flex gap-3">
-                <button className="flex-1 py-3 bg-gray-100 font-bold text-gray-700 rounded-xl">
-                  Llamar
-                </button>
-                <button className="flex-1 py-3 bg-gray-100 font-bold text-gray-700 rounded-xl">
-                  Mensaje
-                </button>
+              {/* Botones de comunicación */}
+              <div className="flex gap-2">
+                {activeViaje.chofer?.telefono && (
+                  <a 
+                    href={`tel:${activeViaje.chofer.telefono}`}
+                    className="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 font-bold text-gray-700 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <Phone className="w-3.5 h-3.5 text-gray-500" />
+                    <span>Llamar</span>
+                  </a>
+                )}
+                <a 
+                  href={`https://wa.me/${activeViaje.chofer?.telefono || ''}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 font-bold text-gray-700 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-gray-500" />
+                  <span>WhatsApp</span>
+                </a>
               </div>
 
-              <button 
-                onClick={cancelarViaje}
-                className="w-full text-red-500 font-semibold mt-2"
-              >
-                Cancelar viaje
-              </button>
+              {estadoViaje !== 'EN_CURSO' && (
+                <button 
+                  onClick={cancelarViaje}
+                  disabled={isCanceling}
+                  className="w-full text-red-500 hover:text-red-700 font-bold text-xs mt-2 py-2 flex items-center justify-center gap-1 hover:bg-red-50 rounded-xl"
+                >
+                  {isCanceling ? (
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>
+                  ) : (
+                    <Trash2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>Cancelar viaje</span>
+                </button>
+              )}
             </div>
           </div>
         )}

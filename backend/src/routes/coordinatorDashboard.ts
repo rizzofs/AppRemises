@@ -14,6 +14,12 @@ router.get('/viajes/en-curso', coordinatorDashboardController.getViajesEnCurso);
 // Obtener viajes sin asignar
 router.get('/viajes/sin-asignar', coordinatorDashboardController.getViajesSinAsignar);
 
+// Asignar chofer y vehículo a un viaje
+router.patch('/viajes/:id/asignar', coordinatorDashboardController.asignarViaje);
+
+// Actualizar estado de un viaje
+router.patch('/viajes/:id/estado', coordinatorDashboardController.actualizarEstadoViaje);
+
 // Obtener reservas activas
 router.get('/reservas', coordinatorDashboardController.getViajesReservados);
 
@@ -48,4 +54,4 @@ router.get('/liquidaciones/chofer/historial', liquidacionController.getHistorial
 router.get('/liquidaciones/pendientes/:choferId', liquidacionController.getPendientes);
 router.post('/liquidaciones/crear', liquidacionController.crear);
 
-export default router; 
+export default router;

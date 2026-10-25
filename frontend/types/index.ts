@@ -111,7 +111,8 @@ export interface Chofer {
   direccion?: string;
   categoriaLicencia: string;
   vtoLicencia: string;
-  estado: 'ACTIVO' | 'SUSPENDIDO' | 'DADO_DE_BAJA';
+  estado: 'PENDIENTE_APROBACION' | 'ACTIVO' | 'SUSPENDIDO' | 'RECHAZADO' | 'DADO_DE_BAJA';
+  motivoRechazo?: string;
   observaciones?: string;
   esPropietario?: boolean;
   comisionPorcentaje?: number;
@@ -125,12 +126,13 @@ export interface Chofer {
 }
 
 export interface CreateChoferData {
-  numeroChofer: string;
+  numeroChofer?: string;
   nombre: string;
   apellido: string;
   dni: string;
   telefono: string;
   email?: string;
+  password?: string;
   direccion?: string;
   categoriaLicencia: string;
   vtoLicencia: string;
@@ -150,7 +152,8 @@ export interface UpdateChoferData {
   direccion?: string;
   categoriaLicencia?: string;
   vtoLicencia?: string;
-  estado?: 'ACTIVO' | 'SUSPENDIDO' | 'DADO_DE_BAJA';
+  estado?: 'PENDIENTE_APROBACION' | 'ACTIVO' | 'SUSPENDIDO' | 'RECHAZADO' | 'DADO_DE_BAJA';
+  motivoRechazo?: string;
   observaciones?: string;
   vehiculoId?: string;
   esPropietario?: boolean;

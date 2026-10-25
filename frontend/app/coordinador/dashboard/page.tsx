@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
-import { coordinadorDashboardService, clienteAuthService } from '@/lib/api';
+import { coordinadorDashboardService, clienteAuthService, choferService, vehiculoService } from '@/lib/api';
 import { useAppTracking } from '@/hooks/useAppTracking';
 import { 
   Car, 
@@ -39,6 +39,15 @@ export default function CoordinadorDashboard() {
   const [activeTab, setActiveTab] = useState('en-curso');
   const [searchTerm, setSearchTerm] = useState('');
   const [choferesConectados, setChoferesConectados] = useState<any[]>([]);
+  const [todosLosChoferes, setTodosLosChoferes] = useState<any[]>([]);
+  const [todosLosVehiculos, setTodosLosVehiculos] = useState<any[]>([]);
+
+  // Modal de Asignación de Auto/Chofer
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [selectedViajeId, setSelectedViajeId] = useState('');
+  const [selectedChoferId, setSelectedChoferId] = useState('');
+  const [selectedVehiculoId, setSelectedVehiculoId] = useState('');
+  const [asignandoViaje, setAsignandoViaje] = useState(false);
 
   // Real data state
   const [stats, setStats] = useState({
@@ -106,8 +115,20 @@ export default function CoordinadorDashboard() {
       const sinAsignarRes = await coordinadorDashboardService.getViajesSinAsignar();
       // 4. Reservas
       const reservasRes = await coordinadorDashboardService.getViajesReservados();
-      // 5. Drivers
+      // 5. Drivers online
       const choferesRes = await coordinadorDashboardService.getChoferesTiempoReal();
+      // 6. Todos los choferes y vehículos de la remisería para asignación manual
+      const [allChoferesRes, allVehiculosRes] = await Promise.all([
+        choferService.getAll(),
+        vehiculoService.getAll()
+      ]);
+
+      if (allChoferesRes.success && allChoferesRes.data) {
+        setTodosLosChoferes(allChoferesRes.data.filter((c: any) => c.estado === 'ACTIVO'));
+      }
+      if (allVehiculosRes.success && allVehiculosRes.data) {
+        setTodosLosVehiculos(allVehiculosRes.data.filter((v: any) => v.estado === 'ACTIVO'));
+      }
 
       if (statsRes.success && statsRes.data) {
         setStats({
@@ -124,9 +145,19 @@ export default function CoordinadorDashboard() {
         const clienteName = v.clienteNombre || (v.cliente ? `${v.cliente.nombre} ${v.cliente.apellido}` : 'S/N');
         const clienteTel = v.clienteTelefono || (v.cliente ? v.cliente.telefono : 'S/N');
         const choferName = v.chofer ? `${v.chofer.nombre} ${v.chofer.apellido}` : 'Sin Asignar';
-        const vehiculoName = v.vehiculo ? `${v.vehiculo.patente}` : 'Sin Asignar';
+        const vehObj = v.vehiculo || v.chofer?.vehiculo;
+        const vehiculoName = vehObj ? `${vehObj.patente} (${vehObj.marca} ${vehObj.modelo})` : 'Sin Asignar';
         const formattedTime = new Date(v.fecha).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         const formattedDate = new Date(v.fecha).toLocaleDateString();
+
+        const estadoLabel =
+          v.estado === 'ACEPTADO'
+            ? 'Auto Asignado'
+            : v.estado === 'EN_CAMINO'
+            ? 'Chofer en Camino'
+            : v.estado === 'EN_CURSO'
+            ? 'En Viaje'
+            : v.estado;
 
         return {
           id: v.id,
@@ -134,9 +165,12 @@ export default function CoordinadorDashboard() {
           telefono: clienteTel,
           origen: v.origen,
           destino: v.destino,
+          precio: v.precio,
+          observaciones: v.observaciones,
           chofer: choferName,
           vehiculo: vehiculoName,
-          estado: v.estado === 'EN_CURSO' ? 'En Curso' : v.estado,
+          estado: estadoLabel,
+          estadoRaw: v.estado,
           tiempo: formattedTime,
           prioridad: v.prioridad || 'NORMAL',
           fecha: formattedDate,
@@ -453,6 +487,97 @@ export default function CoordinadorDashboard() {
     }
   };
 
+  // Combinar choferes conectados primero y luego el resto de los choferes activos de la remisería
+  const choferesParaAsignar = [
+    ...choferesConectados.map((c: any) => ({ ...c, isOnline: true })),
+    ...todosLosChoferes.filter(
+      (c: any) => !choferesConectados.some((conn: any) => conn.id === c.id)
+    )
+  ];
+
+  const openAssignModalForViaje = (viaje: any) => {
+    setSelectedViajeId(viaje.id);
+    const defaultChofer = choferesParaAsignar[0];
+    if (defaultChofer) {
+      setSelectedChoferId(defaultChofer.id);
+      setSelectedVehiculoId(defaultChofer.vehiculo?.id || defaultChofer.vehiculoId || '');
+    } else {
+      setSelectedChoferId('');
+      setSelectedVehiculoId(todosLosVehiculos[0]?.id || '');
+    }
+    setIsAssignModalOpen(true);
+  };
+
+  const openAssignModalForChofer = (chofer: any) => {
+    if (viajesSinAsignar.length === 0) {
+      toast.error('No hay viajes pendientes sin asignar en este momento');
+      return;
+    }
+    setSelectedViajeId(viajesSinAsignar[0].id);
+    setSelectedChoferId(chofer.id);
+    setSelectedVehiculoId(chofer.vehiculo?.id || chofer.vehiculoId || '');
+    setIsAssignModalOpen(true);
+  };
+
+  const handleChoferSelectChange = (choferId: string) => {
+    setSelectedChoferId(choferId);
+    const found = choferesParaAsignar.find((c: any) => c.id === choferId);
+    if (found?.vehiculo?.id || found?.vehiculoId) {
+      setSelectedVehiculoId(found.vehiculo?.id || found.vehiculoId);
+    }
+  };
+
+  const handleAsignarViaje = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedViajeId) {
+      toast.error('Seleccione el viaje a asignar');
+      return;
+    }
+    if (!selectedChoferId) {
+      toast.error('Seleccione un chofer para el viaje');
+      return;
+    }
+
+    setAsignandoViaje(true);
+    try {
+      const res = await coordinadorDashboardService.asignarViaje(selectedViajeId, {
+        choferId: selectedChoferId,
+        vehiculoId: selectedVehiculoId || undefined
+      });
+
+      if (res.success) {
+        toast.success('¡Auto y chofer asignados exitosamente!');
+        setIsAssignModalOpen(false);
+        setSelectedViajeId('');
+        setSelectedChoferId('');
+        setSelectedVehiculoId('');
+        fetchData();
+      } else {
+        toast.error(res.message || 'Error al asignar el auto');
+      }
+    } catch (error) {
+      toast.error('Error al asignar el viaje');
+    } finally {
+      setAsignandoViaje(false);
+    }
+  };
+
+  const handleActualizarEstadoViaje = async (viajeId: string, nuevoEstado: string) => {
+    try {
+      const res = await coordinadorDashboardService.actualizarEstadoViaje(viajeId, nuevoEstado);
+      if (res.success) {
+        toast.success('Estado del viaje actualizado');
+        fetchData();
+      } else {
+        toast.error(res.message || 'Error al actualizar el estado');
+      }
+    } catch (error) {
+      toast.error('Error al actualizar estado del viaje');
+    }
+  };
+
+  const selectedViajeObj = viajesSinAsignar.find((v) => v.id === selectedViajeId);
+
   const tabs = [
     { id: 'en-curso', label: 'Viajes en Curso', icon: Car, count: stats.viajesEnCurso },
     { id: 'sin-asignar', label: 'Sin Asignar', icon: Clock, count: stats.viajesSinAsignar, alert: stats.viajesSinAsignar > 0 },
@@ -645,6 +770,7 @@ export default function CoordinadorDashboard() {
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vehículo</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
                         <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tiempo</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
@@ -679,6 +805,30 @@ export default function CoordinadorDashboard() {
                             </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{viaje.tiempo}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-xs font-medium space-x-2">
+                            {viaje.estadoRaw === 'ACEPTADO' && (
+                              <button
+                                onClick={() => handleActualizarEstadoViaje(viaje.id, 'EN_CAMINO')}
+                                className="px-2.5 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded border border-amber-200 font-semibold"
+                              >
+                                En Camino
+                              </button>
+                            )}
+                            {['ACEPTADO', 'EN_CAMINO'].includes(viaje.estadoRaw) && (
+                              <button
+                                onClick={() => handleActualizarEstadoViaje(viaje.id, 'EN_CURSO')}
+                                className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded border border-blue-200 font-semibold"
+                              >
+                                Iniciar Viaje
+                              </button>
+                            )}
+                            <button
+                              onClick={() => handleActualizarEstadoViaje(viaje.id, 'COMPLETADO')}
+                              className="px-2.5 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded border border-emerald-200 font-semibold"
+                            >
+                              Finalizar
+                            </button>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -741,7 +891,14 @@ export default function CoordinadorDashboard() {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{viaje.tiempo}</td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <button className="text-red-600 hover:text-red-900 font-semibold">Asignar</button>
+                            <button
+                              type="button"
+                              onClick={() => openAssignModalForViaje(viaje)}
+                              className="bg-red-600 text-white hover:bg-red-700 px-3 py-1.5 rounded-lg font-semibold shadow-sm transition-colors flex items-center space-x-1"
+                            >
+                              <Car className="h-4 w-4" />
+                              <span>Asignar Auto</span>
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -862,7 +1019,13 @@ export default function CoordinadorDashboard() {
                               </span>
                             </td>
                             <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                              <button className="text-blue-600 hover:text-blue-900 font-semibold bg-blue-50 px-3 py-1 rounded">Asignar Viaje</button>
+                              <button
+                                type="button"
+                                onClick={() => openAssignModalForChofer(chofer)}
+                                className="text-blue-600 hover:text-blue-900 font-semibold bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
+                              >
+                                Asignar Viaje
+                              </button>
                             </td>
                           </tr>
                         ))}
@@ -1357,6 +1520,167 @@ export default function CoordinadorDashboard() {
                 </form>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Asignación de Auto y Chofer */}
+      {isAssignModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg border border-gray-100 transform transition-all">
+            <div className="bg-gradient-to-r from-red-600 to-orange-600 p-6 rounded-t-2xl text-white flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-bold flex items-center gap-2">
+                  <Car className="h-6 w-6" />
+                  <span>Asignar Auto al Viaje</span>
+                </h3>
+                <p className="text-xs text-red-100 mt-1">
+                  Selecciona el chofer y vehículo para atender la solicitud del cliente
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAssignModalOpen(false)}
+                className="p-1 rounded-full hover:bg-white hover:bg-opacity-20 transition-colors text-white"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAsignarViaje} className="p-6 space-y-5">
+              {/* Selección o Resumen del Viaje Pendiente */}
+              {viajesSinAsignar.length > 1 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Viaje Pendiente *
+                  </label>
+                  <select
+                    value={selectedViajeId}
+                    onChange={(e) => setSelectedViajeId(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 text-black text-sm"
+                    required
+                  >
+                    {viajesSinAsignar.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.cliente} — {v.origen} → {v.destino} ({v.tiempo})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {selectedViajeObj && (
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-2 text-sm">
+                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                    <div>
+                      <span className="text-xs text-gray-500 block">Pasajero</span>
+                      <span className="font-bold text-gray-900">{selectedViajeObj.cliente}</span>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-xs text-gray-500 block">Teléfono</span>
+                      <span className="font-medium text-gray-800">{selectedViajeObj.telefono}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <span className="text-xs text-gray-500 block">Origen</span>
+                    <span className="font-medium text-gray-900">{selectedViajeObj.origen}</span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-gray-500 block">Destino</span>
+                    <span className="font-medium text-gray-900">{selectedViajeObj.destino}</span>
+                  </div>
+                  {selectedViajeObj.observaciones && (
+                    <div>
+                      <span className="text-xs text-gray-500 block">Observaciones</span>
+                      <span className="text-gray-700 italic">{selectedViajeObj.observaciones}</span>
+                    </div>
+                  )}
+                  {selectedViajeObj.precio && (
+                    <div className="pt-1 flex justify-between items-center text-xs">
+                      <span className="text-gray-500">Tarifa estimada:</span>
+                      <span className="font-bold text-base text-emerald-700">${selectedViajeObj.precio}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Selección de Chofer */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Seleccionar Chofer *
+                </label>
+                {choferesParaAsignar.length === 0 ? (
+                  <p className="text-sm text-red-600 bg-red-50 p-3 rounded-xl border border-red-200">
+                    No hay choferes activos registrados en esta remisería.
+                  </p>
+                ) : (
+                  <select
+                    value={selectedChoferId}
+                    onChange={(e) => handleChoferSelectChange(e.target.value)}
+                    className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 text-black text-sm"
+                    required
+                  >
+                    <option value="">-- Seleccione un chofer --</option>
+                    {choferesParaAsignar.map((c: any) => (
+                      <option key={c.id} value={c.id}>
+                        {c.isOnline ? '🟢 [ONLINE] ' : '⚪ [ACTIVO] '}
+                        {c.nombre} {c.apellido}
+                        {c.vehiculo ? ` — Auto: ${c.vehiculo.patente} (${c.vehiculo.marca} ${c.vehiculo.modelo})` : ' — Sin auto fijo'}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              {/* Selección de Vehículo (Auto) */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Seleccionar Auto (Vehículo)
+                </label>
+                <select
+                  value={selectedVehiculoId}
+                  onChange={(e) => setSelectedVehiculoId(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 text-black text-sm"
+                >
+                  <option value="">-- Usar vehículo del chofer / Sin especificar --</option>
+                  {todosLosVehiculos.map((veh: any) => (
+                    <option key={veh.id} value={veh.id}>
+                      {veh.patente} — {veh.marca} {veh.modelo} ({veh.color})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Si el chofer ya tiene un auto vinculado, se selecciona automáticamente, o puedes asignarle otro vehículo disponible.
+                </p>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setIsAssignModalOpen(false)}
+                  className="px-4 py-2.5 border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-50 font-medium text-sm"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={asignandoViaje || !selectedChoferId}
+                  className="flex-1 bg-red-600 text-white py-2.5 px-5 rounded-xl hover:bg-red-700 font-semibold transition-colors flex items-center justify-center space-x-2 disabled:opacity-50 text-sm shadow-lg"
+                >
+                  {asignandoViaje ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <span>Asignando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="h-4 w-4" />
+                      <span>Confirmar y Asignar Auto</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

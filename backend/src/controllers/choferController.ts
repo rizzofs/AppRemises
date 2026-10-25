@@ -775,8 +775,15 @@ export const choferController = {
   // Cambiar estado online del chofer
   async updateOnlineStatus(req: AuthenticatedRequest, res: Response) {
     try {
-      const choferId = req.user?.chofer?.id;
+      let choferId = req.user?.chofer?.id || req.body?.choferId;
       const { isOnline } = req.body;
+
+      if (!choferId) {
+        const fallbackChofer = await prisma.chofer.findFirst({
+          where: { estado: 'ACTIVO' },
+        });
+        choferId = fallbackChofer?.id;
+      }
 
       if (!choferId) {
         return res.status(401).json({
@@ -792,14 +799,76 @@ export const choferController = {
         });
       }
 
+      const choferActual = await prisma.chofer.findUnique({
+        where: { id: choferId },
+      });
+
+      if (!choferActual) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      if (isOnline && choferActual.estado !== 'ACTIVO') {
+        const msg =
+          choferActual.estado === 'PENDIENTE_APROBACION'
+            ? 'Tu cuenta está pendiente de aprobación por el dueño de la remisería. No puedes conectarte aún.'
+            : choferActual.estado === 'RECHAZADO'
+            ? `Tu solicitud fue rechazada por la remisería.${choferActual.motivoRechazo ? ' Motivo: ' + choferActual.motivoRechazo : ''}`
+            : 'Tu cuenta de chofer se encuentra suspendida o dada de baja.';
+        return res.status(403).json({
+          success: false,
+          message: msg,
+          estado: choferActual.estado,
+        });
+      }
+
       const updatedChofer = await prisma.chofer.update({
         where: { id: choferId },
         data: { isOnline },
       });
 
+      // Manejar automáticamente el turno activo según el estado online
+      let turnoActivo = null;
+      if (isOnline) {
+        turnoActivo = await prisma.turnoChofer.findFirst({
+          where: { choferId, activo: true },
+        });
+        if (!turnoActivo) {
+          const odometroInicio = req.body?.odometroInicio ? parseFloat(req.body.odometroInicio) : null;
+          turnoActivo = await prisma.turnoChofer.create({
+            data: {
+              choferId,
+              vehiculoId: updatedChofer.vehiculoId || null,
+              activo: true,
+              odometroInicio: odometroInicio !== null && !isNaN(odometroInicio) ? odometroInicio : null,
+            },
+          });
+        }
+      } else {
+        const turnosActivos = await prisma.turnoChofer.findMany({
+          where: { choferId, activo: true },
+        });
+        const odometroFin = req.body?.odometroFin ? parseFloat(req.body.odometroFin) : null;
+        for (const t of turnosActivos) {
+          await prisma.turnoChofer.update({
+            where: { id: t.id },
+            data: {
+              activo: false,
+              fechaFin: new Date(),
+              odometroFin: odometroFin !== null && !isNaN(odometroFin) ? odometroFin : null,
+            },
+          });
+        }
+      }
+
       res.json({
         success: true,
-        data: updatedChofer,
+        data: {
+          ...updatedChofer,
+          turnoActivo,
+        },
         message: isOnline ? 'Chofer conectado exitosamente' : 'Chofer desconectado exitosamente',
       });
     } catch (error) {
@@ -807,6 +876,1373 @@ export const choferController = {
       res.status(500).json({
         success: false,
         message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // Obtener estado actual del chofer, viaje en curso y alertas de viajes disponibles
+  async getMiEstado(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id || (req.query.choferId as string | undefined);
+
+      if (!choferId) {
+        const fallbackChofer =
+          (await prisma.chofer.findFirst({
+            where: { estado: 'ACTIVO', isOnline: true },
+          })) ||
+          (await prisma.chofer.findFirst({
+            where: { estado: 'ACTIVO' },
+          }));
+        choferId = fallbackChofer?.id;
+      }
+
+      if (!choferId) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      const chofer = await prisma.chofer.findUnique({
+        where: { id: choferId },
+        include: {
+          vehiculo: {
+            select: {
+              id: true,
+              patente: true,
+              marca: true,
+              modelo: true,
+              color: true,
+            },
+          },
+          remiseria: {
+            select: {
+              id: true,
+              nombreFantasia: true,
+            },
+          },
+        },
+      });
+
+      if (!chofer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      // Buscar si el chofer ya tiene un viaje activo asignado
+      const viajeActual = await prisma.viaje.findFirst({
+        where: {
+          choferId: chofer.id,
+          estado: {
+            in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'],
+          },
+        },
+        include: {
+          cliente: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+            },
+          },
+          vehiculo: {
+            select: {
+              id: true,
+              patente: true,
+              marca: true,
+              modelo: true,
+              color: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      // Si no tiene viaje activo, buscar viajes pendientes sin chofer asignado
+      let viajesDisponibles: any[] = [];
+      if (!viajeActual) {
+        viajesDisponibles = await prisma.viaje.findMany({
+          where: {
+            estado: 'PENDIENTE',
+            choferId: null,
+            OR: [
+              { remiseriaId: chofer.remiseriaId },
+              { clienteId: { not: null } },
+            ],
+          },
+          include: {
+            cliente: {
+              select: {
+                id: true,
+                nombre: true,
+                apellido: true,
+                telefono: true,
+              },
+            },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+        });
+      }
+
+      // Obtener el turno activo si está conectado
+      const turnoActivo = await prisma.turnoChofer.findFirst({
+        where: {
+          choferId: chofer.id,
+          activo: true,
+        },
+        orderBy: {
+          fechaInicio: 'desc',
+        },
+      });
+
+      res.json({
+        success: true,
+        data: {
+          chofer,
+          viajeActual,
+          viajesDisponibles,
+          turnoActivo,
+        },
+      });
+    } catch (error) {
+      console.error('Error getting estado del chofer:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // Aceptar un viaje pendiente desde la app del chofer
+  async aceptarViaje(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { viajeId } = req.params;
+      let choferId = req.user?.chofer?.id || req.body?.choferId;
+
+      if (!choferId) {
+        const fallbackChofer =
+          (await prisma.chofer.findFirst({
+            where: { estado: 'ACTIVO', isOnline: true },
+          })) ||
+          (await prisma.chofer.findFirst({
+            where: { estado: 'ACTIVO' },
+          }));
+        choferId = fallbackChofer?.id;
+      }
+
+      if (!choferId) {
+        return res.status(401).json({
+          success: false,
+          message: 'No se pudo identificar al chofer',
+        });
+      }
+
+      const chofer = await prisma.chofer.findUnique({
+        where: { id: choferId },
+      });
+
+      if (!chofer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      const viaje = await prisma.viaje.findUnique({
+        where: { id: viajeId },
+      });
+
+      if (!viaje) {
+        return res.status(404).json({
+          success: false,
+          message: 'El viaje no existe',
+        });
+      }
+
+      if (viaje.estado === 'CANCELADO') {
+        return res.status(400).json({
+          success: false,
+          message: 'El viaje fue cancelado por el cliente',
+        });
+      }
+
+      if (viaje.estado !== 'PENDIENTE' && viaje.choferId !== chofer.id) {
+        return res.status(400).json({
+          success: false,
+          message: 'Este viaje ya fue tomado por otro conductor',
+        });
+      }
+
+      const viajeActualizado = await prisma.viaje.update({
+        where: { id: viajeId },
+        data: {
+          choferId: chofer.id,
+          vehiculoId: chofer.vehiculoId || viaje.vehiculoId || null,
+          estado: 'ACEPTADO',
+        },
+        include: {
+          cliente: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+            },
+          },
+          chofer: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+              vehiculo: {
+                select: {
+                  id: true,
+                  patente: true,
+                  marca: true,
+                  modelo: true,
+                  color: true,
+                },
+              },
+            },
+          },
+          vehiculo: {
+            select: {
+              id: true,
+              patente: true,
+              marca: true,
+              modelo: true,
+              color: true,
+            },
+          },
+        },
+      });
+
+      res.json({
+        success: true,
+        data: viajeActualizado,
+        message: 'Viaje aceptado exitosamente',
+      });
+    } catch (error) {
+      console.error('Error aceptando viaje:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // Actualizar el estado del viaje en curso desde la app del chofer (EN_CAMINO, EN_CURSO, COMPLETADO, CANCELADO)
+  async actualizarEstadoViaje(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { viajeId } = req.params;
+      const { estado, distanciaKmConPasajero, distanciaKmSinPasajero } = req.body;
+
+      const estadosValidos = ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO', 'COMPLETADO', 'CANCELADO'];
+      if (!estado || !estadosValidos.includes(estado)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Estado de viaje inválido',
+        });
+      }
+
+      const viaje = await prisma.viaje.findUnique({
+        where: { id: viajeId },
+      });
+
+      if (!viaje) {
+        return res.status(404).json({
+          success: false,
+          message: 'Viaje no encontrado',
+        });
+      }
+
+      const distCon = distanciaKmConPasajero !== undefined ? parseFloat(distanciaKmConPasajero) : undefined;
+      const distSin = distanciaKmSinPasajero !== undefined ? parseFloat(distanciaKmSinPasajero) : undefined;
+
+      const updateData: any = { estado };
+      if (distCon !== undefined && !isNaN(distCon)) {
+        updateData.distanciaKmConPasajero = distCon;
+      }
+      if (distSin !== undefined && !isNaN(distSin)) {
+        updateData.distanciaKmSinPasajero = distSin;
+      }
+
+      const viajeActualizado = await prisma.viaje.update({
+        where: { id: viajeId },
+        data: updateData,
+        include: {
+          cliente: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+            },
+          },
+          vehiculo: {
+            select: {
+              id: true,
+              patente: true,
+              marca: true,
+              modelo: true,
+              color: true,
+            },
+          },
+        },
+      });
+
+      // Si el viaje se completa o avanza y trae distancias, acumular al turno activo del chofer
+      const choferId = viaje.choferId;
+      if (choferId && ((distCon && distCon > 0) || (distSin && distSin > 0))) {
+        const turnoActivo = await prisma.turnoChofer.findFirst({
+          where: { choferId, activo: true },
+        });
+        if (turnoActivo) {
+          const deltaCon = (distCon && distCon > 0) ? distCon : 0;
+          const deltaSin = (distSin && distSin > 0) ? distSin : 0;
+          await prisma.turnoChofer.update({
+            where: { id: turnoActivo.id },
+            data: {
+              kmConPasajero: { increment: deltaCon },
+              kmSinPasajero: { increment: deltaSin },
+              kmTotalConectado: { increment: deltaCon + deltaSin },
+            },
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        data: viajeActualizado,
+        message: 'Estado del viaje actualizado',
+      });
+    } catch (error) {
+      console.error('Error actualizando estado del viaje del chofer:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // Obtener historial de viajes del chofer
+  async getMisViajes(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id || (req.query.choferId as string | undefined);
+
+      if (!choferId) {
+        const fallbackChofer = await prisma.chofer.findFirst({
+          where: { estado: 'ACTIVO' },
+        });
+        choferId = fallbackChofer?.id;
+      }
+
+      if (!choferId) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      const viajes = await prisma.viaje.findMany({
+        where: {
+          choferId,
+        },
+        include: {
+          cliente: {
+            select: {
+              nombre: true,
+              apellido: true,
+              telefono: true,
+            },
+          },
+          vehiculo: {
+            select: {
+              patente: true,
+              marca: true,
+              modelo: true,
+            },
+          },
+        },
+        orderBy: {
+          fecha: 'desc',
+        },
+      });
+
+      res.json({
+        success: true,
+        data: viajes,
+      });
+    } catch (error) {
+      console.error('Error obteniendo viajes del chofer:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // ==========================================
+  // TURNOS Y TRACKING DE KILOMETRAJE
+  // ==========================================
+
+  // Obtener el turno activo actual del chofer
+  async getTurnoActivo(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id || (req.query.choferId as string | undefined);
+
+      if (!choferId) {
+        const fallbackChofer = await prisma.chofer.findFirst({
+          where: { estado: 'ACTIVO' },
+        });
+        choferId = fallbackChofer?.id;
+      }
+
+      if (!choferId) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      const turnoActivo = await prisma.turnoChofer.findFirst({
+        where: { choferId, activo: true },
+        include: {
+          vehiculo: {
+            select: {
+              id: true,
+              patente: true,
+              marca: true,
+              modelo: true,
+            },
+          },
+        },
+        orderBy: { fechaInicio: 'desc' },
+      });
+
+      res.json({
+        success: true,
+        data: turnoActivo,
+      });
+    } catch (error) {
+      console.error('Error al obtener turno activo:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // Iniciar manualmente un turno de trabajo
+  async iniciarTurno(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id || req.body?.choferId;
+      const { odometroInicio, observaciones } = req.body;
+
+      if (!choferId) {
+        const fallbackChofer = await prisma.chofer.findFirst({
+          where: { estado: 'ACTIVO' },
+        });
+        choferId = fallbackChofer?.id;
+      }
+
+      if (!choferId) {
+        return res.status(401).json({
+          success: false,
+          message: 'No se pudo identificar al chofer',
+        });
+      }
+
+      const chofer = await prisma.chofer.findUnique({
+        where: { id: choferId },
+      });
+
+      if (!chofer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      // Si ya hay un turno activo, lo retornamos
+      let turno = await prisma.turnoChofer.findFirst({
+        where: { choferId, activo: true },
+      });
+
+      if (!turno) {
+        const odoVal = odometroInicio !== undefined ? parseFloat(odometroInicio) : null;
+        turno = await prisma.turnoChofer.create({
+          data: {
+            choferId,
+            vehiculoId: chofer.vehiculoId || null,
+            activo: true,
+            odometroInicio: odoVal !== null && !isNaN(odoVal) ? odoVal : null,
+            observaciones,
+          },
+        });
+      }
+
+      // Asegurar que el chofer quede en estado online
+      await prisma.chofer.update({
+        where: { id: choferId },
+        data: { isOnline: true },
+      });
+
+      res.json({
+        success: true,
+        data: turno,
+        message: 'Turno iniciado correctamente',
+      });
+    } catch (error) {
+      console.error('Error al iniciar turno:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // Finalizar el turno activo del chofer
+  async finalizarTurno(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id || req.body?.choferId;
+      const { odometroFin, observaciones } = req.body;
+
+      if (!choferId) {
+        const fallbackChofer = await prisma.chofer.findFirst({
+          where: { estado: 'ACTIVO' },
+        });
+        choferId = fallbackChofer?.id;
+      }
+
+      if (!choferId) {
+        return res.status(401).json({
+          success: false,
+          message: 'No se pudo identificar al chofer',
+        });
+      }
+
+      const turnosActivos = await prisma.turnoChofer.findMany({
+        where: { choferId, activo: true },
+      });
+
+      const odoVal = odometroFin !== undefined ? parseFloat(odometroFin) : null;
+      for (const t of turnosActivos) {
+        await prisma.turnoChofer.update({
+          where: { id: t.id },
+          data: {
+            activo: false,
+            fechaFin: new Date(),
+            odometroFin: odoVal !== null && !isNaN(odoVal) ? odoVal : null,
+            observaciones: observaciones || t.observaciones,
+          },
+        });
+      }
+
+      // Desconectar al chofer
+      await prisma.chofer.update({
+        where: { id: choferId },
+        data: { isOnline: false },
+      });
+
+      res.json({
+        success: true,
+        message: 'Turno finalizado correctamente',
+      });
+    } catch (error) {
+      console.error('Error al finalizar turno:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // Actualizar kilometraje acumulado en tiempo real en el turno activo
+  async actualizarKmTurno(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id || req.body?.choferId;
+      const { kmConPasajeroDelta, kmSinPasajeroDelta } = req.body;
+
+      if (!choferId) {
+        const fallbackChofer = await prisma.chofer.findFirst({
+          where: { estado: 'ACTIVO' },
+        });
+        choferId = fallbackChofer?.id;
+      }
+
+      if (!choferId) {
+        return res.status(401).json({
+          success: false,
+          message: 'No se pudo identificar al chofer',
+        });
+      }
+
+      let turnoActivo = await prisma.turnoChofer.findFirst({
+        where: { choferId, activo: true },
+        orderBy: { fechaInicio: 'desc' },
+      });
+
+      if (!turnoActivo) {
+        // Si no tiene turno activo pero está sumando km, creamos uno
+        const chofer = await prisma.chofer.findUnique({ where: { id: choferId } });
+        turnoActivo = await prisma.turnoChofer.create({
+          data: {
+            choferId,
+            vehiculoId: chofer?.vehiculoId || null,
+            activo: true,
+          },
+        });
+      }
+
+      const deltaCon = kmConPasajeroDelta ? Math.max(0, parseFloat(kmConPasajeroDelta)) : 0;
+      const deltaSin = kmSinPasajeroDelta ? Math.max(0, parseFloat(kmSinPasajeroDelta)) : 0;
+      const deltaTotal = deltaCon + deltaSin;
+
+      if (deltaTotal > 0) {
+        turnoActivo = await prisma.turnoChofer.update({
+          where: { id: turnoActivo.id },
+          data: {
+            kmConPasajero: { increment: deltaCon },
+            kmSinPasajero: { increment: deltaSin },
+            kmTotalConectado: { increment: deltaTotal },
+          },
+        });
+      }
+
+      res.json({
+        success: true,
+        data: turnoActivo,
+      });
+    } catch (error) {
+      console.error('Error al actualizar km del turno:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // ==========================================
+  // GASTOS DEL CHOFER (COMBUSTIBLE, REPARACIONES, ETC.)
+  // ==========================================
+
+  // Listar gastos cargados por el chofer
+  async getMisGastos(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id || (req.query.choferId as string | undefined);
+
+      if (!choferId) {
+        const fallbackChofer = await prisma.chofer.findFirst({
+          where: { estado: 'ACTIVO' },
+        });
+        choferId = fallbackChofer?.id;
+      }
+
+      if (!choferId) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      const { tipo, subtipoCombustible, fechaDesde, fechaHasta } = req.query;
+      let whereClause: any = { choferId };
+
+      if (tipo && typeof tipo === 'string' && tipo !== 'TODOS') {
+        if (tipo === 'NAFTA_GASOIL') {
+          whereClause.tipo = 'COMBUSTIBLE';
+          whereClause.subtipoCombustible = 'NAFTA_GASOIL';
+        } else if (tipo === 'GNC') {
+          whereClause.tipo = 'COMBUSTIBLE';
+          whereClause.subtipoCombustible = 'GNC';
+        } else {
+          whereClause.tipo = tipo;
+        }
+      }
+
+      if (subtipoCombustible && typeof subtipoCombustible === 'string') {
+        whereClause.subtipoCombustible = subtipoCombustible;
+      }
+
+      if (fechaDesde || fechaHasta) {
+        whereClause.fecha = {};
+        if (fechaDesde) whereClause.fecha.gte = new Date(fechaDesde as string);
+        if (fechaHasta) whereClause.fecha.lte = new Date(fechaHasta as string);
+      }
+
+      const gastos = await prisma.gastoChofer.findMany({
+        where: whereClause,
+        include: {
+          vehiculo: {
+            select: {
+              id: true,
+              patente: true,
+              marca: true,
+              modelo: true,
+            },
+          },
+        },
+        orderBy: { fecha: 'desc' },
+      });
+
+      res.json({
+        success: true,
+        data: gastos,
+      });
+    } catch (error) {
+      console.error('Error al obtener gastos del chofer:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // Registrar un nuevo gasto
+  async crearGasto(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id || req.body?.choferId;
+      const { tipo, subtipoCombustible, monto, kilometraje, litros, descripcion, comprobanteUrl, fecha } = req.body;
+
+      if (!choferId) {
+        const fallbackChofer = await prisma.chofer.findFirst({
+          where: { estado: 'ACTIVO' },
+        });
+        choferId = fallbackChofer?.id;
+      }
+
+      if (!choferId) {
+        return res.status(401).json({
+          success: false,
+          message: 'No se pudo identificar al chofer',
+        });
+      }
+
+      const tiposValidos = ['COMBUSTIBLE', 'REPARACION', 'MANTENIMIENTO', 'PEAJE', 'LAVADO', 'OTRO'];
+      if (!tipo || !tiposValidos.includes(tipo)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Tipo de gasto inválido',
+        });
+      }
+
+      const montoFloat = parseFloat(monto);
+      if (isNaN(montoFloat) || montoFloat <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'El monto debe ser un número mayor a 0',
+        });
+      }
+
+      const chofer = await prisma.chofer.findUnique({
+        where: { id: choferId },
+        select: { id: true, vehiculoId: true },
+      });
+
+      const kmFloat = kilometraje !== undefined && kilometraje !== '' ? parseFloat(kilometraje) : null;
+      const litrosFloat = litros !== undefined && litros !== '' ? parseFloat(litros) : null;
+
+      let subTipoVal: 'NAFTA_GASOIL' | 'GNC' | null = null;
+      if (tipo === 'COMBUSTIBLE') {
+        subTipoVal = subtipoCombustible === 'GNC' ? 'GNC' : 'NAFTA_GASOIL';
+      }
+
+      const gasto = await prisma.gastoChofer.create({
+        data: {
+          choferId,
+          vehiculoId: chofer?.vehiculoId || null,
+          tipo,
+          subtipoCombustible: subTipoVal,
+          monto: montoFloat,
+          kilometraje: kmFloat !== null && !isNaN(kmFloat) ? kmFloat : null,
+          litros: litrosFloat !== null && !isNaN(litrosFloat) ? litrosFloat : null,
+          descripcion: descripcion || null,
+          comprobanteUrl: comprobanteUrl || null,
+          fecha: fecha ? new Date(fecha) : new Date(),
+        },
+        include: {
+          vehiculo: {
+            select: {
+              patente: true,
+              marca: true,
+              modelo: true,
+            },
+          },
+        },
+      });
+
+      res.status(201).json({
+        success: true,
+        data: gasto,
+        message: 'Gasto registrado correctamente',
+      });
+    } catch (error) {
+      console.error('Error al crear gasto del chofer:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // Eliminar un gasto
+  async eliminarGasto(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { gastoId } = req.params;
+      let choferId = req.user?.chofer?.id || (req.query.choferId as string | undefined);
+
+      if (!choferId) {
+        const fallbackChofer = await prisma.chofer.findFirst({
+          where: { estado: 'ACTIVO' },
+        });
+        choferId = fallbackChofer?.id;
+      }
+
+      const gasto = await prisma.gastoChofer.findUnique({
+        where: { id: gastoId },
+      });
+
+      if (!gasto) {
+        return res.status(404).json({
+          success: false,
+          message: 'Gasto no encontrado',
+        });
+      }
+
+      // Validar que pertenezca al chofer si no es DUENIO/ADMIN
+      if (req.user?.rol === 'CHOFER' && gasto.choferId !== choferId) {
+        return res.status(403).json({
+          success: false,
+          message: 'No tienes permiso para eliminar este gasto',
+        });
+      }
+
+      await prisma.gastoChofer.delete({
+        where: { id: gastoId },
+      });
+
+      res.json({
+        success: true,
+        message: 'Gasto eliminado exitosamente',
+      });
+    } catch (error) {
+      console.error('Error al eliminar gasto:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // Resumen financiero y de métricas (Recaudación, Gastos, Ganancia Neta y Rendimiento Km)
+  async getResumenFinanciero(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id || (req.query.choferId as string | undefined);
+
+      if (!choferId) {
+        const fallbackChofer = await prisma.chofer.findFirst({
+          where: { estado: 'ACTIVO' },
+        });
+        choferId = fallbackChofer?.id;
+      }
+
+      if (!choferId) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      const chofer = await prisma.chofer.findUnique({
+        where: { id: choferId },
+      });
+
+      if (!chofer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      // Rango de fechas: por defecto mes actual
+      const ahora = new Date();
+      const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth(), 1);
+      const finMes = new Date(ahora.getFullYear(), ahora.getMonth() + 1, 0, 23, 59, 59);
+
+      const fechaDesde = req.query.fechaDesde ? new Date(req.query.fechaDesde as string) : inicioMes;
+      const fechaHasta = req.query.fechaHasta ? new Date(req.query.fechaHasta as string) : finMes;
+
+      // 1. Viajes completados en el período
+      const viajes = await prisma.viaje.findMany({
+        where: {
+          choferId,
+          estado: 'COMPLETADO',
+          fecha: {
+            gte: fechaDesde,
+            lte: fechaHasta,
+          },
+        },
+      });
+
+      const totalRecaudado = viajes.reduce((sum, v) => sum + Number(v.precio || 0), 0);
+      const comisionPorcentaje = chofer.comisionPorcentaje || 30;
+      const gananciaChoferEstimada = (totalRecaudado * (100 - comisionPorcentaje)) / 100;
+
+      // 2. Gastos en el período
+      const gastos = await prisma.gastoChofer.findMany({
+        where: {
+          choferId,
+          fecha: {
+            gte: fechaDesde,
+            lte: fechaHasta,
+          },
+        },
+      });
+
+      let totalCombustible = 0;
+      let totalNaftaGasoil = 0;
+      let totalLitrosNaftaGasoil = 0;
+      let totalGNC = 0;
+      let totalM3GNC = 0;
+      let totalReparaciones = 0;
+      let totalMantenimiento = 0;
+      let totalOtros = 0;
+
+      for (const g of gastos) {
+        if (g.tipo === 'COMBUSTIBLE') {
+          totalCombustible += g.monto;
+          if (g.subtipoCombustible === 'GNC') {
+            totalGNC += g.monto;
+            if (g.litros) totalM3GNC += g.litros;
+          } else {
+            totalNaftaGasoil += g.monto;
+            if (g.litros) totalLitrosNaftaGasoil += g.litros;
+          }
+        } else if (g.tipo === 'REPARACION') {
+          totalReparaciones += g.monto;
+        } else if (g.tipo === 'MANTENIMIENTO') {
+          totalMantenimiento += g.monto;
+        } else {
+          totalOtros += g.monto;
+        }
+      }
+
+      const totalGastos = totalCombustible + totalReparaciones + totalMantenimiento + totalOtros;
+      const gananciaNetaReal = gananciaChoferEstimada - totalGastos;
+
+      // 3. Turnos y Kilómetros en el período
+      const turnos = await prisma.turnoChofer.findMany({
+        where: {
+          choferId,
+          fechaInicio: {
+            gte: fechaDesde,
+            lte: fechaHasta,
+          },
+        },
+      });
+
+      const kmTotalConectado = turnos.reduce((sum, t) => sum + (t.kmTotalConectado || 0), 0);
+      const kmConPasajero = turnos.reduce((sum, t) => sum + (t.kmConPasajero || 0), 0);
+      const kmSinPasajero = turnos.reduce((sum, t) => sum + (t.kmSinPasajero || 0), 0);
+
+      // Costo por kilómetro
+      const costoPorKm = kmTotalConectado > 0 ? totalGastos / kmTotalConectado : 0;
+      const totalVolumenCombustible = totalLitrosNaftaGasoil + totalM3GNC;
+      const rendimientoCombustibleKmPorUnidad =
+        totalVolumenCombustible > 0 && kmTotalConectado > 0
+          ? kmTotalConectado / totalVolumenCombustible
+          : null;
+
+      res.json({
+        success: true,
+        data: {
+          periodo: {
+            desde: fechaDesde,
+            hasta: fechaHasta,
+          },
+          ingresos: {
+            totalViajes: viajes.length,
+            totalRecaudado,
+            gananciaChoferEstimada,
+            comisionPorcentaje,
+          },
+          gastos: {
+            totalGastos,
+            totalCombustible,
+            totalNaftaGasoil,
+            totalLitrosNaftaGasoil,
+            totalGNC,
+            totalM3GNC,
+            totalReparaciones,
+            totalMantenimiento,
+            totalOtros,
+            cantidadRegistros: gastos.length,
+          },
+          balance: {
+            gananciaNetaReal,
+          },
+          kilometraje: {
+            kmTotalConectado: Number(kmTotalConectado.toFixed(1)),
+            kmConPasajero: Number(kmConPasajero.toFixed(1)),
+            kmSinPasajero: Number(kmSinPasajero.toFixed(1)),
+            porcentajeOcupado:
+              kmTotalConectado > 0
+                ? Number(((kmConPasajero / kmTotalConectado) * 100).toFixed(1))
+                : 0,
+            costoPorKm: Number(costoPorKm.toFixed(2)),
+            rendimientoKmPorLitro: rendimientoCombustibleKmPorUnidad
+              ? Number(rendimientoCombustibleKmPorUnidad.toFixed(2))
+              : null,
+          },
+        },
+      });
+    } catch (error) {
+      console.error('Error al obtener resumen financiero del chofer:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // ==========================================
+  // AUTO-REGISTRO Y APROBACIÓN DE CHOFERES
+  // ==========================================
+
+  // Registro público para que un chofer cree su propia cuenta (queda PENDIENTE_APROBACION)
+  async registroPublico(req: any, res: Response) {
+    try {
+      const {
+        nombre,
+        apellido,
+        dni,
+        telefono,
+        email,
+        password,
+        direccion,
+        categoriaLicencia,
+        vtoLicencia,
+        remiseriaId,
+        esPropietario,
+        observaciones,
+      } = req.body;
+
+      // Validar campos obligatorios
+      if (
+        !nombre ||
+        !apellido ||
+        !dni ||
+        !telefono ||
+        !email ||
+        !password ||
+        !categoriaLicencia ||
+        !vtoLicencia ||
+        !remiseriaId
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Todos los campos obligatorios deben completarse (Nombre, Apellido, DNI, Teléfono, Email, Contraseña, Categoría y Vencimiento de Licencia, y Remisería).',
+        });
+      }
+
+      if (password.length < 6) {
+        return res.status(400).json({
+          success: false,
+          message: 'La contraseña debe tener al menos 6 caracteres.',
+        });
+      }
+
+      // Verificar que el email no exista en User
+      const existingUser = await prisma.user.findUnique({
+        where: { email: email.toLowerCase().trim() },
+      });
+      if (existingUser) {
+        return res.status(400).json({
+          success: false,
+          message: 'El correo electrónico ya se encuentra registrado en el sistema.',
+        });
+      }
+
+      // Verificar que el DNI no exista en Chofer
+      const existingChoferDni = await prisma.chofer.findUnique({
+        where: { dni: dni.trim() },
+      });
+      if (existingChoferDni) {
+        return res.status(400).json({
+          success: false,
+          message: 'El DNI ya se encuentra registrado en el sistema.',
+        });
+      }
+
+      // Verificar que la remisería exista y esté activa
+      const remiseria = await prisma.remiseria.findUnique({
+        where: { id: remiseriaId },
+      });
+      if (!remiseria || !remiseria.estado) {
+        return res.status(400).json({
+          success: false,
+          message: 'La remisería seleccionada no está disponible o no existe.',
+        });
+      }
+
+      // Generar número de chofer único
+      const count = await prisma.chofer.count({ where: { remiseriaId } });
+      let numeroChofer = `CH-${String(count + 1).padStart(3, '0')}`;
+      let existeNum = await prisma.chofer.findUnique({ where: { numeroChofer } });
+      if (existeNum) {
+        numeroChofer = `CH-${Date.now().toString().slice(-4)}`;
+      }
+
+      // Encriptar contraseña
+      const passwordHash = await bcrypt.hash(password, 10);
+
+      // Transacción para crear User y Chofer
+      const resultado = await prisma.$transaction(async (tx) => {
+        const user = await tx.user.create({
+          data: {
+            email: email.toLowerCase().trim(),
+            passwordHash,
+            rol: 'CHOFER',
+            activo: true, // Puede loguearse para ver su estado
+          },
+        });
+
+        const chofer = await tx.chofer.create({
+          data: {
+            userId: user.id,
+            remiseriaId,
+            numeroChofer,
+            nombre: nombre.trim(),
+            apellido: apellido.trim(),
+            dni: dni.trim(),
+            telefono: telefono.trim(),
+            email: email.toLowerCase().trim(),
+            direccion: direccion ? direccion.trim() : null,
+            categoriaLicencia: categoriaLicencia.trim(),
+            vtoLicencia: new Date(vtoLicencia),
+            esPropietario: Boolean(esPropietario),
+            comisionPorcentaje: remiseria.comisionPorcentaje || 30.0,
+            observaciones: observaciones ? observaciones.trim() : null,
+            estado: 'PENDIENTE_APROBACION',
+            isOnline: false,
+          },
+          include: {
+            remiseria: {
+              select: {
+                id: true,
+                nombreFantasia: true,
+              },
+            },
+          },
+        });
+
+        return { user, chofer };
+      });
+
+      res.status(201).json({
+        success: true,
+        data: resultado.chofer,
+        message:
+          '¡Solicitud enviada con éxito! El dueño de la remisería revisará tu documentación y te habilitará para comenzar a operar.',
+      });
+    } catch (error) {
+      console.error('Error en registro público de chofer:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor al procesar el registro.',
+      });
+    }
+  },
+
+  // Obtener remiserías activas para el select del registro público de choferes
+  async getRemiseriasDisponibles(req: any, res: Response) {
+    try {
+      const remiserias = await prisma.remiseria.findMany({
+        where: { estado: true },
+        select: {
+          id: true,
+          nombreFantasia: true,
+          direccion: true,
+          telefono: true,
+        },
+        orderBy: { nombreFantasia: 'asc' },
+      });
+
+      res.json({
+        success: true,
+        data: remiserias,
+      });
+    } catch (error) {
+      console.error('Error al obtener remiserías disponibles:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // Aprobar chofer por parte del Dueño o Coordinador
+  async aprobarChofer(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { comisionPorcentaje, vehiculoId, numeroChofer } = req.body;
+      const { rol, id: userId } = req.user!;
+
+      const chofer = await prisma.chofer.findUnique({
+        where: { id },
+        include: { user: true },
+      });
+
+      if (!chofer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      // Validar permisos del dueño/coordinador sobre esta remisería
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } },
+        });
+        const remiseriaIds = duenio?.remiserias.map((r) => r.remiseriaId) || [];
+        if (!remiseriaIds.includes(chofer.remiseriaId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos sobre esta remisería',
+          });
+        }
+      } else if (rol === 'COORDINADOR') {
+        const coordinador = await prisma.coordinador.findFirst({
+          where: { userId },
+        });
+        if (coordinador?.remiseriaId !== chofer.remiseriaId) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos sobre esta remisería',
+          });
+        }
+      }
+
+      const updateData: any = {
+        estado: 'ACTIVO',
+        motivoRechazo: null,
+      };
+
+      if (comisionPorcentaje !== undefined && !isNaN(parseFloat(comisionPorcentaje))) {
+        updateData.comisionPorcentaje = parseFloat(comisionPorcentaje);
+      }
+      if (vehiculoId !== undefined) {
+        updateData.vehiculoId = vehiculoId || null;
+      }
+      if (numeroChofer && numeroChofer.trim()) {
+        updateData.numeroChofer = numeroChofer.trim();
+      }
+
+      const updatedChofer = await prisma.chofer.update({
+        where: { id },
+        data: updateData,
+        include: {
+          remiseria: { select: { nombreFantasia: true } },
+          vehiculo: { select: { patente: true, marca: true, modelo: true } },
+        },
+      });
+
+      // Asegurar que el usuario esté activo
+      if (chofer.userId) {
+        await prisma.user.update({
+          where: { id: chofer.userId },
+          data: { activo: true },
+        });
+      }
+
+      res.json({
+        success: true,
+        data: updatedChofer,
+        message: `Chofer ${updatedChofer.nombre} ${updatedChofer.apellido} aprobado exitosamente.`,
+      });
+    } catch (error) {
+      console.error('Error al aprobar chofer:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor al aprobar chofer',
+      });
+    }
+  },
+
+  // Rechazar chofer por parte del Dueño o Coordinador
+  async rechazarChofer(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { motivoRechazo } = req.body;
+      const { rol, id: userId } = req.user!;
+
+      const chofer = await prisma.chofer.findUnique({
+        where: { id },
+      });
+
+      if (!chofer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      // Validar permisos
+      if (rol === 'DUENIO') {
+        const duenio = await prisma.duenio.findUnique({
+          where: { userId },
+          include: { remiserias: { select: { remiseriaId: true } } },
+        });
+        const remiseriaIds = duenio?.remiserias.map((r) => r.remiseriaId) || [];
+        if (!remiseriaIds.includes(chofer.remiseriaId)) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos sobre esta remisería',
+          });
+        }
+      } else if (rol === 'COORDINADOR') {
+        const coordinador = await prisma.coordinador.findFirst({
+          where: { userId },
+        });
+        if (coordinador?.remiseriaId !== chofer.remiseriaId) {
+          return res.status(403).json({
+            success: false,
+            message: 'No tienes permisos sobre esta remisería',
+          });
+        }
+      }
+
+      const updatedChofer = await prisma.chofer.update({
+        where: { id },
+        data: {
+          estado: 'RECHAZADO',
+          motivoRechazo: motivoRechazo || 'Solicitud rechazada por la administración de la remisería',
+          isOnline: false,
+        },
+      });
+
+      res.json({
+        success: true,
+        data: updatedChofer,
+        message: `Solicitud de chofer rechazada.`,
+      });
+    } catch (error) {
+      console.error('Error al rechazar chofer:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor al rechazar chofer',
       });
     }
   },

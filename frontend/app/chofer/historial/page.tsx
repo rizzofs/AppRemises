@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
-import { coordinadorDashboardService } from '@/lib/api';
-import { DollarSign, Calendar, Fuel, FileText, User, Clock, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { coordinadorDashboardService, choferService } from '@/lib/api';
+import { DollarSign, Calendar, Fuel, FileText, User, Clock, RefreshCw, ChevronDown, ChevronUp, MapPin, Navigation } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function ChoferHistorialPage() {
@@ -12,6 +12,8 @@ export default function ChoferHistorialPage() {
   const router = useRouter();
 
   const [activeTab, setActiveTab] = useState<'viajes' | 'cierres'>('viajes');
+  const [viajes, setViajes] = useState<any[]>([]);
+  const [loadingViajes, setLoadingViajes] = useState(false);
   const [liquidaciones, setLiquidaciones] = useState<any[]>([]);
   const [loadingCierres, setLoadingCierres] = useState(false);
   const [expandedLiq, setExpandedLiq] = useState<string | null>(null);
@@ -21,8 +23,23 @@ export default function ChoferHistorialPage() {
       router.push('/login');
       return;
     }
+    loadViajes();
     loadCierres();
   }, [user]);
+
+  const loadViajes = async () => {
+    try {
+      setLoadingViajes(true);
+      const response = await choferService.getMisViajes(user?.chofer?.id);
+      if (response.success && response.data) {
+        setViajes(response.data);
+      }
+    } catch (error) {
+      console.error('Error loading driver trips:', error);
+    } finally {
+      setLoadingViajes(false);
+    }
+  };
 
   const loadCierres = async () => {
     try {
@@ -78,15 +95,72 @@ export default function ChoferHistorialPage() {
 
       {activeTab === 'viajes' ? (
         <div className="space-y-3">
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 text-center">
-            <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-100 mb-3">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
+          {loadingViajes ? (
+            <div className="text-center py-12">
+              <div className="loading-spinner border-primary-500 mx-auto"></div>
+              <p className="mt-2 text-xs text-gray-500">Cargando viajes...</p>
             </div>
-            <p className="text-gray-500 font-medium text-sm">Aún no tienes viajes registrados</p>
-            <p className="text-xs text-gray-400 mt-1">Tus viajes completados aparecerán aquí.</p>
-          </div>
+          ) : viajes.length === 0 ? (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 text-center">
+              <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gray-100 mb-3">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <p className="text-gray-500 font-medium text-sm">Aún no tienes viajes registrados</p>
+              <p className="text-xs text-gray-400 mt-1">Tus viajes completados aparecerán aquí.</p>
+            </div>
+          ) : (
+            viajes.map((v) => (
+              <div key={v.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-2.5">
+                <div className="flex items-center justify-between border-b border-gray-100 pb-2">
+                  <span className="text-xs text-gray-400">
+                    {new Date(v.fecha).toLocaleDateString('es-AR')} - {new Date(v.fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                        v.estado === 'COMPLETADO'
+                          ? 'bg-emerald-50 text-emerald-700'
+                          : v.estado === 'CANCELADO'
+                          ? 'bg-red-50 text-red-600'
+                          : 'bg-blue-50 text-blue-700'
+                      }`}
+                    >
+                      {v.estado}
+                    </span>
+                    <span className="font-bold text-gray-900 text-sm">
+                      ${Number(v.precio || 0).toLocaleString('es-AR')}
+                    </span>
+                  </div>
+                </div>
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex items-start gap-2">
+                    <MapPin className="w-4 h-4 text-green-500 shrink-0 mt-0.5" />
+                    <span className="text-gray-800 font-medium">{v.origen}</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <Navigation className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                    <span className="text-gray-800 font-medium">{v.destino}</span>
+                  </div>
+                  {(v.distanciaKmConPasajero > 0 || v.distanciaKmSinPasajero > 0) && (
+                    <div className="flex items-center gap-2 pt-1.5 border-t border-gray-50 text-[11px] text-gray-500">
+                      {v.distanciaKmConPasajero > 0 && (
+                        <span className="bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-medium">
+                          {v.distanciaKmConPasajero} km c/ pasajero
+                        </span>
+                      )}
+                      {v.distanciaKmSinPasajero > 0 && (
+                        <span className="bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded font-medium">
+                          {v.distanciaKmSinPasajero} km s/ pasajero
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       ) : (
         <div className="space-y-4">

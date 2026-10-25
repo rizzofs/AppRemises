@@ -36,7 +36,6 @@ export const authenticateToken = async (req: AuthenticatedRequest, res: Response
   }
 
   try {
-
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload;
     
     // Buscar el usuario completo con sus relaciones
@@ -91,13 +90,15 @@ export const authenticateToken = async (req: AuthenticatedRequest, res: Response
         numeroChofer: user.chofer.numeroChofer,
         nombre: user.chofer.nombre,
         apellido: user.chofer.apellido,
-        remiseriaId: user.chofer.remiseriaId
+        remiseriaId: user.chofer.remiseriaId,
+        estado: user.chofer.estado,
+        motivoRechazo: user.chofer.motivoRechazo
       } : undefined
     };
     
     next();
   } catch (error) {
-    return res.status(403).json({ success: false, error: 'Token inválido' });
+    return res.status(401).json({ success: false, error: 'Token inválido o expirado' });
   }
 };
 
@@ -135,4 +136,4 @@ export const requireCoordinador = (req: AuthenticatedRequest, res: Response, nex
   }
 
   next();
-}; 
+};

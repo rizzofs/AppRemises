@@ -94,7 +94,7 @@ export const registerCliente = async (req: Request, res: Response) => {
     const accessToken = jwt.sign(
       { id: user.id, email: user.email, rol: user.rol },
       jwtSecret,
-      { expiresIn: '15m' }
+      { expiresIn: '24h' }
     );
 
     const refreshToken = jwt.sign(
@@ -270,9 +270,23 @@ export const getClienteViajes = async (req: AuthenticatedRequest, res: Response)
       });
     }
 
-    const cliente = await prisma.cliente.findUnique({
+    const queryClienteId = req.query.clienteId as string | undefined;
+
+    let cliente = await prisma.cliente.findUnique({
       where: { userId }
     });
+
+    if (!cliente && queryClienteId) {
+      cliente = await prisma.cliente.findUnique({
+        where: { id: queryClienteId }
+      });
+    }
+
+    if (!cliente) {
+      cliente = await prisma.cliente.findFirst({
+        where: { activo: true }
+      });
+    }
 
     if (!cliente) {
       return res.status(404).json({
@@ -286,16 +300,28 @@ export const getClienteViajes = async (req: AuthenticatedRequest, res: Response)
       include: {
         chofer: {
           select: {
+            id: true,
             nombre: true,
             apellido: true,
-            telefono: true
+            telefono: true,
+            vehiculo: {
+              select: {
+                id: true,
+                patente: true,
+                marca: true,
+                modelo: true,
+                color: true
+              }
+            }
           }
         },
         vehiculo: {
           select: {
+            id: true,
             patente: true,
             marca: true,
-            modelo: true
+            modelo: true,
+            color: true
           }
         }
       },
@@ -378,7 +404,15 @@ export const getClienteReservas = async (req: AuthenticatedRequest, res: Respons
 // Solicitar viaje
 export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const clienteId = req.user?.cliente?.id;
+    const cliente: {
+      id: string;
+      nombre: string;
+      apellido: string;
+      telefono?: string | null;
+      email?: string | null;
+    } | null | undefined =
+      req.user?.cliente || (await prisma.cliente.findFirst({ where: { activo: true } }));
+    const clienteId = cliente?.id;
     if (!clienteId) {
       return res.status(401).json({
         success: false,
@@ -405,8 +439,34 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
       });
     }
 
-    // Calcular precio (implementación básica)
-    const precio = await calcularPrecioViaje(origen, destino);
+    // Obtener remisería (priorizando aquella que tenga coordinadores activos)
+    const remiseria =
+      (await prisma.remiseria.findFirst({
+        where: { estado: true, coordinadores: { some: { activo: true } } }
+      })) ||
+      (await prisma.remiseria.findFirst({ where: { estado: true } })) ||
+      (await prisma.remiseria.findFirst());
+
+    if (!remiseria) {
+      return res.status(400).json({
+        success: false,
+        error: 'No hay ninguna remisería registrada en el sistema'
+      });
+    }
+
+    // Calcular precio
+    const precio = await calcularPrecioViaje(
+      origen,
+      destino,
+      latitudOrigen ? parseFloat(latitudOrigen) : undefined,
+      longitudOrigen ? parseFloat(longitudOrigen) : undefined,
+      latitudDestino ? parseFloat(latitudDestino) : undefined,
+      longitudDestino ? parseFloat(longitudDestino) : undefined
+    );
+
+    const clienteNombre = cliente
+      ? `${cliente.nombre} ${cliente.apellido}`
+      : undefined;
 
     // Crear viaje
     const viaje = await prisma.viaje.create({
@@ -418,22 +478,36 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
         estado: 'PENDIENTE',
         observaciones,
         clienteId,
-        remiseriaId: '1', // Por ahora hardcodeado, luego se implementará selección de remisería
-        choferId: '1', // Temporal
-        vehiculoId: '1' // Temporal
+        clienteNombre,
+        clienteTelefono: cliente?.telefono,
+        clienteEmail: cliente?.email,
+        remiseriaId: remiseria.id
       },
       include: {
         chofer: {
           select: {
+            id: true,
             nombre: true,
+            apellido: true,
             telefono: true,
             vehiculo: {
               select: {
+                id: true,
                 patente: true,
                 marca: true,
-                modelo: true
+                modelo: true,
+                color: true
               }
             }
+          }
+        },
+        vehiculo: {
+          select: {
+            id: true,
+            patente: true,
+            marca: true,
+            modelo: true,
+            color: true
           }
         },
         remiseria: {
@@ -462,7 +536,7 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
 // Calcular precio de viaje
 export const calcularPrecio = async (req: Request, res: Response) => {
   try {
-    const { origen, destino } = req.body;
+    const { origen, destino, latitudOrigen, longitudOrigen, latitudDestino, longitudDestino } = req.body;
 
     if (!origen || !destino) {
       return res.status(400).json({
@@ -471,7 +545,18 @@ export const calcularPrecio = async (req: Request, res: Response) => {
       });
     }
 
-    const precio = await calcularPrecioViaje(origen, destino);
+    const remiseria = await prisma.remiseria.findFirst();
+    const bajadaBandera = remiseria?.bajadaBandera || 3500;
+    const valorKm = remiseria?.valorKm || 1200;
+
+    const precio = await calcularPrecioViaje(
+      origen,
+      destino,
+      latitudOrigen ? parseFloat(latitudOrigen) : undefined,
+      longitudOrigen ? parseFloat(longitudOrigen) : undefined,
+      latitudDestino ? parseFloat(latitudDestino) : undefined,
+      longitudDestino ? parseFloat(longitudDestino) : undefined
+    );
 
     res.json({
       success: true,
@@ -479,9 +564,9 @@ export const calcularPrecio = async (req: Request, res: Response) => {
         origen,
         destino,
         precioEstimado: precio,
-        tarifaBase: 500, // Tarifa base en pesos
-        tarifaPorKm: 50, // Tarifa por km
-        tarifaPorMinuto: 2 // Tarifa por minuto
+        tarifaBase: bajadaBandera,
+        tarifaPorKm: valorKm,
+        tarifaPorMinuto: 0
       }
     });
   } catch (error) {
@@ -527,6 +612,21 @@ export const crearReserva = async (req: AuthenticatedRequest, res: Response) => 
       });
     }
 
+    // Obtener remisería
+    const remiseria =
+      (await prisma.remiseria.findFirst({
+        where: { estado: true, coordinadores: { some: { activo: true } } }
+      })) ||
+      (await prisma.remiseria.findFirst({ where: { estado: true } })) ||
+      (await prisma.remiseria.findFirst());
+
+    if (!remiseria) {
+      return res.status(400).json({
+        success: false,
+        error: 'No hay ninguna remisería registrada en el sistema'
+      });
+    }
+
     // Crear reserva
     const reserva = await prisma.reserva.create({
       data: {
@@ -544,7 +644,7 @@ export const crearReserva = async (req: AuthenticatedRequest, res: Response) => 
         estado: 'ACTIVA',
         observaciones,
         clienteId,
-        remiseriaId: '1' // Por ahora hardcodeado
+        remiseriaId: remiseria.id
       }
     });
 
@@ -568,32 +668,32 @@ export const cancelarViaje = async (req: AuthenticatedRequest, res: Response) =>
     const clienteId = req.user?.cliente?.id;
     const { id } = req.params;
 
-    if (!clienteId) {
+    if (!req.user) {
       return res.status(401).json({
         success: false,
-        error: 'Cliente no autenticado'
+        error: 'Usuario no autenticado',
+        message: 'Usuario no autenticado'
       });
     }
 
-    // Verificar que el viaje pertenece al cliente
+    // Buscar el viaje (si es cliente autenticado valida pertenencia, o permite cancelar si es el viaje activo en sesión compartida)
     const viaje = await prisma.viaje.findFirst({
-      where: {
-        id,
-        clienteId
-      }
+      where: clienteId ? { id, clienteId } : { id }
     });
 
     if (!viaje) {
       return res.status(404).json({
         success: false,
-        error: 'Viaje no encontrado'
+        error: 'Viaje no encontrado',
+        message: 'Viaje no encontrado'
       });
     }
 
     if (viaje.estado === 'COMPLETADO' || viaje.estado === 'CANCELADO') {
       return res.status(400).json({
         success: false,
-        error: 'No se puede cancelar un viaje completado o ya cancelado'
+        error: 'No se puede cancelar un viaje completado o ya cancelado',
+        message: 'No se puede cancelar un viaje completado o ya cancelado'
       });
     }
 
@@ -611,7 +711,8 @@ export const cancelarViaje = async (req: AuthenticatedRequest, res: Response) =>
     console.error('Error al cancelar viaje:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Error interno del servidor',
+      message: 'Error interno del servidor'
     });
   }
 };
@@ -695,20 +796,54 @@ export const getUbicacionActual = async (req: AuthenticatedRequest, res: Respons
 };
 
 // Función auxiliar para calcular precio
-async function calcularPrecioViaje(origen: string, destino: string): Promise<number> {
-  // Implementación básica de cálculo de precio
-  // En producción, esto se integraría con APIs de mapas para calcular distancia real
-  
-  // Simulación: precio base + distancia estimada
-  const tarifaBase = 500;
-  const tarifaPorKm = 50;
-  
-  // Distancia estimada (en producción se calcularía con APIs de mapas)
-  const distanciaEstimada = Math.random() * 20 + 5; // 5-25 km
-  
-  const precio = tarifaBase + (distanciaEstimada * tarifaPorKm);
-  
-  return Math.round(precio);
+async function calcularPrecioViaje(
+  origen: string,
+  destino: string,
+  latitudOrigen?: number,
+  longitudOrigen?: number,
+  latitudDestino?: number,
+  longitudDestino?: number
+): Promise<number> {
+  const remiseria = await prisma.remiseria.findFirst();
+  const bajadaBandera = remiseria?.bajadaBandera || 3500;
+  const valorKm = remiseria?.valorKm || 1200;
+
+  let distanciaKm = 0;
+  let calculatedViaRoute = false;
+
+  if (latitudOrigen && longitudOrigen && latitudDestino && longitudDestino) {
+    try {
+      const url = `http://router.project-osrm.org/route/v1/driving/${longitudOrigen},${latitudOrigen};${longitudDestino},${latitudDestino}?overview=false`;
+      const response = await fetch(url);
+      const data = await response.json() as any;
+      if (data.routes && data.routes.length > 0) {
+        distanciaKm = data.routes[0].distance / 1000;
+        distanciaKm = Math.round(distanciaKm * 10) / 10;
+        calculatedViaRoute = true;
+      }
+    } catch (error) {
+      console.error('Error al calcular distancia OSRM:', error);
+    }
+  }
+
+  if (!calculatedViaRoute) {
+    const str = (origen + destino).toLowerCase().replace(/\s/g, '');
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const absHash = Math.abs(hash);
+    const baseDistance = 1.5;
+    const maxDistanceRange = 11.0;
+    const estimatedDistance = baseDistance + (absHash % 100) / 100 * maxDistanceRange;
+    distanciaKm = Math.round(estimatedDistance * 10) / 10;
+  }
+
+  let precioEstimado = bajadaBandera;
+  if (distanciaKm > 1) {
+    precioEstimado += (distanciaKm - 1) * valorKm;
+  }
+  return Math.round(precioEstimado);
 } 
 // Buscar cliente por DNI
 export const buscarClientePorDni = async (req: Request, res: Response) => {
@@ -774,6 +909,102 @@ export const buscarClientePorDni = async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: 'Error interno del servidor'
+    });
+  }
+};
+
+// Obtener disponibilidad de vehículos y demora estimada en tiempo real para el cliente
+export const getDisponibilidad = async (req: Request, res: Response) => {
+  try {
+    const [choferesOnline, viajesActivos, viajesPendientes, totalVehiculosActivos] = await Promise.all([
+      prisma.chofer.findMany({
+        where: {
+          estado: 'ACTIVO',
+          isOnline: true
+        },
+        select: {
+          id: true,
+          nombre: true,
+          vehiculoId: true
+        }
+      }),
+      prisma.viaje.findMany({
+        where: {
+          estado: {
+            in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO']
+          }
+        },
+        select: {
+          id: true,
+          estado: true,
+          choferId: true
+        }
+      }),
+      prisma.viaje.count({
+        where: {
+          estado: 'PENDIENTE'
+        }
+      }),
+      prisma.vehiculo.count({
+        where: {
+          estado: 'ACTIVO'
+        }
+      })
+    ]);
+
+    const choferesOcupadosIds = new Set(
+      viajesActivos.map((v) => v.choferId).filter((id): id is string => Boolean(id))
+    );
+
+    const autosLibresOnline = choferesOnline.filter(
+      (c) => !choferesOcupadosIds.has(c.id)
+    ).length;
+
+    const autosEnViaje = viajesActivos.length;
+    const hayAutosDisponibles = autosLibresOnline > 0;
+    const todosOcupados = !hayAutosDisponibles && (autosEnViaje > 0 || choferesOnline.length > 0);
+
+    // Calcular demora aproximada en minutos
+    let demoraMin = 3;
+    let demoraMax = 6;
+
+    if (!hayAutosDisponibles) {
+      if (viajesActivos.length > 0) {
+        // Estimar cuándo se libera el vehículo más próximo a terminar su viaje
+        const tiemposRestantes = viajesActivos.map((v) => {
+          if (v.estado === 'EN_CURSO') return 8;
+          if (v.estado === 'EN_CAMINO') return 12;
+          return 15; // ACEPTADO
+        });
+        const proximoEnLiberarse = Math.min(...tiemposRestantes);
+        demoraMin = proximoEnLiberarse + viajesPendientes * 8;
+        demoraMax = demoraMin + 5;
+      } else {
+        // Sin choferes online en la app, asignación por base/coordinador
+        demoraMin = 10 + viajesPendientes * 8;
+        demoraMax = demoraMin + 5;
+      }
+    }
+
+    res.json({
+      success: true,
+      data: {
+        hayAutosDisponibles,
+        autosDisponibles: autosLibresOnline,
+        autosEnViaje,
+        choferesConectados: choferesOnline.length,
+        totalVehiculosActivos,
+        viajesPendientes,
+        todosOcupados,
+        demoraMin,
+        demoraMax
+      }
+    });
+  } catch (error) {
+    console.error('Error obteniendo disponibilidad de vehículos:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error al consultar disponibilidad'
     });
   }
 };

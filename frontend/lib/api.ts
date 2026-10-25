@@ -37,38 +37,55 @@ const api = axios.create({
   timeout: 10000, // 10 segundos de timeout
 });
 
-// Interceptor para agregar token de autorización
+// Interceptor para agregar token de autorización (prioriza sessionStorage por pestaña)
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('accessToken');
+  const token =
+    (typeof window !== 'undefined' && sessionStorage.getItem('accessToken')) ||
+    localStorage.getItem('accessToken');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
   return config;
 });
 
-// Interceptor para manejar errores de token expirado
+// Interceptor para manejar errores de token expirado (401 o 403 por token vencido)
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (
+      (error.response?.status === 401 || error.response?.status === 403) &&
+      !originalRequest._retry &&
+      !originalRequest.url?.includes('/auth/login') &&
+      !originalRequest.url?.includes('/auth/refresh')
+    ) {
       originalRequest._retry = true;
 
       try {
-        const refreshToken = localStorage.getItem('refreshToken');
+        const refreshToken =
+          (typeof window !== 'undefined' && sessionStorage.getItem('refreshToken')) ||
+          localStorage.getItem('refreshToken');
         if (refreshToken) {
           const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
             refreshToken,
           });
 
           const { accessToken } = response.data.data;
+          if (typeof window !== 'undefined' && sessionStorage.getItem('refreshToken')) {
+            sessionStorage.setItem('accessToken', accessToken);
+          }
           localStorage.setItem('accessToken', accessToken);
 
           originalRequest.headers.Authorization = `Bearer ${accessToken}`;
           return api(originalRequest);
         }
       } catch (refreshError) {
+        if (typeof window !== 'undefined') {
+          sessionStorage.removeItem('accessToken');
+          sessionStorage.removeItem('refreshToken');
+          sessionStorage.removeItem('user');
+        }
         localStorage.removeItem('accessToken');
         localStorage.removeItem('refreshToken');
         localStorage.removeItem('user');
@@ -465,14 +482,237 @@ export const choferService = {
     }
   },
 
-  updateOnlineStatus: async (isOnline: boolean): Promise<ApiResponse<Chofer>> => {
+  updateOnlineStatus: async (
+    isOnline: boolean,
+    choferId?: string,
+    odometros?: { odometroInicio?: number; odometroFin?: number }
+  ): Promise<ApiResponse<any>> => {
     try {
-      const response = await api.patch('/choferes/online-status', { isOnline });
-      return handleApiResponse<Chofer>(response);
+      const response = await api.patch('/choferes/online-status', {
+        isOnline,
+        choferId,
+        ...(odometros || {}),
+      });
+      return handleApiResponse<any>(response);
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || 'Error al actualizar estado online',
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al actualizar estado online',
+      };
+    }
+  },
+
+  getMiEstado: async (choferId?: string): Promise<ApiResponse<{ chofer: any; viajeActual: any; viajesDisponibles: any[]; turnoActivo?: any }>> => {
+    try {
+      const response = await api.get('/choferes/mi-estado', { params: choferId ? { choferId } : undefined });
+      return handleApiResponse<{ chofer: any; viajeActual: any; viajesDisponibles: any[]; turnoActivo?: any }>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al obtener estado del chofer',
+      };
+    }
+  },
+
+  aceptarViaje: async (viajeId: string, choferId?: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post(`/choferes/viajes/${viajeId}/aceptar`, { choferId });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al aceptar viaje',
+      };
+    }
+  },
+
+  actualizarEstadoViaje: async (
+    viajeId: string,
+    estado: 'ACEPTADO' | 'EN_CAMINO' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO',
+    distancias?: { distanciaKmConPasajero?: number; distanciaKmSinPasajero?: number }
+  ): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch(`/choferes/viajes/${viajeId}/estado`, {
+        estado,
+        ...(distancias || {}),
+      });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al actualizar estado del viaje',
+      };
+    }
+  },
+
+  getMisViajes: async (choferId?: string): Promise<ApiResponse<any[]>> => {
+    try {
+      const response = await api.get('/choferes/mis-viajes', { params: choferId ? { choferId } : undefined });
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al cargar viajes del chofer',
+      };
+    }
+  },
+
+  // Turnos y Tracking de Kilometraje
+  getTurnoActivo: async (choferId?: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/choferes/turno/activo', { params: choferId ? { choferId } : undefined });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al obtener turno activo',
+      };
+    }
+  },
+
+  iniciarTurno: async (data: { odometroInicio?: number; observaciones?: string; choferId?: string }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/choferes/turno/iniciar', data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al iniciar turno',
+      };
+    }
+  },
+
+  finalizarTurno: async (data: { odometroFin?: number; observaciones?: string; choferId?: string }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/choferes/turno/finalizar', data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al finalizar turno',
+      };
+    }
+  },
+
+  actualizarKmTurno: async (data: { kmConPasajeroDelta?: number; kmSinPasajeroDelta?: number; choferId?: string }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch('/choferes/turno/actualizar-km', data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al actualizar km del turno',
+      };
+    }
+  },
+
+  // Gastos del Chofer
+  getMisGastos: async (params?: { tipo?: string; fechaDesde?: string; fechaHasta?: string; choferId?: string }): Promise<ApiResponse<any[]>> => {
+    try {
+      const response = await api.get('/choferes/gastos', { params });
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al obtener gastos',
+      };
+    }
+  },
+
+  crearGasto: async (data: {
+    tipo: 'COMBUSTIBLE' | 'REPARACION' | 'MANTENIMIENTO' | 'PEAJE' | 'LAVADO' | 'OTRO';
+    subtipoCombustible?: 'NAFTA_GASOIL' | 'GNC';
+    monto: number;
+    kilometraje?: number;
+    litros?: number;
+    descripcion?: string;
+    comprobanteUrl?: string;
+    fecha?: string;
+    choferId?: string;
+  }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/choferes/gastos', data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al registrar gasto',
+      };
+    }
+  },
+
+  eliminarGasto: async (gastoId: string, choferId?: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.delete(`/choferes/gastos/${gastoId}`, { params: choferId ? { choferId } : undefined });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al eliminar gasto',
+      };
+    }
+  },
+
+  getResumenFinanciero: async (params?: { fechaDesde?: string; fechaHasta?: string; choferId?: string }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/choferes/resumen-financiero', { params });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al obtener resumen financiero',
+      };
+    }
+  },
+
+  // Auto-registro y Aprobación
+  registroPublico: async (data: any): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/choferes/registro', data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al enviar registro de chofer',
+      };
+    }
+  },
+
+  getRemiseriasDisponibles: async (): Promise<ApiResponse<any[]>> => {
+    try {
+      const response = await api.get('/choferes/remiserias-disponibles');
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al obtener remiserías',
+      };
+    }
+  },
+
+  aprobar: async (
+    id: string,
+    data?: { comisionPorcentaje?: number; vehiculoId?: string; numeroChofer?: string }
+  ): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch(`/choferes/${id}/aprobar`, data || {});
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al aprobar chofer',
+      };
+    }
+  },
+
+  rechazar: async (id: string, motivoRechazo?: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch(`/choferes/${id}/rechazar`, { motivoRechazo });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al rechazar solicitud',
       };
     }
   },
@@ -707,6 +947,36 @@ export const coordinadorDashboardService = {
       return {
         success: false,
         message: error.response?.data?.message || 'Error al crear viaje',
+      };
+    }
+  },
+
+  asignarViaje: async (
+    viajeId: string,
+    data: { choferId: string; vehiculoId?: string }
+  ): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch(`/coordinator-dashboard/viajes/${viajeId}/asignar`, data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al asignar el viaje',
+      };
+    }
+  },
+
+  actualizarEstadoViaje: async (
+    viajeId: string,
+    estado: string
+  ): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch(`/coordinator-dashboard/viajes/${viajeId}/estado`, { estado });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al actualizar estado del viaje',
       };
     }
   },
@@ -953,20 +1223,34 @@ export const clienteService = {
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || 'Error al solicitar viaje',
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al solicitar viaje',
       };
     }
   },
 
   // Cálculo de precio
-  calcularPrecio: async (origen: string, destino: string): Promise<ApiResponse<CalculoPrecioData>> => {
+  calcularPrecio: async (
+    origen: string,
+    destino: string,
+    latitudOrigen?: number,
+    longitudOrigen?: number,
+    latitudDestino?: number,
+    longitudDestino?: number
+  ): Promise<ApiResponse<CalculoPrecioData>> => {
     try {
-      const response = await api.post('/cliente/viajes/calcular-precio', { origen, destino });
+      const response = await api.post('/cliente/viajes/calcular-precio', {
+        origen,
+        destino,
+        latitudOrigen,
+        longitudOrigen,
+        latitudDestino,
+        longitudDestino
+      });
       return handleApiResponse<CalculoPrecioData>(response);
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || 'Error al calcular precio',
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al calcular precio',
       };
     }
   },
@@ -979,7 +1263,7 @@ export const clienteService = {
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || 'Error al crear reserva',
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al crear reserva',
       };
     }
   },
@@ -992,7 +1276,7 @@ export const clienteService = {
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || 'Error al cargar viajes',
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al cargar viajes',
       };
     }
   },
@@ -1005,7 +1289,7 @@ export const clienteService = {
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || 'Error al cargar reservas',
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al cargar reservas',
       };
     }
   },
@@ -1018,7 +1302,7 @@ export const clienteService = {
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || 'Error al cancelar viaje',
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al cancelar viaje',
       };
     }
   },
@@ -1045,6 +1329,31 @@ export const clienteService = {
       return {
         success: false,
         message: error.response?.data?.message || 'Error al obtener ubicación',
+      };
+    }
+  },
+
+  // Obtener disponibilidad de vehículos y demora estimada
+  getDisponibilidad: async (): Promise<
+    ApiResponse<{
+      hayAutosDisponibles: boolean;
+      autosDisponibles: number;
+      autosEnViaje: number;
+      choferesConectados: number;
+      totalVehiculosActivos: number;
+      viajesPendientes: number;
+      todosOcupados: boolean;
+      demoraMin: number;
+      demoraMax: number;
+    }>
+  > => {
+    try {
+      const response = await api.get('/cliente/disponibilidad');
+      return handleApiResponse(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al consultar disponibilidad',
       };
     }
   },

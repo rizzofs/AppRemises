@@ -5,7 +5,7 @@ import bcrypt from 'bcryptjs';
 
 
 export const coordinatorDashboardController = {
-  // Obtener viajes en curso
+  // Obtener viajes en curso (incluye asignados/en camino/en curso)
   async getViajesEnCurso(req: AuthenticatedRequest, res: Response) {
     try {
       const coordinadorId = req.user?.id;
@@ -33,15 +33,34 @@ export const coordinatorDashboardController = {
       const viajes = await prisma.viaje.findMany({
         where: {
           remiseriaId: coordinador.remiseriaId,
-          estado: 'EN_CURSO'
+          estado: {
+            in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO']
+          }
         },
         include: {
+          cliente: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+              email: true
+            }
+          },
           chofer: {
             select: {
               id: true,
               nombre: true,
               apellido: true,
-              telefono: true
+              telefono: true,
+              vehiculo: {
+                select: {
+                  id: true,
+                  patente: true,
+                  marca: true,
+                  modelo: true
+                }
+              }
             }
           },
           vehiculo: {
@@ -97,9 +116,23 @@ export const coordinatorDashboardController = {
 
       const viajes = await prisma.viaje.findMany({
         where: {
-          remiseriaId: coordinador.remiseriaId,
           estado: 'PENDIENTE',
-          choferId: null
+          choferId: null,
+          OR: [
+            { remiseriaId: coordinador.remiseriaId },
+            { clienteId: { not: null } }
+          ]
+        },
+        include: {
+          cliente: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+              email: true
+            }
+          }
         },
         orderBy: {
           fecha: 'asc'
@@ -112,6 +145,189 @@ export const coordinatorDashboardController = {
       });
     } catch (error) {
       console.error('Error getting viajes sin asignar:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor'
+      });
+    }
+  },
+
+  // Asignar chofer y vehículo a un viaje pendiente
+  async asignarViaje(req: AuthenticatedRequest, res: Response) {
+    try {
+      const coordinadorId = req.user?.id;
+      const { id } = req.params;
+      const { choferId, vehiculoId } = req.body;
+
+      if (!coordinadorId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Usuario no autenticado'
+        });
+      }
+
+      if (!choferId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Debe seleccionar un chofer para asignar el viaje'
+        });
+      }
+
+      const coordinador = await prisma.coordinador.findFirst({
+        where: { userId: coordinadorId },
+        include: { remiseria: true }
+      });
+
+      if (!coordinador) {
+        return res.status(404).json({
+          success: false,
+          message: 'Coordinador no encontrado'
+        });
+      }
+
+      const viaje = await prisma.viaje.findUnique({
+        where: { id },
+        include: { cliente: true }
+      });
+
+      if (!viaje) {
+        return res.status(404).json({
+          success: false,
+          message: 'Viaje no encontrado'
+        });
+      }
+
+      const chofer = await prisma.chofer.findUnique({
+        where: { id: choferId },
+        include: { vehiculo: true }
+      });
+
+      if (!chofer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado'
+        });
+      }
+
+      const finalVehiculoId = vehiculoId || chofer.vehiculoId || null;
+
+      // Si el chofer no tenía ese vehículo asociado y se eligió uno, opcionalmente lo vinculamos al viaje
+      const updatedViaje = await prisma.viaje.update({
+        where: { id },
+        data: {
+          choferId: chofer.id,
+          vehiculoId: finalVehiculoId,
+          remiseriaId: coordinador.remiseriaId,
+          estado: 'ACEPTADO',
+          clienteNombre: viaje.clienteNombre || (viaje.cliente ? `${viaje.cliente.nombre} ${viaje.cliente.apellido}` : undefined),
+          clienteTelefono: viaje.clienteTelefono || viaje.cliente?.telefono || undefined,
+          clienteEmail: viaje.clienteEmail || viaje.cliente?.email || undefined
+        },
+        include: {
+          cliente: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+              email: true
+            }
+          },
+          chofer: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+              vehiculo: {
+                select: {
+                  id: true,
+                  patente: true,
+                  marca: true,
+                  modelo: true
+                }
+              }
+            }
+          },
+          vehiculo: {
+            select: {
+              id: true,
+              patente: true,
+              marca: true,
+              modelo: true
+            }
+          }
+        }
+      });
+
+      await prisma.appUsage.create({
+        data: {
+          userId: coordinadorId,
+          userEmail: coordinador.email,
+          action: 'ASSIGN_VIAJE',
+          details: JSON.stringify({
+            viajeId: updatedViaje.id,
+            choferId: chofer.id,
+            vehiculoId: finalVehiculoId
+          }),
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent') || null
+        }
+      });
+
+      res.json({
+        success: true,
+        data: updatedViaje,
+        message: 'Auto y chofer asignados exitosamente'
+      });
+    } catch (error) {
+      console.error('Error asignando viaje:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor al asignar el viaje'
+      });
+    }
+  },
+
+  // Actualizar estado de un viaje (EN_CAMINO, EN_CURSO, COMPLETADO, CANCELADO)
+  async actualizarEstadoViaje(req: AuthenticatedRequest, res: Response) {
+    try {
+      const coordinadorId = req.user?.id;
+      const { id } = req.params;
+      const { estado } = req.body;
+
+      if (!coordinadorId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Usuario no autenticado'
+        });
+      }
+
+      const estadosValidos = ['PENDIENTE', 'ACEPTADO', 'EN_CAMINO', 'EN_CURSO', 'COMPLETADO', 'CANCELADO'];
+      if (!estado || !estadosValidos.includes(estado)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Estado de viaje inválido'
+        });
+      }
+
+      const updatedViaje = await prisma.viaje.update({
+        where: { id },
+        data: { estado },
+        include: {
+          cliente: true,
+          chofer: true,
+          vehiculo: true
+        }
+      });
+
+      res.json({
+        success: true,
+        data: updatedViaje,
+        message: `Estado del viaje actualizado a ${estado}`
+      });
+    } catch (error) {
+      console.error('Error actualizando estado de viaje:', error);
       res.status(500).json({
         success: false,
         message: 'Error interno del servidor'
@@ -200,7 +416,9 @@ export const coordinatorDashboardController = {
         prioridad,
         origenDetallado,
         destinoDetallado,
-        observaciones
+        observaciones,
+        choferId,
+        vehiculoId
       } = req.body;
 
       if (!coordinadorId) {
@@ -236,8 +454,10 @@ export const coordinatorDashboardController = {
           origenDetallado,
           destinoDetallado,
           observaciones,
+          choferId: choferId || null,
+          vehiculoId: vehiculoId || null,
           remiseriaId: coordinador.remiseriaId,
-          estado: 'PENDIENTE'
+          estado: choferId ? 'ACEPTADO' : 'PENDIENTE'
         }
       });
 
@@ -731,10 +951,6 @@ export const coordinatorDashboardController = {
         });
       }
 
-      const today = new Date();
-      const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-      const endOfDay = new Date(startOfDay.getTime() + 24 * 60 * 60 * 1000);
-
       const [
         viajesEnCurso,
         viajesSinAsignar,
@@ -745,14 +961,19 @@ export const coordinatorDashboardController = {
         prisma.viaje.count({
           where: {
             remiseriaId: coordinador.remiseriaId,
-            estado: 'EN_CURSO'
+            estado: {
+              in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO']
+            }
           }
         }),
         prisma.viaje.count({
           where: {
-            remiseriaId: coordinador.remiseriaId,
             estado: 'PENDIENTE',
-            choferId: null
+            choferId: null,
+            OR: [
+              { remiseriaId: coordinador.remiseriaId },
+              { clienteId: { not: null } }
+            ]
           }
         }),
         prisma.reserva.count({
@@ -793,4 +1014,4 @@ export const coordinatorDashboardController = {
       });
     }
   }
-}; 
+};

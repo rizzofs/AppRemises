@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAppTracking } from '@/hooks/useAppTracking';
-import { clienteService } from '@/lib/api';
+import { clienteService, coordinadorDashboardService } from '@/lib/api';
 import { 
   Calendar, 
   MapPin, 
@@ -38,6 +38,12 @@ export default function NuevaReserva() {
   
   const [isLoading, setIsLoading] = useState(false);
   const [ubicacionActual, setUbicacionActual] = useState<{ lat: number; lng: number; direccion: string } | null>(null);
+  const [origenSuggestions, setOrigenSuggestions] = useState<any[]>([]);
+  const [destinoSuggestions, setDestinoSuggestions] = useState<any[]>([]);
+  const [isOrigenSelected, setIsOrigenSelected] = useState(false);
+  const [isDestinoSelected, setIsDestinoSelected] = useState(false);
+  const [origenCoords, setOrigenCoords] = useState<{ lat: number; lon: number } | null>(null);
+  const [destinoCoords, setDestinoCoords] = useState<{ lat: number; lon: number } | null>(null);
   
   const [formData, setFormData] = useState<ReservaForm>({
     origen: '',
@@ -48,6 +54,64 @@ export default function NuevaReserva() {
     diasSemana: [],
     observaciones: ''
   });
+
+  useEffect(() => {
+    if (isOrigenSelected || !formData.origen || formData.origen.length < 3) {
+      setOrigenSuggestions([]);
+      return;
+    }
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const res = await coordinadorDashboardService.geocode(formData.origen);
+        if (res.success && res.data) {
+          setOrigenSuggestions(res.data);
+        }
+      } catch (err) {
+        console.error('Error en geocodificación origen:', err);
+      }
+    }, 400);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [formData.origen, isOrigenSelected]);
+
+  useEffect(() => {
+    if (isDestinoSelected || !formData.destino || formData.destino.length < 3) {
+      setDestinoSuggestions([]);
+      return;
+    }
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const res = await coordinadorDashboardService.geocode(formData.destino);
+        if (res.success && res.data) {
+          setDestinoSuggestions(res.data);
+        }
+      } catch (err) {
+        console.error('Error en geocodificación destino:', err);
+      }
+    }, 400);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [formData.destino, isDestinoSelected]);
+
+  const handleSelectOrigen = (s: any) => {
+    setIsOrigenSelected(true);
+    setFormData(prev => ({ ...prev, origen: s.display_name }));
+    setOrigenCoords({
+      lat: parseFloat(s.lat),
+      lon: parseFloat(s.lon)
+    });
+    setOrigenSuggestions([]);
+  };
+
+  const handleSelectDestino = (s: any) => {
+    setIsDestinoSelected(true);
+    setFormData(prev => ({ ...prev, destino: s.display_name }));
+    setDestinoCoords({
+      lat: parseFloat(s.lat),
+      lon: parseFloat(s.lon)
+    });
+    setDestinoSuggestions([]);
+  };
 
   const diasSemana = [
     { value: 'lunes', label: 'Lunes' },
@@ -63,7 +127,12 @@ export default function NuevaReserva() {
     try {
       const response = await clienteService.getUbicacionActual();
       if (response.success && response.data) {
+        setIsOrigenSelected(true);
         setUbicacionActual(response.data);
+        setOrigenCoords({
+          lat: response.data.lat,
+          lon: response.data.lng
+        });
         setFormData(prev => ({
           ...prev,
           origen: response.data?.direccion || ''
@@ -107,8 +176,10 @@ export default function NuevaReserva() {
         diasSemana: formData.diasSemana,
         horaFin: formData.horaFin,
         observaciones: formData.observaciones,
-        latitudOrigen: ubicacionActual?.lat,
-        longitudOrigen: ubicacionActual?.lng
+        latitudOrigen: origenCoords?.lat ?? ubicacionActual?.lat,
+        longitudOrigen: origenCoords?.lon ?? ubicacionActual?.lng,
+        latitudDestino: destinoCoords?.lat,
+        longitudDestino: destinoCoords?.lon
       });
 
       if (response.success) {
@@ -175,12 +246,31 @@ export default function NuevaReserva() {
                     type="text"
                     placeholder="¿Desde dónde?"
                     value={formData.origen}
-                    onChange={(e) => setFormData(prev => ({ ...prev, origen: e.target.value }))}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, origen: e.target.value }));
+                      setIsOrigenSelected(false);
+                      setOrigenCoords(null);
+                    }}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                   />
                   <MapPin className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
+                  {origenSuggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
+                      {origenSuggestions.map((s, idx) => (
+                        <button
+                          type="button"
+                          key={idx}
+                          onClick={() => handleSelectOrigen(s)}
+                          className="w-full text-left p-3 text-xs hover:bg-gray-50 border-b border-gray-100 last:border-0 text-gray-800 font-medium truncate block"
+                        >
+                          {s.display_name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <button
+                  type="button"
                   onClick={obtenerUbicacionActual}
                   className="mt-2 text-sm text-blue-600 hover:text-blue-800 flex items-center space-x-1"
                 >
@@ -198,10 +288,28 @@ export default function NuevaReserva() {
                     type="text"
                     placeholder="¿A dónde?"
                     value={formData.destino}
-                    onChange={(e) => setFormData(prev => ({ ...prev, destino: e.target.value }))}
-                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    onChange={(e) => {
+                      setFormData(prev => ({ ...prev, destino: e.target.value }));
+                      setIsDestinoSelected(false);
+                      setDestinoCoords(null);
+                    }}
+                    className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900"
                   />
                   <Navigation className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
+                  {destinoSuggestions.length > 0 && (
+                    <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
+                      {destinoSuggestions.map((s, idx) => (
+                        <button
+                          type="button"
+                          key={idx}
+                          onClick={() => handleSelectDestino(s)}
+                          className="w-full text-left p-3 text-xs hover:bg-gray-50 border-b border-gray-100 last:border-0 text-gray-800 font-medium truncate block"
+                        >
+                          {s.display_name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -371,4 +479,4 @@ export default function NuevaReserva() {
       </div>
     </div>
   );
-} 
+}

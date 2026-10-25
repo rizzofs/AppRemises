@@ -33,27 +33,28 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   useEffect(() => {
     const validateStoredSession = async () => {
-      // Verificar si hay un usuario guardado en localStorage
-      // Solo ejecutar en el cliente para evitar problemas de hidratación
       if (typeof window === 'undefined') {
         setLoading(false);
         return;
       }
 
-      const savedUser = localStorage.getItem('user');
-      const accessToken = localStorage.getItem('accessToken');
+      const savedUser = sessionStorage.getItem('user') || localStorage.getItem('user');
+      const accessToken = sessionStorage.getItem('accessToken') || localStorage.getItem('accessToken');
+      const refreshToken = sessionStorage.getItem('refreshToken') || localStorage.getItem('refreshToken');
 
       if (savedUser && accessToken) {
         try {
           const userData = JSON.parse(savedUser);
-          // Validar que el usuario tenga la estructura correcta
           if (userData && userData.id && userData.email && userData.rol) {
-            // Validar que el rol sea válido
             const validRoles = ['ADMIN', 'DUENIO', 'COORDINADOR', 'CLIENTE', 'CHOFER'];
             if (validRoles.includes(userData.rol)) {
-              // Para modo demo, no validamos con el backend
               setUser(userData);
-              console.log('Usuario cargado desde localStorage (modo demo):', userData.email, userData.rol);
+              // Asegurar que la pestaña actual conserve su propia sesión en sessionStorage
+              sessionStorage.setItem('user', savedUser);
+              sessionStorage.setItem('accessToken', accessToken);
+              if (refreshToken) {
+                sessionStorage.setItem('refreshToken', refreshToken);
+              }
             } else {
               throw new Error('Invalid user role');
             }
@@ -62,13 +63,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           }
         } catch (error) {
           console.error('Error parsing saved user:', error);
-          // Limpiar datos corruptos
+          sessionStorage.removeItem('user');
+          sessionStorage.removeItem('accessToken');
+          sessionStorage.removeItem('refreshToken');
           localStorage.removeItem('user');
           localStorage.removeItem('accessToken');
           localStorage.removeItem('refreshToken');
         }
-      } else {
-        console.log('No hay sesión guardada en localStorage');
       }
 
       setLoading(false);
@@ -78,19 +79,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   const login = (userData: User, accessToken: string, refreshToken: string) => {
-    // Validar datos antes de guardar
     if (!userData || !userData.id || !userData.email || !userData.rol) {
       throw new Error('Invalid user data provided');
     }
     
     setUser(userData);
-    localStorage.setItem('user', JSON.stringify(userData));
+    const serialized = JSON.stringify(userData);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('user', serialized);
+      sessionStorage.setItem('accessToken', accessToken);
+      sessionStorage.setItem('refreshToken', refreshToken);
+    }
+    localStorage.setItem('user', serialized);
     localStorage.setItem('accessToken', accessToken);
     localStorage.setItem('refreshToken', refreshToken);
   };
 
   const logout = () => {
     setUser(null);
+    if (typeof window !== 'undefined') {
+      sessionStorage.removeItem('user');
+      sessionStorage.removeItem('accessToken');
+      sessionStorage.removeItem('refreshToken');
+    }
     localStorage.removeItem('user');
     localStorage.removeItem('accessToken');
     localStorage.removeItem('refreshToken');
@@ -98,7 +109,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const updateUser = (userData: User) => {
     setUser(userData);
-    localStorage.setItem('user', JSON.stringify(userData));
+    const serialized = JSON.stringify(userData);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('user', serialized);
+    }
+    localStorage.setItem('user', serialized);
   };
 
   const value: AuthContextType = {
@@ -115,4 +130,4 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       {children}
     </AuthContext.Provider>
   );
-}; 
+};

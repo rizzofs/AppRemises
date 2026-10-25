@@ -99,6 +99,13 @@ export default function RegisterPage() {
             >
               Remisería
             </button>
+            <button
+              type="button"
+              onClick={() => router.push('/registro-chofer')}
+              className="flex-1 py-2 text-sm font-semibold rounded-lg text-emerald-700 hover:bg-emerald-50 transition-colors"
+            >
+              Chofer
+            </button>
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">

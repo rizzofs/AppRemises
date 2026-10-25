@@ -67,7 +67,7 @@ export const login = async (req: Request, res: Response) => {
     const accessToken = jwt.sign(
       { id: user.id, email: user.email, rol: user.rol },
       jwtSecret,
-      { expiresIn: '15m' }
+      { expiresIn: '24h' }
     );
 
     const refreshToken = jwt.sign(
@@ -172,7 +172,7 @@ export const register = async (req: Request, res: Response) => {
     const accessToken = jwt.sign(
       { id: result.user.id, email: result.user.email, rol: result.user.rol },
       jwtSecret,
-      { expiresIn: '15m' }
+      { expiresIn: '24h' }
     );
 
     const refreshToken = jwt.sign(
@@ -281,7 +281,7 @@ export const registerCliente = async (req: Request, res: Response) => {
     const accessToken = jwt.sign(
       { id: result.user.id, email: result.user.email, rol: result.user.rol },
       jwtSecret,
-      { expiresIn: '15m' }
+      { expiresIn: '24h' }
     );
 
     const refreshToken = jwt.sign(
@@ -377,7 +377,7 @@ export const refreshToken = async (req: Request, res: Response) => {
     const newAccessToken = jwt.sign(
       { id: user.id, email: user.email, rol: user.rol },
       jwtSecret,
-      { expiresIn: '15m' }
+      { expiresIn: '24h' }
     );
 
     const response: ApiResponse = {

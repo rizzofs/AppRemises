@@ -68,22 +68,17 @@ export default function MapComponent({
     setCurrentZoom(prev => Math.max(prev - 1, 1));
   };
 
-  // Generar URL de imagen estática de Google Maps
-  const getGoogleMapsImageUrl = () => {
+  // Generar URL de imagen de mapa (usa Google Maps si NEXT_PUBLIC_GOOGLE_MAPS_API_KEY está configurada, o OpenStreetMap gratis)
+  const getMapBackgroundUrl = () => {
     const [lat, lng] = center;
-    const size = '600x400';
     const zoom = currentZoom;
-    const apiKey = 'YOUR_API_KEY'; // Opcional para imágenes estáticas
-    
-    // Usar imagen estática sin API key (limitada pero funcional)
-    return `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${zoom}&size=${size}&maptype=roadmap&markers=color:red%7C${lat},${lng}`;
-  };
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
-  // URL de OpenStreetMap como alternativa
-  const getOpenStreetMapUrl = () => {
-    const [lat, lng] = center;
-    const zoom = currentZoom;
-    return `https://tile.openstreetmap.org/${zoom}/${Math.floor((lng + 180) / 360 * Math.pow(2, zoom))}/${Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, zoom))}.png`;
+    if (apiKey) {
+      return `https://maps.googleapis.com/maps/api/staticmap?center=${lat},${lng}&zoom=${zoom}&size=800x600&maptype=roadmap&style=feature:poi|visibility:off&style=feature:transit|visibility:off&key=${apiKey}`;
+    }
+
+    return `https://tile.openstreetmap.org/${zoom}/${Math.floor(((lng + 180) / 360) * Math.pow(2, zoom))}/${Math.floor(((1 - Math.log(Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180)) / Math.PI) / 2) * Math.pow(2, zoom))}.png`;
   };
 
   return (
@@ -94,7 +89,7 @@ export default function MapComponent({
         <div 
           className="w-full h-full bg-cover bg-center"
           style={{ 
-            backgroundImage: `url(https://maps.googleapis.com/maps/api/staticmap?center=${center[0]},${center[1]}&zoom=${currentZoom}&size=800x600&maptype=roadmap&style=feature:poi|visibility:off&style=feature:transit|visibility:off)`,
+            backgroundImage: `url(${getMapBackgroundUrl()})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center'
           }}

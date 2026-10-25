@@ -11,7 +11,8 @@ import {
   cancelarViaje,
   cancelarReserva,
   getUbicacionActual,
-  buscarClientePorDni
+  buscarClientePorDni,
+  getDisponibilidad
 } from '../controllers/clienteController';
 import { authenticateToken } from '../middleware/auth';
 
@@ -21,6 +22,7 @@ const router = express.Router();
 router.post('/register', registerCliente);
 router.post('/viajes/calcular-precio', calcularPrecio);
 router.get('/buscar-dni/:dni', buscarClientePorDni);
+router.get('/disponibilidad', getDisponibilidad);
 
 // Rutas protegidas
 router.get('/profile', authenticateToken, getClienteProfile);

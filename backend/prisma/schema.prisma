@@ -172,7 +172,8 @@ model Chofer {
   direccion        String?
   categoriaLicencia String
   vtoLicencia      DateTime
-  estado           ChoferEstado @default(ACTIVO)
+  estado           ChoferEstado @default(PENDIENTE_APROBACION)
+  motivoRechazo    String?
   observaciones    String?
   esPropietario    Boolean  @default(false)
   comisionPorcentaje Float  @default(30.0)
@@ -200,6 +201,12 @@ model Chofer {
 
   // Relación 1:N con Liquidacion
   liquidaciones Liquidacion[]
+
+  // Relación 1:N con TurnoChofer
+  turnos TurnoChofer[]
+
+  // Relación 1:N con GastoChofer
+  gastos GastoChofer[]
 
   @@map("choferes")
 }
@@ -240,6 +247,12 @@ model Vehiculo {
   // Relación 1:N con Chofer (choferes asignados a este vehículo)
   choferes Chofer[] @relation("ChoferVehiculo")
 
+  // Relación 1:N con TurnoChofer
+  turnos TurnoChofer[]
+
+  // Relación 1:N con GastoChofer
+  gastos GastoChofer[]
+
   @@map("vehiculos")
 }
 
@@ -259,6 +272,9 @@ model Viaje {
   prioridad   Prioridad @default(NORMAL)
   origenDetallado String?
   destinoDetallado String?
+  // Kilometraje del viaje
+  distanciaKmConPasajero Float? @default(0.0)
+  distanciaKmSinPasajero Float? @default(0.0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -352,8 +368,10 @@ enum VehiculoEstado {
 }
 
 enum ChoferEstado {
+  PENDIENTE_APROBACION
   ACTIVO
   SUSPENDIDO
+  RECHAZADO
   DADO_DE_BAJA
 }
 
@@ -403,4 +421,70 @@ model Liquidacion {
   viajes              Viaje[]
 
   @@map("liquidaciones")
-} 
+}
+
+// Modelo para Turnos / Jornada del Chofer (Tracking de Kilometraje)
+model TurnoChofer {
+  id               String    @id @default(cuid())
+  choferId         String
+  chofer           Chofer    @relation(fields: [choferId], references: [id], onDelete: Cascade)
+  vehiculoId       String?
+  vehiculo         Vehiculo? @relation(fields: [vehiculoId], references: [id])
+  
+  fechaInicio      DateTime  @default(now())
+  fechaFin         DateTime?
+  activo           Boolean   @default(true)
+
+  // Métricas acumuladas de Kilometraje
+  kmTotalConectado Float     @default(0.0)
+  kmConPasajero    Float     @default(0.0)
+  kmSinPasajero    Float     @default(0.0)
+
+  // Odómetro manual opcional del vehículo
+  odometroInicio   Float?
+  odometroFin      Float?
+  observaciones    String?
+
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@map("turnos_chofer")
+}
+
+// Modelo para Gastos del Chofer (Combustible, Reparaciones, etc.)
+model GastoChofer {
+  id                 String           @id @default(cuid())
+  choferId           String
+  chofer             Chofer           @relation(fields: [choferId], references: [id], onDelete: Cascade)
+  vehiculoId         String?
+  vehiculo           Vehiculo?        @relation(fields: [vehiculoId], references: [id])
+  
+  tipo               TipoGasto
+  subtipoCombustible TipoCombustible? // NAFTA_GASOIL o GNC
+  monto              Float
+  fecha              DateTime         @default(now())
+  kilometraje        Float?           // Km del odómetro al registrar el gasto
+  litros             Float?           // Litros (Nafta/Gasoil) o m3 (GNC)
+  descripcion        String?
+  comprobanteUrl     String?
+
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  @@map("gastos_chofer")
+}
+
+enum TipoCombustible {
+  NAFTA_GASOIL
+  GNC
+}
+
+enum TipoGasto {
+  COMBUSTIBLE
+  REPARACION
+  MANTENIMIENTO
+  PEAJE
+  LAVADO
+  OTRO
+}
+ 
