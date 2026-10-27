@@ -236,8 +236,8 @@ export default function ChoferGastosPage() {
       {/* Encabezado */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">Control de Gastos</h2>
-          <p className="text-xs text-gray-500">Nafta, Gasoil, GNC, mecánica y mantenimiento</p>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Control de Gastos</h2>
+          <p className="text-xs text-gray-500 dark:text-slate-400">Nafta, Gasoil, GNC, mecánica y mantenimiento</p>
         </div>
         <button
           onClick={() => setModalAbierto(true)}
@@ -336,35 +336,35 @@ export default function ChoferGastosPage() {
 
           {/* Métricas de Odometría y Rendimiento */}
           <div className="grid grid-cols-2 gap-2.5">
-            <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
-              <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
-                <Gauge className="w-4 h-4 text-primary-500" />
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-3 shadow-sm transition-colors">
+              <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-slate-400 mb-1">
+                <Gauge className="w-4 h-4 text-primary-500 dark:text-primary-400" />
                 <span>Km Conectado</span>
               </div>
-              <p className="text-lg font-bold text-gray-900">
+              <p className="text-lg font-bold text-gray-900 dark:text-white">
                 {resumen.kilometraje?.kmTotalConectado || 0}{' '}
-                <span className="text-xs font-normal text-gray-500">km</span>
+                <span className="text-xs font-normal text-gray-500 dark:text-slate-400">km</span>
               </p>
-              <div className="flex justify-between text-[11px] text-gray-500 mt-1 pt-1 border-t border-gray-100">
-                <span className="text-emerald-600 font-medium">
+              <div className="flex justify-between text-[11px] text-gray-500 dark:text-slate-400 mt-1 pt-1 border-t border-gray-100 dark:border-slate-800">
+                <span className="text-emerald-600 dark:text-emerald-400 font-medium">
                   {resumen.kilometraje?.kmConPasajero || 0} km c/pas.
                 </span>
-                <span className="text-amber-600 font-medium">
+                <span className="text-amber-600 dark:text-amber-400 font-medium">
                   {resumen.kilometraje?.kmSinPasajero || 0} km s/pas.
                 </span>
               </div>
             </div>
 
-            <div className="bg-white border border-gray-200 rounded-xl p-3 shadow-sm">
-              <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
-                <TrendingUp className="w-4 h-4 text-emerald-500" />
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-xl p-3 shadow-sm transition-colors">
+              <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-slate-400 mb-1">
+                <TrendingUp className="w-4 h-4 text-emerald-500 dark:text-emerald-400" />
                 <span>Costo x Kilómetro</span>
               </div>
-              <p className="text-lg font-bold text-gray-900">
+              <p className="text-lg font-bold text-gray-900 dark:text-white">
                 ${resumen.kilometraje?.costoPorKm || '0.00'}{' '}
-                <span className="text-xs font-normal text-gray-500">/ km</span>
+                <span className="text-xs font-normal text-gray-500 dark:text-slate-400">/ km</span>
               </p>
-              <div className="text-[11px] text-gray-500 mt-1 pt-1 border-t border-gray-100 truncate">
+              <div className="text-[11px] text-gray-500 dark:text-slate-400 mt-1 pt-1 border-t border-gray-100 dark:border-slate-800 truncate">
                 <span>Ocupación productiva: {resumen.kilometraje?.porcentajeOcupado || 0}%</span>
               </div>
             </div>
@@ -390,8 +390,8 @@ export default function ChoferGastosPage() {
               onClick={() => setFiltroTipo(item.key)}
               className={`px-3 py-1.5 rounded-full font-medium whitespace-nowrap transition-all ${
                 isSelected
-                  ? 'bg-slate-900 text-white shadow-sm'
-                  : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                  ? 'bg-slate-900 dark:bg-primary-600 text-white shadow-sm'
+                  : 'bg-white dark:bg-slate-900 text-gray-600 dark:text-slate-300 border border-gray-200 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800'
               }`}
             >
               {item.label}
@@ -402,27 +402,27 @@ export default function ChoferGastosPage() {
 
       {/* Listado de Gastos */}
       <div className="space-y-2.5">
-        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500">
+        <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-slate-400">
           Registros ({gastosFiltrados.length})
         </h3>
 
         {loading ? (
-          <div className="text-center py-10 bg-white rounded-xl border border-gray-100">
+          <div className="text-center py-10 bg-white dark:bg-slate-900 rounded-xl border border-gray-100 dark:border-slate-800">
             <div className="w-6 h-6 border-2 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
-            <p className="text-xs text-gray-400">Cargando gastos...</p>
+            <p className="text-xs text-gray-400 dark:text-slate-400">Cargando gastos...</p>
           </div>
         ) : gastosFiltrados.length === 0 ? (
-          <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-gray-300 p-6">
-            <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-400">
+          <div className="text-center py-12 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-gray-300 dark:border-slate-700 p-6">
+            <div className="w-12 h-12 bg-gray-100 dark:bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-3 text-gray-400 dark:text-slate-400">
               <Fuel className="w-6 h-6" />
             </div>
-            <p className="text-sm font-semibold text-gray-700">Sin gastos registrados</p>
-            <p className="text-xs text-gray-400 mt-1 max-w-xs mx-auto">
+            <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">Sin gastos registrados</p>
+            <p className="text-xs text-gray-400 dark:text-slate-400 mt-1 max-w-xs mx-auto">
               Carga tus gastos de Nafta, GNC, repuestos o mantenimientos para tener el control de tus ganancias netas.
             </p>
             <button
               onClick={() => setModalAbierto(true)}
-              className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-primary-600 bg-primary-50 px-3.5 py-2 rounded-lg hover:bg-primary-100 transition-colors"
+              className="mt-4 inline-flex items-center gap-1.5 text-xs font-semibold text-primary-600 dark:text-primary-400 bg-primary-50 dark:bg-primary-950/60 px-3.5 py-2 rounded-lg hover:bg-primary-100 dark:hover:bg-primary-900/60 transition-colors"
             >
               <Plus className="w-4 h-4" />
               Cargar primer gasto
@@ -443,43 +443,43 @@ export default function ChoferGastosPage() {
             return (
               <div
                 key={gasto.id}
-                className="bg-white rounded-xl border border-gray-200/80 p-3.5 shadow-sm flex items-center justify-between gap-3 hover:border-gray-300 transition-all"
+                className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200/80 dark:border-slate-800 p-3.5 shadow-sm flex items-center justify-between gap-3 hover:border-gray-300 dark:hover:border-slate-700 transition-all"
               >
                 <div className="flex items-center gap-3">
                   <div
-                    className={`w-10 h-10 rounded-xl ${config.bg} ${config.border} border flex items-center justify-center flex-shrink-0`}
+                    className={`w-10 h-10 rounded-xl ${config.bg} dark:bg-slate-800 ${config.border} dark:border-slate-700 border flex items-center justify-center flex-shrink-0`}
                   >
                     <Icon className={`w-5 h-5 ${config.color}`} />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-gray-900">{config.label}</span>
-                      <span className="text-[11px] text-gray-400">• {fechaStr}</span>
+                      <span className="text-sm font-semibold text-gray-900 dark:text-white">{config.label}</span>
+                      <span className="text-[11px] text-gray-400 dark:text-slate-400">• {fechaStr}</span>
                     </div>
 
                     {gasto.descripcion && (
-                      <p className="text-xs text-gray-600 line-clamp-1">{gasto.descripcion}</p>
+                      <p className="text-xs text-gray-600 dark:text-slate-300 line-clamp-1">{gasto.descripcion}</p>
                     )}
 
-                    <div className="flex items-center gap-2 text-[11px] text-gray-500 mt-0.5">
+                    <div className="flex items-center gap-2 text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
                       {gasto.litros && (
                         <span
                           className={`font-medium px-1.5 py-0.5 rounded ${
                             esGnc
-                              ? 'text-emerald-700 bg-emerald-50'
-                              : 'text-amber-700 bg-amber-50'
+                              ? 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/60'
+                              : 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/60'
                           }`}
                         >
                           {gasto.litros} {esGnc ? 'm³' : 'L'}
                         </span>
                       )}
                       {gasto.kilometraje && (
-                        <span className="font-medium text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">
+                        <span className="font-medium text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
                           {Number(gasto.kilometraje).toLocaleString('es-AR')} km
                         </span>
                       )}
                       {gasto.vehiculo && (
-                        <span className="text-gray-400">Pat: {gasto.vehiculo.patente}</span>
+                        <span className="text-gray-400 dark:text-slate-500">Pat: {gasto.vehiculo.patente}</span>
                       )}
                     </div>
                   </div>
@@ -487,7 +487,7 @@ export default function ChoferGastosPage() {
 
                 <div className="flex items-center gap-2">
                   <div className="text-right">
-                    <p className="text-sm font-bold text-gray-900">
+                    <p className="text-sm font-bold text-gray-900 dark:text-white">
                       -${Number(gasto.monto).toLocaleString('es-AR', {
                         minimumFractionDigits: 0,
                         maximumFractionDigits: 2,
@@ -496,7 +496,7 @@ export default function ChoferGastosPage() {
                   </div>
                   <button
                     onClick={() => handleEliminarGasto(gasto.id)}
-                    className="p-1.5 text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                    className="p-1.5 text-gray-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
                     title="Eliminar gasto"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -511,17 +511,17 @@ export default function ChoferGastosPage() {
       {/* Modal / Dialog para Cargar Gasto */}
       {modalAbierto && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in">
-          <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-5 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+          <div className="bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl p-5 shadow-2xl border border-transparent dark:border-slate-800 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-primary-100 text-primary-600 flex items-center justify-center font-bold">
+                <div className="w-8 h-8 rounded-lg bg-primary-100 dark:bg-primary-950/60 text-primary-600 dark:text-primary-400 flex items-center justify-center font-bold">
                   $
                 </div>
-                <h3 className="text-base font-bold text-gray-900">Cargar Nuevo Gasto</h3>
+                <h3 className="text-base font-bold text-gray-900 dark:text-white">Cargar Nuevo Gasto</h3>
               </div>
               <button
                 onClick={() => setModalAbierto(false)}
-                className="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100"
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 p-1 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -530,7 +530,7 @@ export default function ChoferGastosPage() {
             <form onSubmit={handleCrearGasto} className="space-y-4 text-sm">
               {/* Selector de Categoría (Separando Nafta/Gasoil de GNC) */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1.5">
                   Tipo de Gasto
                 </label>
                 <div className="grid grid-cols-2 gap-2 mb-2">
@@ -540,14 +540,14 @@ export default function ChoferGastosPage() {
                     onClick={() => setCategoriaSel('NAFTA_GASOIL')}
                     className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs font-medium transition-all ${
                       categoriaSel === 'NAFTA_GASOIL'
-                        ? 'bg-amber-50 border-amber-300 text-amber-800 ring-2 ring-amber-500 font-semibold shadow-xs'
-                        : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                        ? 'bg-amber-50 dark:bg-amber-950/60 border-amber-300 dark:border-amber-700 text-amber-800 dark:text-amber-300 ring-2 ring-amber-500 font-semibold shadow-xs'
+                        : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700'
                     }`}
                   >
-                    <Fuel className="w-4 h-4 text-amber-600" />
+                    <Fuel className="w-4 h-4 text-amber-600 dark:text-amber-400" />
                     <div className="text-left">
                       <p className="font-bold">Nafta / Gasoil</p>
-                      <p className="text-[10px] text-gray-400">En Litros (L)</p>
+                      <p className="text-[10px] text-gray-400 dark:text-slate-400">En Litros (L)</p>
                     </div>
                   </button>
 
@@ -557,14 +557,14 @@ export default function ChoferGastosPage() {
                     onClick={() => setCategoriaSel('GNC')}
                     className={`flex items-center gap-2 p-2.5 rounded-xl border text-xs font-medium transition-all ${
                       categoriaSel === 'GNC'
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800 ring-2 ring-emerald-500 font-semibold shadow-xs'
-                        : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300 ring-2 ring-emerald-500 font-semibold shadow-xs'
+                        : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700'
                     }`}
                   >
-                    <Flame className="w-4 h-4 text-emerald-600" />
+                    <Flame className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                     <div className="text-left">
                       <p className="font-bold">GNC (Gas)</p>
-                      <p className="text-[10px] text-gray-400">En m³</p>
+                      <p className="text-[10px] text-gray-400 dark:text-slate-400">En m³</p>
                     </div>
                   </button>
                 </div>
@@ -583,8 +583,8 @@ export default function ChoferGastosPage() {
                           onClick={() => setCategoriaSel(t)}
                           className={`flex flex-col items-center justify-center p-2 rounded-xl border text-[11px] font-medium transition-all ${
                             selected
-                              ? `${cfg.bg} ${cfg.border} ${cfg.color} ring-2 ring-primary-500 font-semibold shadow-xs`
-                              : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                              ? `${cfg.bg} dark:bg-slate-800 ${cfg.border} dark:border-slate-600 ${cfg.color} ring-2 ring-primary-500 font-semibold shadow-xs`
+                              : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700'
                           }`}
                         >
                           <Icon className="w-4 h-4 mb-1" />
@@ -598,11 +598,11 @@ export default function ChoferGastosPage() {
 
               {/* Monto ($) */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
                   Monto ($ ARS) *
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3.5 top-2.5 text-gray-400 font-bold">$</span>
+                  <span className="absolute left-3.5 top-2.5 text-gray-400 dark:text-slate-400 font-bold">$</span>
                   <input
                     type="number"
                     step="any"
@@ -610,7 +610,7 @@ export default function ChoferGastosPage() {
                     placeholder="Ej: 15000"
                     value={formMonto}
                     onChange={(e) => setFormMonto(e.target.value)}
-                    className="w-full pl-8 pr-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:outline-hidden text-base font-bold text-gray-900"
+                    className="w-full pl-8 pr-3 py-2 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 rounded-xl focus:ring-2 focus:ring-primary-500 focus:outline-hidden text-base font-bold text-gray-900 dark:text-white"
                   />
                 </div>
               </div>
@@ -618,7 +618,7 @@ export default function ChoferGastosPage() {
               {/* Campo para Litros o Metros Cúbicos según sea Nafta o GNC */}
               {(categoriaSel === 'NAFTA_GASOIL' || categoriaSel === 'GNC') && (
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700 mb-1">
+                  <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
                     {categoriaSel === 'GNC'
                       ? 'Metros Cúbicos (m³) cargados (opcional)'
                       : 'Litros (L) cargados (opcional)'}
@@ -629,14 +629,14 @@ export default function ChoferGastosPage() {
                     placeholder={categoriaSel === 'GNC' ? 'Ej: 14.5' : 'Ej: 30.0'}
                     value={formVolumen}
                     onChange={(e) => setFormVolumen(e.target.value)}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:outline-hidden text-sm"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:outline-hidden text-sm"
                   />
                 </div>
               )}
 
               {/* Kilometraje del vehículo al momento del gasto */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
                   Odómetro en tablero (km opcional)
                 </label>
                 <input
@@ -644,24 +644,24 @@ export default function ChoferGastosPage() {
                   placeholder="Ej: 145200"
                   value={formKm}
                   onChange={(e) => setFormKm(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:outline-hidden text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:outline-hidden text-sm"
                 />
               </div>
 
               {/* Fecha */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">Fecha</label>
+                <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">Fecha</label>
                 <input
                   type="date"
                   value={formFecha}
                   onChange={(e) => setFormFecha(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:outline-hidden text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:outline-hidden text-sm"
                 />
               </div>
 
               {/* Descripción */}
               <div>
-                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
                   Descripción / Observaciones (opcional)
                 </label>
                 <textarea
@@ -675,7 +675,7 @@ export default function ChoferGastosPage() {
                   }
                   value={formDescripcion}
                   onChange={(e) => setFormDescripcion(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 focus:outline-hidden text-sm"
+                  className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 focus:outline-hidden text-sm"
                 />
               </div>
 
@@ -684,7 +684,7 @@ export default function ChoferGastosPage() {
                 <button
                   type="button"
                   onClick={() => setModalAbierto(false)}
-                  className="flex-1 py-2.5 border border-gray-300 text-gray-700 rounded-xl font-medium hover:bg-gray-50 transition-colors"
+                  className="flex-1 py-2.5 border border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-300 rounded-xl font-medium hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
                 >
                   Cancelar
                 </button>

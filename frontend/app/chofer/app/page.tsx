@@ -19,6 +19,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { choferService } from '@/lib/api';
+import { io, Socket } from 'socket.io-client';
 
 const ChoferRouteMap = dynamic(() => import('@/components/ChoferRouteMap'), {
   ssr: false,
@@ -81,6 +82,53 @@ export default function ChoferApp() {
   useEffect(() => {
     isActiveRef.current = isActive;
   }, [isActive]);
+
+  const socketRef = useRef<Socket | null>(null);
+  const lastGpsEmitRef = useRef<number>(0);
+
+  // Conexión WebSocket para reporte de GPS y despacho en tiempo real
+  useEffect(() => {
+    const remiseriaId = user?.chofer?.remiseriaId;
+    if (!remiseriaId) return;
+
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+    const socket = io(socketUrl, {
+      transports: ['websocket'],
+      withCredentials: true,
+    });
+    socketRef.current = socket;
+
+    socket.on('connect', () => {
+      console.log('⚡ Chofer conectado a Sockets. Sala:', remiseriaId);
+      socket.emit('join_room', { remiseriaId });
+    });
+
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [user?.chofer?.remiseriaId]);
+
+  // Función para emitir ubicación GPS al coordinador vía WebSocket
+  const emitirUbicacionGps = useCallback((lat: number, lon: number, estadoOverride?: string) => {
+    if (!user?.chofer || !socketRef.current?.connected) return;
+
+    const estadoFinal = estadoOverride || (
+      viajeActualRef.current
+        ? 'en_viaje'
+        : (isActiveRef.current ? 'disponible' : 'fuera_servicio')
+    );
+
+    socketRef.current.emit('actualizar_gps', {
+      choferId: user.chofer.id,
+      vehiculoId: user.chofer.vehiculoId || null,
+      remiseriaId: user.chofer.remiseriaId,
+      choferNombre: `${user.chofer.nombre || ''} ${user.chofer.apellido || ''}`.trim(),
+      lat,
+      lng: lon,
+      estado: estadoFinal,
+    });
+  }, [user?.chofer]);
 
   // Cargar IDs de viajes rechazados en esta sesión
   useEffect(() => {
@@ -233,11 +281,21 @@ export default function ChoferApp() {
         }
 
         lastCoordsRef.current = [lat, lon];
+
+        // Transmitir ubicación GPS en vivo al coordinador vía WebSocket (máximo cada 3 segundos)
+        const ahora = Date.now();
+        if (isActiveRef.current && (ahora - lastGpsEmitRef.current >= 3000)) {
+          lastGpsEmitRef.current = ahora;
+          emitirUbicacionGps(lat, lon);
+        }
       },
       (err) => {
         console.warn('GPS chofer aviso:', err.message);
+        if (err.code === 1) {
+          toast.error('Por favor habilitá el permiso de ubicación en tu navegador para reportar tu posición en el mapa.', { id: 'gps-perm-error' });
+        }
       },
-      { enableHighAccuracy: true, maximumAge: 4000, timeout: 10000 }
+      { enableHighAccuracy: false, maximumAge: 10000, timeout: 15000 }
     );
 
     return () => {
@@ -311,9 +369,29 @@ export default function ChoferApp() {
       if (newState) {
         toast.success('Ahora estás Activo. Esperando viajes...');
         await sincronizarEstado(true);
+
+        // Transmitir inmediatamente la coordenada actual por WebSocket
+        if (typeof window !== 'undefined' && 'geolocation' in navigator) {
+          navigator.geolocation.getCurrentPosition(
+            (pos) => {
+              const lat = pos.coords.latitude;
+              const lon = pos.coords.longitude;
+              lastCoordsRef.current = [lat, lon];
+              lastGpsEmitRef.current = Date.now();
+              emitirUbicacionGps(lat, lon, 'disponible');
+            },
+            (err) => console.warn('GPS chofer aviso inicial:', err.message),
+            { enableHighAccuracy: false, timeout: 15000 }
+          );
+        }
       } else {
         setAlertaViaje(null);
         toast.success('Te has desconectado. ¡Buen descanso!');
+
+        // Notificar desconexión al mapa del coordinador
+        if (lastCoordsRef.current) {
+          emitirUbicacionGps(lastCoordsRef.current[0], lastCoordsRef.current[1], 'fuera_servicio');
+        }
       }
     } finally {
       setActionLoading(false);
@@ -512,32 +590,32 @@ export default function ChoferApp() {
     <div className="p-4 space-y-4 max-w-lg mx-auto pb-24">
       {/* Botón de Estado / Toggle Activo */}
       {!isActive ? (
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 flex flex-col items-center justify-center min-h-[50vh]">
-          <h2 className="text-xl font-bold text-gray-800 mb-6">Comenzar Jornada</h2>
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-sm border border-gray-100 dark:border-slate-800 flex flex-col items-center justify-center min-h-[50vh] transition-colors">
+          <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-6">Comenzar Jornada</h2>
           <button
             onClick={handleToggleClick}
             disabled={actionLoading}
-            className="relative w-40 h-40 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-xl bg-gradient-to-br from-gray-100 to-gray-300 text-gray-600 shadow-gray-500/20 active:scale-95 disabled:opacity-50"
+            className="relative w-40 h-40 rounded-full flex flex-col items-center justify-center transition-all duration-300 shadow-xl bg-gradient-to-br from-gray-100 to-gray-300 dark:from-slate-800 dark:to-slate-700 text-gray-600 dark:text-slate-200 shadow-gray-500/20 dark:shadow-black/50 active:scale-95 disabled:opacity-50"
           >
-            <Car className="w-12 h-12 mb-2 text-primary-600" />
-            <span className="font-extrabold text-lg tracking-wide text-gray-800">CONECTARSE</span>
+            <Car className="w-12 h-12 mb-2 text-primary-600 dark:text-primary-400" />
+            <span className="font-extrabold text-lg tracking-wide text-gray-800 dark:text-white">CONECTARSE</span>
           </button>
-          <p className="text-xs text-gray-400 mt-6 text-center max-w-xs">
+          <p className="text-xs text-gray-400 dark:text-slate-400 mt-6 text-center max-w-xs">
             Pulsa el botón para ponerte en línea y comenzar a registrar tus kilómetros y recibir viajes.
           </p>
         </div>
       ) : (
         <div className="space-y-3">
           {/* Barra de Estado Conectado */}
-          <div className="bg-emerald-50 rounded-2xl p-4 shadow-sm border border-emerald-100 flex items-center justify-between">
+          <div className="bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl p-4 shadow-sm border border-emerald-100 dark:border-emerald-800/40 flex items-center justify-between transition-colors">
             <div className="flex items-center gap-3">
               <div className="relative">
                 <div className="w-3.5 h-3.5 bg-emerald-500 rounded-full animate-ping absolute"></div>
                 <div className="w-3.5 h-3.5 bg-emerald-500 rounded-full relative"></div>
               </div>
               <div>
-                <p className="font-bold text-emerald-900 leading-tight">EN LÍNEA</p>
-                <p className="text-xs text-emerald-600">
+                <p className="font-bold text-emerald-900 dark:text-emerald-200 leading-tight">EN LÍNEA</p>
+                <p className="text-xs text-emerald-600 dark:text-emerald-400">
                   {viajeActual
                     ? viajeActual.estado === 'EN_CURSO'
                       ? 'Con pasajero a bordo'
@@ -550,7 +628,7 @@ export default function ChoferApp() {
             <button
               onClick={handleToggleClick}
               disabled={Boolean(viajeActual) || actionLoading}
-              className="px-3.5 py-1.5 bg-white text-gray-700 text-xs font-semibold rounded-xl shadow-xs border border-gray-200 active:bg-gray-50 disabled:opacity-50 hover:bg-gray-50 transition-colors"
+              className="px-3.5 py-1.5 bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 text-xs font-semibold rounded-xl shadow-xs border border-gray-200 dark:border-slate-700 active:bg-gray-50 dark:active:bg-slate-700 disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
             >
               Desconectarse
             </button>
@@ -609,12 +687,12 @@ export default function ChoferApp() {
 
       {/* Estado de espera cuando está conectado y sin viaje ni alerta */}
       {isActive && !alertaViaje && !viajeActual && (
-        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 text-center space-y-3">
-          <div className="w-12 h-12 bg-primary-50 text-primary-600 rounded-full flex items-center justify-center mx-auto">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-sm border border-gray-100 dark:border-slate-800 text-center space-y-3 transition-colors">
+          <div className="w-12 h-12 bg-primary-50 dark:bg-primary-950/60 text-primary-600 dark:text-primary-400 rounded-full flex items-center justify-center mx-auto">
             <Car className="w-6 h-6 animate-pulse" />
           </div>
-          <h3 className="font-bold text-gray-800 text-sm">Esperando solicitudes</h3>
-          <p className="text-xs text-gray-400 max-w-xs mx-auto">
+          <h3 className="font-bold text-gray-800 dark:text-white text-sm">Esperando solicitudes</h3>
+          <p className="text-xs text-gray-400 dark:text-slate-400 max-w-xs mx-auto">
             Tu ubicación se está transmitiendo en tiempo real. Cuando haya un viaje cerca o el coordinador te asigne uno, aparecerá aquí.
           </p>
         </div>
@@ -623,8 +701,8 @@ export default function ChoferApp() {
       {/* Alerta de Nuevo Viaje */}
       {alertaViaje && (
         <div className="fixed inset-x-0 bottom-16 p-4 z-50 animate-slide-up">
-          <div className="bg-white rounded-2xl shadow-2xl border border-primary-100 overflow-hidden max-w-md mx-auto">
-            <div className="bg-primary-600 text-white p-3.5 flex items-center justify-between">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-primary-100 dark:border-slate-800 overflow-hidden max-w-md mx-auto transition-colors">
+            <div className="bg-primary-600 dark:bg-slate-800 text-white p-3.5 flex items-center justify-between">
               <span className="font-bold flex items-center gap-2">
                 <AlertTriangle className="w-5 h-5 animate-pulse text-amber-300" />
                 ¡NUEVO VIAJE DISPONIBLE!
@@ -634,37 +712,37 @@ export default function ChoferApp() {
               </span>
             </div>
             <div className="p-4 space-y-3">
-              <div className="flex items-center gap-2 text-xs text-gray-600 bg-gray-50 px-3 py-2 rounded-lg">
-                <User className="w-4 h-4 text-primary-600 shrink-0" />
-                <span className="font-semibold text-gray-800">{clienteNombreAlerta}</span>
+              <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800/80 px-3 py-2 rounded-lg">
+                <User className="w-4 h-4 text-primary-600 dark:text-primary-400 shrink-0" />
+                <span className="font-semibold text-gray-800 dark:text-white">{clienteNombreAlerta}</span>
               </div>
 
               <div className="flex gap-3">
                 <MapPin className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-xs text-gray-400">ORIGEN</p>
-                  <p className="text-sm font-bold text-gray-900">{alertaViaje.origen}</p>
+                  <p className="text-xs text-gray-400 dark:text-slate-400">ORIGEN</p>
+                  <p className="text-sm font-bold text-gray-900 dark:text-white">{alertaViaje.origen}</p>
                 </div>
               </div>
               <div className="flex gap-3">
                 <Navigation className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-xs text-gray-400">DESTINO</p>
-                  <p className="text-sm font-bold text-gray-900">{alertaViaje.destino}</p>
+                  <p className="text-xs text-gray-400 dark:text-slate-400">DESTINO</p>
+                  <p className="text-sm font-bold text-gray-900 dark:text-white">{alertaViaje.destino}</p>
                 </div>
               </div>
 
               {alertaViaje.observaciones && (
-                <p className="text-xs text-gray-600 bg-amber-50 border border-amber-100 p-2 rounded-lg">
+                <p className="text-xs text-gray-600 dark:text-slate-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-100 dark:border-amber-800/40 p-2 rounded-lg">
                   Nota: {alertaViaje.observaciones}
                 </p>
               )}
 
-              <div className="flex gap-3 pt-3 border-t">
+              <div className="flex gap-3 pt-3 border-t border-gray-100 dark:border-slate-800">
                 <button
                   onClick={rechazarViaje}
                   disabled={actionLoading}
-                  className="flex-1 py-3 bg-gray-100 text-gray-700 font-bold rounded-xl active:bg-gray-200 disabled:opacity-50 text-sm"
+                  className="flex-1 py-3 bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-200 font-bold rounded-xl active:bg-gray-200 dark:active:bg-slate-700 disabled:opacity-50 text-sm"
                 >
                   RECHAZAR
                 </button>
@@ -683,8 +761,8 @@ export default function ChoferApp() {
 
       {/* Viaje Actual */}
       {viajeActual && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="bg-slate-900 text-white p-4 flex items-center justify-between">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 overflow-hidden transition-colors">
+          <div className="bg-slate-900 text-white p-4 flex items-center justify-between border-b border-white/10">
             <div>
               <h3 className="font-bold text-base mb-1">Viaje en curso</h3>
               <span className="inline-flex px-2 py-0.5 bg-white/20 text-xs font-semibold rounded-md">
@@ -702,20 +780,20 @@ export default function ChoferApp() {
           </div>
 
           <div className="p-4 space-y-4">
-            <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100">
+            <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/70 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center font-bold">
+                <div className="w-9 h-9 rounded-full bg-primary-100 dark:bg-slate-700 text-primary-700 dark:text-primary-300 flex items-center justify-center font-bold">
                   <User className="w-5 h-5" />
                 </div>
                 <div>
-                  <p className="text-xs text-gray-400">Pasajero</p>
-                  <p className="text-sm font-bold text-gray-900">{clienteNombreActual}</p>
+                  <p className="text-xs text-gray-400 dark:text-slate-400">Pasajero</p>
+                  <p className="text-sm font-bold text-gray-900 dark:text-white">{clienteNombreActual}</p>
                 </div>
               </div>
               {clienteTelefonoActual && (
                 <a
                   href={`tel:${clienteTelefonoActual}`}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100 text-emerald-800 rounded-lg text-xs font-semibold"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 rounded-lg text-xs font-semibold"
                 >
                   <Phone className="w-3.5 h-3.5" />
                   {clienteTelefonoActual}
@@ -726,17 +804,17 @@ export default function ChoferApp() {
             <div className="flex gap-3 items-start">
               <div className="mt-1 w-6 flex flex-col items-center">
                 <div className="w-3 h-3 bg-emerald-500 rounded-full"></div>
-                <div className="w-0.5 h-10 bg-gray-200"></div>
+                <div className="w-0.5 h-10 bg-gray-200 dark:bg-slate-700"></div>
                 <div className="w-3 h-3 bg-rose-500 rounded-full"></div>
               </div>
               <div className="flex-1 space-y-3">
                 <div>
-                  <p className="text-xs text-gray-400">ORIGEN</p>
-                  <p className="text-sm font-semibold text-gray-900">{viajeActual.origen}</p>
+                  <p className="text-xs text-gray-400 dark:text-slate-400">ORIGEN</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">{viajeActual.origen}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-400">DESTINO</p>
-                  <p className="text-sm font-semibold text-gray-900">{viajeActual.destino}</p>
+                  <p className="text-xs text-gray-400 dark:text-slate-400">DESTINO</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white">{viajeActual.destino}</p>
                 </div>
               </div>
             </div>
@@ -748,7 +826,7 @@ export default function ChoferApp() {
               estado={viajeActual.estado}
             />
 
-            <div className="pt-3 border-t border-gray-100 flex flex-col gap-2.5">
+            <div className="pt-3 border-t border-gray-100 dark:border-slate-800 flex flex-col gap-2.5">
               {viajeActual.estado === 'ACEPTADO' && (
                 <button
                   onClick={avisarLlegada}
@@ -784,7 +862,7 @@ export default function ChoferApp() {
               <button
                 onClick={anularViaje}
                 disabled={actionLoading}
-                className="w-full py-2.5 bg-white text-rose-500 text-xs font-semibold rounded-xl border border-rose-200 hover:bg-rose-50 shadow-xs disabled:opacity-50 transition-colors"
+                className="w-full py-2.5 bg-white dark:bg-slate-900 text-rose-500 dark:text-rose-400 text-xs font-semibold rounded-xl border border-rose-200 dark:border-rose-900/60 hover:bg-rose-50 dark:hover:bg-rose-950/30 shadow-xs disabled:opacity-50 transition-colors"
               >
                 Anular Viaje
               </button>
@@ -796,30 +874,30 @@ export default function ChoferApp() {
       {/* Modal para ingresar Odómetro de Tablero opcional al Conectarse o Desconectarse */}
       {modalConexion && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white w-full max-w-sm rounded-2xl p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl p-5 shadow-2xl border border-transparent dark:border-slate-800 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <Gauge className="w-5 h-5 text-primary-600" />
-                <h3 className="font-bold text-gray-900 text-sm">
+                <Gauge className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+                <h3 className="font-bold text-gray-900 dark:text-white text-sm">
                   {modalConexion === 'INICIAR' ? 'Iniciar Turno' : 'Finalizar Turno'}
                 </h3>
               </div>
               <button
                 onClick={() => setModalConexion(null)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-200"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 dark:text-slate-400">
               {modalConexion === 'INICIAR'
                 ? '¿Deseas registrar el odómetro del tablero del auto para control exacto? (Opcional)'
                 : '¿Deseas anotar el odómetro final del tablero antes de desconectarte? (Opcional)'}
             </p>
 
             <div>
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
+              <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300 mb-1">
                 Kilometraje de tablero (km)
               </label>
               <input
@@ -827,7 +905,7 @@ export default function ChoferApp() {
                 placeholder="Ej: 145200"
                 value={odometroInput}
                 onChange={(e) => setOdometroInput(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-xl focus:ring-2 focus:ring-primary-500 text-sm"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-gray-900 dark:text-white rounded-xl focus:ring-2 focus:ring-primary-500 text-sm"
               />
             </div>
 
@@ -836,7 +914,7 @@ export default function ChoferApp() {
                 type="button"
                 onClick={() => confirmarToggleStatus(undefined)}
                 disabled={actionLoading}
-                className="flex-1 py-2.5 border border-gray-300 text-gray-600 text-xs font-semibold rounded-xl hover:bg-gray-50 transition-colors"
+                className="flex-1 py-2.5 border border-gray-300 dark:border-slate-700 text-gray-600 dark:text-slate-300 text-xs font-semibold rounded-xl hover:bg-gray-50 dark:hover:bg-slate-800 transition-colors"
               >
                 Omitir Odómetro
               </button>

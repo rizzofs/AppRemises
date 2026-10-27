@@ -158,6 +158,19 @@ export const authService = {
     }
   },
 
+  verificarDni: async (dni: string): Promise<ApiResponse<any>> => {
+    try {
+      const cleanDni = dni.replace(/\D/g, '');
+      const response = await api.get(`/auth/verificar-dni/${cleanDni}`);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.error || error.response?.data?.message || 'No se pudo verificar el DNI en ARCA / AFIP',
+      };
+    }
+  },
+
   refreshToken: async (refreshToken: string): Promise<ApiResponse<{ accessToken: string }>> => {
     try {
       const response = await api.post('/auth/refresh', { refreshToken });
@@ -173,6 +186,17 @@ export const authService = {
 
 // Servicios de remiserías
 export const remiseriaService = {
+  getActiva: async (): Promise<ApiResponse<Remiseria>> => {
+    try {
+      const response = await api.get('/remiserias/activa');
+      return handleApiResponse<Remiseria>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar remisería activa',
+      };
+    }
+  },
   getAll: async (): Promise<ApiResponse<Remiseria[]>> => {
     try {
       const response = await api.get('/remiserias');
@@ -666,6 +690,19 @@ export const choferService = {
   },
 
   // Auto-registro y Aprobación
+  verificarDni: async (dni: string): Promise<ApiResponse<any>> => {
+    try {
+      const cleanDni = dni.replace(/\D/g, '');
+      const response = await api.get(`/auth/verificar-dni/${cleanDni}`);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.error || error.response?.data?.message || 'No se pudo verificar el DNI en ARCA / AFIP',
+      };
+    }
+  },
+
   registroPublico: async (data: any): Promise<ApiResponse<any>> => {
     try {
       const response = await api.post('/choferes/registro', data);
@@ -859,6 +896,19 @@ export const clienteAuthService = {
       return {
         success: false,
         message: error.response?.data?.message || 'Error en el registro',
+      };
+    }
+  },
+
+  verificarDni: async (dni: string): Promise<ApiResponse<any>> => {
+    try {
+      const cleanDni = dni.replace(/\D/g, '');
+      const response = await api.get(`/auth/verificar-dni/${cleanDni}`);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.error || error.response?.data?.message || 'No se pudo verificar el DNI en ARCA / AFIP',
       };
     }
   },

@@ -93,13 +93,16 @@ model Remiseria {
   // Relación 1:N con Reserva
   reservas Reserva[]
 
+  // Relación 1:N con Cliente
+  clientes Cliente[]
+
   @@map("remiserias")
 }
 
 model RemiseriaDuenio {
   id          String   @id @default(cuid())
   remiseriaId String
-  duenioId    String
+  duenioId    String   @unique
   createdAt   DateTime @default(now())
 
   // Relaciones
@@ -150,6 +153,10 @@ model Cliente {
 
   // Relación 1:1 con User
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Relación N:1 con Remiseria
+  remiseriaId String?
+  remiseria   Remiseria? @relation(fields: [remiseriaId], references: [id], onDelete: Cascade)
 
   // Relación 1:N con Viaje (como cliente)
   viajes Viaje[]

@@ -67,6 +67,16 @@ export default function RealMapComponent({
     }
   }, [selectedVehiculo]);
 
+  // Auto-centrar en el primer vehículo conectado si no hay ninguno seleccionado manualmente
+  useEffect(() => {
+    if (!selectedVehiculo && vehiculos.length > 0) {
+      const activo = vehiculos.find(v => v.estado === 'disponible' || v.estado === 'en_viaje') || vehiculos[0];
+      if (activo?.ubicacion?.lat && activo?.ubicacion?.lng) {
+        setMapCenter([activo.ubicacion.lat, activo.ubicacion.lng]);
+      }
+    }
+  }, [vehiculos.length]);
+
   // Crear marcador SVG dinámico y estilizado según el estado
   const createCustomIcon = (estado: string, patente: string, isSelected: boolean) => {
     const color = getVehicleColor(estado);
@@ -107,10 +117,10 @@ export default function RealMapComponent({
       >
         <ChangeMapView center={mapCenter} zoom={mapZoom} />
 
-        {/* Usamos el tile premium de CartoDB (Light) que se ve súper limpio y corporativo */}
+        {/* Capa de mapa OpenStreetMap 100% gratuita y sin requerimiento de API Key */}
         <TileLayer
-          url={MAP_CONFIG.TILE_LAYERS.CARTODB.url}
-          attribution={MAP_CONFIG.TILE_LAYERS.CARTODB.attribution}
+          url={MAP_CONFIG.TILE_LAYERS.OPENSTREETMAP.url}
+          attribution={MAP_CONFIG.TILE_LAYERS.OPENSTREETMAP.attribution}
         />
 
         {/* Marcadores de vehículos */}
@@ -156,11 +166,11 @@ export default function RealMapComponent({
                   
                   <div className="mt-3 pt-2 border-t flex space-x-2">
                     <button
-                      onClick={() => window.open(`https://www.google.com/maps?q=${vehiculo.ubicacion.lat},${vehiculo.ubicacion.lng}`, '_blank')}
+                      onClick={() => window.open(`https://www.openstreetmap.org/?mlat=${vehiculo.ubicacion.lat}&mlon=${vehiculo.ubicacion.lng}#map=16/${vehiculo.ubicacion.lat}/${vehiculo.ubicacion.lng}`, '_blank')}
                       className="w-full flex items-center justify-center space-x-1 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow transition-all"
                     >
                       <ExternalLink className="w-3.5 h-3.5" />
-                      <span>Google Maps</span>
+                      <span>Ver en OpenStreetMap</span>
                     </button>
                   </div>
                 </div>

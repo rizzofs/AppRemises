@@ -29,11 +29,11 @@ const MapComponent = dynamic(
     loading: () => (
       <div className="w-full h-[500px] bg-gray-50 flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-300 animate-pulse">
         <svg className="w-10 h-10 text-blue-500 animate-spin mb-3" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
         <span className="text-sm font-semibold text-gray-600">Cargando mapa interactivo...</span>
-        <span className="text-xs text-gray-400 mt-1">Conectando OpenStreetMap & CartoDB</span>
+        <span className="text-xs text-gray-400 mt-1">Conectando con OpenStreetMap</span>
       </div>
     )
   }
@@ -144,18 +144,23 @@ export default function MapaTiempoReal() {
     try {
       const response = await coordinadorDashboardService.getVehiculosTiempoReal();
       if (response.success && response.data && response.data.length > 0) {
-        const mapped: Vehiculo[] = response.data.map(v => ({
+        const mapped: Vehiculo[] = response.data.map(v => {
+          const chofer = v.choferes && v.choferes[0];
+          const isOnline = chofer?.isOnline;
+          const estado = isOnline ? 'disponible' : (v.estado?.toLowerCase() === 'activo' ? 'disponible' : 'fuera_servicio');
+          return {
           id: v.id,
-          patente: v.patente,
-          chofer: v.choferes && v.choferes[0] ? `${v.choferes[0].nombre} ${v.choferes[0].apellido}` : 'Sin Chofer',
-          estado: v.estado.toLowerCase() === 'activo' ? 'disponible' : v.estado.toLowerCase() === 'mantenimiento' ? 'fuera_servicio' : 'fuera_servicio',
+          patente: v.patente || 'Móvil',
+          chofer: chofer ? `${chofer.nombre} ${chofer.apellido}` : (v.propietario || 'Sin Chofer'),
+          estado: estado as any,
           ubicacion: {
             lat: v.latitud || -34.6037,
             lng: v.longitud || -58.3816
           },
           ultimaActualizacion: v.ultimaUbicacion || new Date().toISOString(),
-          direccionActual: v.observaciones || 'Ubicación reportada'
-        }));
+          direccionActual: v.observaciones || (v.latitud ? `Lat: ${v.latitud.toFixed(4)}, Lng: ${v.longitud.toFixed(4)}` : 'Ubicación reportada')
+        };
+        });
         setVehiculos(mapped);
       } else {
         setVehiculos(vehiculosEjemplo);
@@ -192,9 +197,10 @@ export default function MapaTiempoReal() {
       console.log('🚗 Vehículo movido en vivo:', data);
       
       setVehiculos((prevVehiculos) => {
-        const index = prevVehiculos.findIndex((v) => v.id === data.id);
+        const soloReales = prevVehiculos.filter((v) => !['1', '2', '3', '4', '5', '6', '7', '8'].includes(v.id));
+        const index = soloReales.findIndex((v) => v.id === data.id || (data.choferId && v.id === data.choferId) || (data.patente && v.patente === data.patente));
         if (index !== -1) {
-          const updated = [...prevVehiculos];
+          const updated = [...soloReales];
           updated[index] = {
             ...updated[index],
             ubicacion: data.ubicacion,
@@ -205,7 +211,15 @@ export default function MapaTiempoReal() {
           return updated;
         }
         // Si no está en el listado, agregarlo
-        return [...prevVehiculos, data];
+        return [...soloReales, {
+          id: data.id,
+          patente: data.patente || 'Móvil',
+          chofer: data.chofer || 'Chofer',
+          estado: data.estado || 'disponible',
+          ubicacion: data.ubicacion,
+          ultimaActualizacion: data.ultimaActualizacion || new Date().toISOString(),
+          direccionActual: data.direccionActual || `${data.ubicacion.lat.toFixed(5)}, ${data.ubicacion.lng.toFixed(5)}`
+        }];
       });
     });
 
@@ -231,7 +245,7 @@ export default function MapaTiempoReal() {
   // Simular movimiento periódico de vehículos en modo demo (para impresionar al usuario en la demo comercial)
   useEffect(() => {
     // Si la lista de vehículos contiene los de ejemplo, simular movimientos suaves
-    const isDemo = vehiculos.some(v => ['1', '2', '3', '4', '5', '6', '7', '8'].includes(v.id));
+    const isDemo = vehiculos.length > 0 && vehiculos.every(v => ['1', '2', '3', '4', '5', '6', '7', '8'].includes(v.id));
     if (!isDemo || isLoading) return;
 
     const interval = setInterval(() => {
@@ -285,7 +299,7 @@ export default function MapaTiempoReal() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 overflow-x-hidden w-full">
       {/* Header */}
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -326,8 +340,8 @@ export default function MapaTiempoReal() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full min-w-0">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 min-w-0">
           {/* Panel lateral */}
           <div className="lg:col-span-1 space-y-6">
             {/* Filtros */}
@@ -452,7 +466,7 @@ export default function MapaTiempoReal() {
           </div>
 
           {/* Mapa y lista de vehículos */}
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-3 min-w-0">
             {/* Mapa interactivo */}
             <div className="bg-white rounded-lg shadow mb-6">
               <div className="p-6 border-b border-gray-200">

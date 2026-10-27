@@ -20,7 +20,8 @@ import {
   EyeOff,
   ArrowRight,
   ShieldCheck,
-  Clock
+  Clock,
+  Loader2
 } from 'lucide-react';
 import { choferService } from '@/lib/api';
 
@@ -38,6 +39,17 @@ export default function RegistroChoferPage() {
   const [loadingRemiserias, setLoadingRemiserias] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [registroExitoso, setRegistroExitoso] = useState<any>(null);
+  const [isVerificandoDni, setIsVerificandoDni] = useState(false);
+  const [datosVerificados, setDatosVerificados] = useState<{
+    dni: string;
+    cuil: string;
+    nombre: string;
+    apellido: string;
+    nombreCompleto: string;
+    fuente: string;
+    verificado: boolean;
+    direccion?: string;
+  } | null>(null);
 
   // Contraseña visible
   const [showPassword, setShowPassword] = useState(false);
@@ -59,6 +71,56 @@ export default function RegistroChoferPage() {
     esPropietario: false,
     observaciones: '',
   });
+
+  const verificarIdentidadConArca = async (dniManual?: string) => {
+    const dniAConsultar = (dniManual || formData.dni || '').replace(/\D/g, '').trim();
+
+    if (!dniAConsultar || dniAConsultar.length < 7 || dniAConsultar.length > 8) {
+      toast.error('Ingresá un DNI válido de 7 u 8 dígitos para consultar');
+      return;
+    }
+
+    setIsVerificandoDni(true);
+    try {
+      const response = await choferService.verificarDni(dniAConsultar);
+      if (response.success && response.data) {
+        const info = response.data;
+        setDatosVerificados(info);
+        if (info.verificado && info.nombre) {
+          setFormData(prev => ({
+            ...prev,
+            nombre: info.nombre,
+            apellido: info.apellido,
+            direccion: prev.direccion || info.direccion || '',
+          }));
+          toast.success(`Identidad verificada ante ARCA: ${info.nombreCompleto}`, {
+            icon: '🛡️',
+            duration: 4000
+          });
+        } else {
+          toast(info.mensaje || `CUIL calculado: ${info.cuil}. Completá tus datos personales.`, {
+            icon: 'ℹ️',
+            duration: 5000
+          });
+        }
+      } else {
+        setDatosVerificados(null);
+        toast.error(response.message || 'No se pudo verificar el DNI en ARCA/AFIP');
+      }
+    } catch (err) {
+      console.error('Error al verificar DNI:', err);
+      toast.error('Error al consultar el padrón oficial');
+    } finally {
+      setIsVerificandoDni(false);
+    }
+  };
+
+  const handleDniBlur = () => {
+    const cleanDni = formData.dni.replace(/\D/g, '');
+    if ((cleanDni.length === 7 || cleanDni.length === 8) && (!datosVerificados || datosVerificados.dni !== cleanDni)) {
+      verificarIdentidadConArca(cleanDni);
+    }
+  };
 
   useEffect(() => {
     cargarRemiserias();
@@ -89,6 +151,9 @@ export default function RegistroChoferPage() {
       const target = e.target as HTMLInputElement;
       setFormData(prev => ({ ...prev, [name]: target.checked }));
     } else {
+      if (name === 'dni' && datosVerificados) {
+        setDatosVerificados(null);
+      }
       setFormData(prev => ({ ...prev, [name]: value }));
     }
   };
@@ -97,12 +162,14 @@ export default function RegistroChoferPage() {
     e.preventDefault();
 
     // Validaciones
-    if (!formData.nombre.trim() || !formData.apellido.trim()) {
-      toast.error('Por favor ingresá tu nombre y apellido');
+    const cleanDni = formData.dni.replace(/\D/g, '').trim();
+    if (!cleanDni) {
+      toast.error('Por favor ingresá tu número de DNI');
       return;
     }
-    if (!formData.dni.trim()) {
-      toast.error('Por favor ingresá tu número de DNI');
+
+    if (!formData.nombre.trim() || !formData.apellido.trim()) {
+      toast.error('Por favor completá tu nombre y apellido');
       return;
     }
     if (!formData.telefono.trim()) {
@@ -221,7 +288,7 @@ export default function RegistroChoferPage() {
           </div>
           <h1 className="text-3xl font-black text-white tracking-tight">Postulación de Chofer</h1>
           <p className="text-slate-400 text-sm mt-2 max-w-md mx-auto">
-            Completá tus datos para solicitar el alta en una remisería. El dueño de la agencia validará tu documentación para habilitarte.
+            Completá tus datos para solicitar el alta en {remiserias[0]?.nombreFantasia || 'Remises Bruno'}. El dueño de la agencia validará tu documentación para habilitarte.
           </p>
         </div>
 
@@ -231,48 +298,140 @@ export default function RegistroChoferPage() {
             
             {/* Sección: Datos Personales */}
             <div>
-              <div className="flex items-center gap-2 pb-2 mb-4 border-b border-slate-100 text-primary-700 font-bold text-sm">
-                <User className="w-4 h-4" />
-                <span>1. Datos Personales</span>
+              <div className="flex items-center justify-between pb-2 mb-4 border-b border-slate-100">
+                <div className="flex items-center gap-2 text-primary-700 font-bold text-sm">
+                  <User className="w-4 h-4" />
+                  <span>1. Datos Personales y Validación de Identidad</span>
+                </div>
+                <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  Padrón ARCA / AFIP
+                </span>
               </div>
+
+              {/* DNI PRIMERO CON BOTÓN DE VALIDACIÓN OFICIAL */}
+              <div className="mb-4">
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  DNI (Documento Nacional de Identidad) *
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      name="dni"
+                      required
+                      maxLength={8}
+                      value={formData.dni}
+                      onChange={handleChange}
+                      onBlur={handleDniBlur}
+                      placeholder="Ej: 34123456 (sin puntos)"
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all font-mono"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => verificarIdentidadConArca()}
+                    disabled={isVerificandoDni}
+                    className="px-4 py-2.5 bg-primary-600 hover:bg-primary-700 disabled:bg-primary-300 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm flex-shrink-0"
+                  >
+                    {isVerificandoDni ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Consultando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <ShieldCheck className="w-4 h-4" />
+                        <span>Validar en ARCA</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Al ingresar tu DNI se verificará tu identidad automáticamente contra el padrón oficial.
+                </p>
+              </div>
+
+              {/* BANNER DE IDENTIDAD VERIFICADA O CUIL CALCULADO */}
+              {datosVerificados && (
+                <div className={`mb-4 p-3 border rounded-2xl flex items-start gap-2.5 text-xs animate-fadeIn ${
+                  datosVerificados.verificado
+                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                    : 'bg-blue-50 border-blue-200 text-blue-900'
+                }`}>
+                  {datosVerificados.verificado ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
+                  ) : (
+                    <ShieldCheck className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                  )}
+                  <div className="flex-1">
+                    <div className="font-bold flex items-center gap-1.5">
+                      <span>{datosVerificados.verificado ? 'Titular Chofer Verificado ante ARCA' : 'CUIL Oficial Verificado'}</span>
+                      <span className="text-[10px] bg-white/70 px-1.5 py-0.2 rounded font-mono border border-current">
+                        {datosVerificados.verificado ? 'OFICIAL' : 'MÓDULO 11'}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 text-slate-700">
+                      CUIL: <span className="font-mono font-semibold">{datosVerificados.cuil}</span>
+                      {datosVerificados.nombreCompleto && ` • ${datosVerificados.nombreCompleto}`}
+                    </div>
+                    <div className="text-[11px] opacity-80 mt-0.5">
+                      {datosVerificados.verificado
+                        ? 'Nombre y apellido importados desde ARCA. Se han bloqueado para garantizar tu identidad.'
+                        : 'Por favor completá tu nombre y apellido para tu postulación.'}
+                    </div>
+                  </div>
+                </div>
+              )}
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Nombre *</label>
-                  <input
-                    type="text"
-                    name="nombre"
-                    required
-                    value={formData.nombre}
-                    onChange={handleChange}
-                    placeholder="Ej: Carlos"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
-                  />
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Nombre (según DNI) *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      name="nombre"
+                      required
+                      readOnly={!!(datosVerificados?.verificado && datosVerificados?.nombre)}
+                      value={formData.nombre}
+                      onChange={handleChange}
+                      placeholder="Tu nombre real"
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-sm outline-none transition-all ${
+                        datosVerificados?.verificado && datosVerificados?.nombre
+                          ? 'bg-emerald-50/50 border-emerald-300 font-semibold text-emerald-950 cursor-not-allowed'
+                          : 'border-slate-200 focus:ring-2 focus:ring-primary-500'
+                      }`}
+                    />
+                    {datosVerificados?.verificado && datosVerificados?.nombre && (
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 absolute right-3 top-3 pointer-events-none" />
+                    )}
+                  </div>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Apellido *</label>
-                  <input
-                    type="text"
-                    name="apellido"
-                    required
-                    value={formData.apellido}
-                    onChange={handleChange}
-                    placeholder="Ej: González"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">DNI / Documento *</label>
-                  <input
-                    type="text"
-                    name="dni"
-                    required
-                    value={formData.dni}
-                    onChange={handleChange}
-                    placeholder="Ej: 34123456"
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:ring-2 focus:ring-primary-500 focus:border-transparent outline-none transition-all"
-                  />
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Apellido (según DNI) *
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      name="apellido"
+                      required
+                      readOnly={!!(datosVerificados?.verificado && datosVerificados?.apellido)}
+                      value={formData.apellido}
+                      onChange={handleChange}
+                      placeholder="Tu apellido real"
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-sm outline-none transition-all ${
+                        datosVerificados?.verificado && datosVerificados?.apellido
+                          ? 'bg-emerald-50/50 border-emerald-300 font-semibold text-emerald-950 cursor-not-allowed'
+                          : 'border-slate-200 focus:ring-2 focus:ring-primary-500'
+                      }`}
+                    />
+                    {datosVerificados?.verificado && datosVerificados?.apellido && (
+                      <ShieldCheck className="w-4 h-4 text-emerald-600 absolute right-3 top-3 pointer-events-none" />
+                    )}
+                  </div>
                 </div>
 
                 <div>
@@ -365,15 +524,28 @@ export default function RegistroChoferPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Seleccioná la Remisería a la que te postulás *
+                    Remisería a la que te postulás *
                   </label>
                   {loadingRemiserias ? (
                     <div className="p-3 text-xs text-slate-400 bg-slate-50 rounded-xl animate-pulse">
-                      Cargando agencias disponibles...
+                      Cargando información de la remisería...
                     </div>
                   ) : remiserias.length === 0 ? (
                     <div className="p-3 text-xs text-amber-700 bg-amber-50 rounded-xl border border-amber-200">
                       No hay remiserías disponibles en este momento.
+                    </div>
+                  ) : remiserias.length === 1 ? (
+                    <div className="p-3.5 bg-primary-50 rounded-xl border border-primary-200 flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <Building2 className="w-5 h-5 text-primary-600" />
+                        <div>
+                          <p className="text-sm text-primary-950 font-bold">{remiserias[0].nombreFantasia}</p>
+                          <p className="text-xs text-primary-700">Remisería Oficial • Postulación Directa</p>
+                        </div>
+                      </div>
+                      <span className="text-xs font-semibold px-2.5 py-1 bg-primary-200/70 text-primary-900 rounded-lg">
+                        Asignada
+                      </span>
                     </div>
                   ) : (
                     <select

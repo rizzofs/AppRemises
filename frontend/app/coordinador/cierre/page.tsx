@@ -177,7 +177,7 @@ export default function CierreCajaPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 pb-12">
+    <div className="min-h-screen bg-slate-50 pb-12 overflow-x-hidden w-full">
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-10 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -212,10 +212,10 @@ export default function CierreCajaPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 w-full min-w-0">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 min-w-0">
           {/* Columna Izquierda: Selector de Chofer y Parámetros */}
-          <div className="lg:col-span-1 space-y-6">
+          <div className="lg:col-span-1 space-y-6 min-w-0">
             <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
               <h2 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
                 <User className="w-5 h-5 text-blue-500" />
@@ -342,7 +342,7 @@ export default function CierreCajaPage() {
           </div>
 
           {/* Columna Derecha: Viajes Pendientes y Cuadro de Resultados */}
-          <div className="lg:col-span-2 space-y-6">
+          <div className="lg:col-span-2 space-y-6 min-w-0">
             {!selectedChoferId ? (
               <div className="space-y-6">
                 {/* Resumen del Turno */}
@@ -421,30 +421,30 @@ export default function CierreCajaPage() {
                       </p>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-slate-200 text-left">
+                    <div className="overflow-x-auto w-full">
+                      <table className="w-full divide-y divide-slate-200 text-left text-xs">
                         <thead className="bg-slate-50/50">
                           <tr>
-                            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Hora</th>
-                            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Chofer</th>
-                            <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Tipo</th>
-                            <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Recaudado</th>
-                            <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Agencia</th>
-                            <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Combustible</th>
-                            <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Neto Prop.</th>
+                            <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Hora</th>
+                            <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Chofer</th>
+                            <th className="px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Tipo</th>
+                            <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Recaudado</th>
+                            <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Agencia</th>
+                            <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Combustible</th>
+                            <th className="px-3 py-2.5 text-right text-xs font-semibold text-slate-500 uppercase tracking-wider">Neto Prop.</th>
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-slate-100">
                           {resumenTurno?.liquidaciones?.map((liq: any) => (
                             <tr key={liq.id} className="hover:bg-slate-50/30 transition-colors text-slate-700 text-xs">
-                              <td className="px-6 py-4 whitespace-nowrap font-medium text-slate-500">
+                              <td className="px-3 py-2.5 whitespace-nowrap font-medium text-slate-500">
                                 {new Date(liq.fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap font-bold text-slate-800">
+                              <td className="px-3 py-2.5 whitespace-nowrap font-bold text-slate-800">
                                 {liq.chofer?.nombre} {liq.chofer?.apellido}
                                 <div className="text-[10px] text-slate-400 font-normal">#{liq.chofer?.numeroChofer}</div>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap">
+                              <td className="px-3 py-2.5 whitespace-nowrap">
                                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
                                   liq.chofer?.esPropietario 
                                     ? 'bg-green-100 text-green-800' 
@@ -453,16 +453,16 @@ export default function CierreCajaPage() {
                                   {liq.chofer?.esPropietario ? 'Dueño Auto' : 'Comisionista'}
                                 </span>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-right font-bold text-slate-800">
+                              <td className="px-3 py-2.5 whitespace-nowrap text-right font-bold text-slate-800">
                                 ${liq.totalRecaudado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-right text-emerald-700 font-bold bg-emerald-50/20">
+                              <td className="px-3 py-2.5 whitespace-nowrap text-right text-emerald-700 font-bold bg-emerald-50/20">
                                 ${liq.comisionAgencia.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-right text-orange-700 font-medium">
+                              <td className="px-3 py-2.5 whitespace-nowrap text-right text-orange-700 font-medium">
                                 ${liq.combustible.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-right text-purple-700 font-bold">
+                              <td className="px-3 py-2.5 whitespace-nowrap text-right text-purple-700 font-bold">
                                 ${liq.gananciaPropietario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                               </td>
                             </tr>
@@ -553,44 +553,46 @@ export default function CierreCajaPage() {
                       </span>
                     </div>
 
-                    <div className="overflow-x-auto">
-                      <table className="min-w-full divide-y divide-slate-200">
+                    <div className="overflow-x-auto w-full">
+                      <table className="w-full divide-y divide-slate-200 text-sm">
                         <thead className="bg-slate-50/50">
                           <tr>
-                            <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Fecha/Hora</th>
-                            <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Cliente</th>
-                            <th className="px-6 py-3 text-left text-xs font-semibold text-slate-500 uppercase">Origen / Destino</th>
-                            <th className="px-6 py-3 text-right text-xs font-semibold text-slate-500 uppercase">Importe</th>
+                            <th className="px-3 sm:px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase">Fecha/Hora</th>
+                            <th className="px-3 sm:px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase">Cliente</th>
+                            <th className="px-3 sm:px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase">Origen / Destino</th>
+                            <th className="px-3 sm:px-4 py-2.5 text-right text-xs font-semibold text-slate-500 uppercase">Importe</th>
                           </tr>
                         </thead>
                         <tbody className="bg-white divide-y divide-slate-100">
                           {pendingData.viajes.map((viaje: Viaje) => (
                             <tr key={viaje.id} className="hover:bg-slate-50/30 transition-colors">
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
+                              <td className="px-3 sm:px-4 py-3 whitespace-nowrap text-sm text-slate-600">
                                 <div className="flex items-center gap-1.5">
-                                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                  <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                                   <div>
-                                    <div className="font-semibold text-slate-800">
+                                    <div className="font-semibold text-slate-800 text-xs sm:text-sm">
                                       {new Date(viaje.fecha).toLocaleDateString('es-AR')}
                                     </div>
-                                    <div className="text-xs text-slate-400">
+                                    <div className="text-[11px] text-slate-400">
                                       {new Date(viaje.fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
                                     </div>
                                   </div>
                                 </div>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-800 font-medium">
-                                {viaje.clienteNombre || 'S/N'}
-                              </td>
-                              <td className="px-6 py-4 text-sm text-slate-600 max-w-xs truncate">
-                                <div>
-                                  <span className="font-medium text-slate-700">Orig:</span> {viaje.origen}
-                                </div>
-                                <div className="mt-0.5">
-                                  <span className="font-medium text-slate-700">Dest:</span> {viaje.destino}
+                              <td className="px-3 sm:px-4 py-3 text-sm text-slate-800 font-medium">
+                                <div className="truncate max-w-[130px] sm:max-w-none" title={viaje.clienteNombre || 'S/N'}>
+                                  {viaje.clienteNombre || 'S/N'}
                                 </div>
                               </td>
-                              <td className="px-6 py-4 whitespace-nowrap text-sm text-right font-bold text-slate-900">
+                              <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm text-slate-600">
+                                <div className="line-clamp-1" title={viaje.origen}>
+                                  <span className="font-semibold text-slate-700">Orig:</span> {viaje.origen}
+                                </div>
+                                <div className="mt-0.5 line-clamp-1" title={viaje.destino}>
+                                  <span className="font-semibold text-slate-700">Dest:</span> {viaje.destino}
+                                </div>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3 whitespace-nowrap text-xs sm:text-sm text-right font-bold text-slate-900">
                                 ${Number(viaje.precio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                               </td>
                             </tr>

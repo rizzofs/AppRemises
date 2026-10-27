@@ -33,7 +33,7 @@ export default function DuenioLayout({
 
   const navigation = [
     { name: 'Dashboard', href: '/duenio/dashboard', icon: LayoutDashboard },
-    { name: 'Remiserías', href: '/duenio/remiserias', icon: Building2 },
+    { name: 'Mi Remisería', href: '/duenio/remiserias', icon: Building2 },
     { name: 'Coordinadores', href: '/duenio/coordinadores', icon: Users },
     { name: 'Choferes', href: '/duenio/choferes', icon: Truck },
     { name: 'Vehículos', href: '/duenio/vehiculos', icon: Car },
@@ -75,7 +75,7 @@ export default function DuenioLayout({
                 className="object-contain"
               />
               <div className="flex flex-col">
-                <span className="font-bold text-lg text-slate-900 leading-tight">AppRemises</span>
+                <span className="font-bold text-lg text-slate-900 leading-tight">Remises Bruno</span>
                 <span className="text-xs text-primary-600 font-medium">Panel de Dueño</span>
               </div>
             </Link>

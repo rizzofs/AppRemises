@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { 
+  getRemiseriaActiva,
   getAllRemiserias, 
   getRemiseriaById, 
   createRemiseria, 
@@ -26,13 +27,16 @@ const updateRemiseriaValidation = [
   body('telefono').optional().notEmpty().withMessage('El teléfono no puede estar vacío')
 ];
 
-// Rutas públicas (requieren autenticación)
+// Ruta pública para obtener la configuración y datos de la remisería activa
+router.get('/activa', getRemiseriaActiva);
+
+// Rutas autenticadas
 router.get('/', authenticateToken, getAllRemiserias);
 router.get('/:id', authenticateToken, getRemiseriaById);
 
-// Rutas de administrador
+// Rutas de administración y dueño
 router.post('/', authenticateToken, requireAdmin, createRemiseriaValidation, createRemiseria);
 router.put('/:id', authenticateToken, updateRemiseriaValidation, updateRemiseria);
 router.delete('/:id', authenticateToken, requireAdmin, deleteRemiseria);
 
-export default router; 
+export default router;

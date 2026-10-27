@@ -6,6 +6,7 @@ import { prisma } from '../lib/prisma';
 import { ApiResponse, LoginRequest, RegisterRequest } from '../types';
 import { JwtPayload } from 'jsonwebtoken';
 import { sendPasswordResetEmail } from '../lib/mailer';
+import { identityVerificationService } from '../services/identityVerificationService';
 
 export const login = async (req: Request, res: Response) => {
   try {
@@ -15,21 +16,53 @@ export const login = async (req: Request, res: Response) => {
     const user = await prisma.user.findUnique({
       where: { email },
       include: { 
-        duenio: true,
+        duenio: {
+          include: {
+            remiserias: {
+              include: {
+                remiseria: true
+              }
+            }
+          }
+        },
         coordinador: {
           include: {
             remiseria: {
               select: {
                 id: true,
-                nombreFantasia: true
+                nombreFantasia: true,
+                razonSocial: true,
+                telefono: true,
+                direccion: true
               }
             }
           }
         },
-        cliente: true,
+        cliente: {
+          include: {
+            remiseria: {
+              select: {
+                id: true,
+                nombreFantasia: true,
+                razonSocial: true,
+                telefono: true,
+                direccion: true,
+                valorKm: true,
+                bajadaBandera: true
+              }
+            }
+          }
+        },
         chofer: {
           include: {
-            vehiculo: true
+            vehiculo: true,
+            remiseria: {
+              select: {
+                id: true,
+                nombreFantasia: true,
+                razonSocial: true
+              }
+            }
           }
         }
       }
@@ -260,6 +293,15 @@ export const registerCliente = async (req: Request, res: Response) => {
         }
       });
 
+      // Asignar a la remisería activa (Remises Bruno)
+      let targetRemiseriaId = req.body.remiseriaId;
+      if (!targetRemiseriaId) {
+        const activeRemiseria = await tx.remiseria.findFirst({
+          where: { estado: true }
+        });
+        targetRemiseriaId = activeRemiseria?.id || null;
+      }
+
       const cliente = await tx.cliente.create({
         data: {
           nombre,
@@ -270,7 +312,8 @@ export const registerCliente = async (req: Request, res: Response) => {
           direccion,
           fechaNacimiento: new Date(fechaNacimiento),
           fotoUrl: fotoUrl || null,
-          userId: user.id
+          userId: user.id,
+          remiseriaId: targetRemiseriaId
         }
       });
 
@@ -542,5 +585,36 @@ export const resetPassword = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error en resetPassword:', error);
     res.status(500).json({ success: false, error: 'Error interno del servidor' });
+  }
+};
+
+/**
+ * Consulta y valida la identidad de un titular ante ARCA (ex-AFIP) / ANSES
+ * por su número de DNI para registro de choferes, clientes y dueños
+ */
+export const verificarDni = async (req: Request, res: Response) => {
+  try {
+    const { dni } = req.params;
+
+    if (!dni) {
+      return res.status(400).json({
+        success: false,
+        error: 'El parámetro DNI es requerido'
+      });
+    }
+
+    const resultado = await identityVerificationService.verificarPorDni(dni);
+
+    return res.json({
+      success: true,
+      data: resultado,
+      message: resultado.mensaje || 'Identidad verificada exitosamente'
+    });
+  } catch (error: any) {
+    console.error('Error en verificarDni:', error);
+    return res.status(400).json({
+      success: false,
+      error: error.message || 'Error al verificar el DNI ante el padrón oficial'
+    });
   }
 };

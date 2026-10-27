@@ -9,7 +9,7 @@ import { Toaster } from 'react-hot-toast'
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'App Remises - Sistema de Gestión',
+  title: 'Remises Bruno - Sistema de Gestión',
   description: 'Sistema de gestión para remiserías',
   icons: {
     icon: '/favicon.ico',

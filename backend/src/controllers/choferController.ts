@@ -1937,6 +1937,13 @@ export const choferController = {
       } = req.body;
 
       // Validar campos obligatorios
+      // Si no se proporcionó remiseriaId, asignar la remisería activa (Remises Bruno)
+      let targetRemiseriaId = remiseriaId;
+      if (!targetRemiseriaId) {
+        const activeRem = await prisma.remiseria.findFirst({ where: { estado: true } });
+        targetRemiseriaId = activeRem?.id;
+      }
+
       if (
         !nombre ||
         !apellido ||
@@ -1946,12 +1953,12 @@ export const choferController = {
         !password ||
         !categoriaLicencia ||
         !vtoLicencia ||
-        !remiseriaId
+        !targetRemiseriaId
       ) {
         return res.status(400).json({
           success: false,
           message:
-            'Todos los campos obligatorios deben completarse (Nombre, Apellido, DNI, Teléfono, Email, Contraseña, Categoría y Vencimiento de Licencia, y Remisería).',
+            'Todos los campos obligatorios deben completarse (Nombre, Apellido, DNI, Teléfono, Email, Contraseña, Categoría y Vencimiento de Licencia).',
         });
       }
 
@@ -1986,7 +1993,7 @@ export const choferController = {
 
       // Verificar que la remisería exista y esté activa
       const remiseria = await prisma.remiseria.findUnique({
-        where: { id: remiseriaId },
+        where: { id: targetRemiseriaId },
       });
       if (!remiseria || !remiseria.estado) {
         return res.status(400).json({

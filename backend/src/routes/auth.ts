@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { login, register, registerCliente, refreshToken, validateToken, forgotPassword, resetPassword } from '../controllers/authController';
+import { login, register, registerCliente, refreshToken, validateToken, forgotPassword, resetPassword, verificarDni } from '../controllers/authController';
 import { body } from 'express-validator';
 
 const router = Router();
@@ -26,4 +26,7 @@ router.get('/validate', validateToken);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
 
-export default router; 
+// Verificación de identidad oficial con ARCA (ex-AFIP) / ANSES por DNI
+router.get('/verificar-dni/:dni', verificarDni);
+
+export default router;

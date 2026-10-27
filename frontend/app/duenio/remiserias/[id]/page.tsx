@@ -55,6 +55,9 @@ export default function EditarRemiseriaDuenioPage({ params }: Props) {
 
         setRemiseria(response.data);
         reset({
+          nombreFantasia: response.data.nombreFantasia,
+          razonSocial: response.data.razonSocial,
+          cuit: response.data.cuit,
           direccion: response.data.direccion,
           telefono: response.data.telefono,
           valorKm: response.data.valorKm || 1200,
@@ -151,54 +154,45 @@ export default function EditarRemiseriaDuenioPage({ params }: Props) {
           </div>
 
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-            {/* Campos de solo lectura */}
+            {/* Datos Comerciales */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label htmlFor="nombreFantasia" className="block text-sm font-medium text-gray-700 mb-2">
-                  Nombre de Fantasía
+                  Nombre de Fantasía *
                 </label>
                 <input
+                  {...register('nombreFantasia', { required: 'El nombre de fantasía es requerido' })}
                   type="text"
                   id="nombreFantasia"
-                  className="input bg-gray-100"
-                  value={remiseria.nombreFantasia}
-                  disabled
+                  className="input"
+                  placeholder="Ej: Remises Bruno"
                 />
-                <p className="mt-1 text-xs text-gray-500">
-                  Solo el administrador puede modificar este campo
-                </p>
               </div>
 
               <div>
                 <label htmlFor="razonSocial" className="block text-sm font-medium text-gray-700 mb-2">
-                  Razón Social
+                  Razón Social *
                 </label>
                 <input
+                  {...register('razonSocial', { required: 'La razón social es requerida' })}
                   type="text"
                   id="razonSocial"
-                  className="input bg-gray-100"
-                  value={remiseria.razonSocial}
-                  disabled
+                  className="input"
+                  placeholder="Ej: Remises Bruno S.R.L."
                 />
-                <p className="mt-1 text-xs text-gray-500">
-                  Solo el administrador puede modificar este campo
-                </p>
               </div>
 
               <div>
                 <label htmlFor="cuit" className="block text-sm font-medium text-gray-700 mb-2">
-                  CUIT/CUIL
+                  CUIT/CUIL *
                 </label>
                 <input
+                  {...register('cuit', { required: 'El CUIT es requerido' })}
                   type="text"
                   id="cuit"
-                  className="input bg-gray-100"
-                  value={remiseria.cuit}
-                  disabled
+                  className="input"
+                  placeholder="Ej: 20-11111111-9"
                 />
-                <p className="mt-1 text-xs text-gray-500">
-                  Solo el administrador puede modificar este campo
-                </p>
               </div>
 
               <div>

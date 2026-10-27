@@ -47,7 +47,7 @@ export default function ChoferBottomNav() {
   ];
 
   return (
-    <nav className="bg-white border-t border-gray-200 sticky bottom-0 z-10">
+    <nav className="bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-slate-800 sticky bottom-0 z-20 shadow-lg transition-colors">
       <div className="flex justify-around items-center h-16">
         {navItems.map((item) => {
           const isActive = pathname === item.href || (item.href !== '/chofer/app' && pathname?.startsWith(item.href));
@@ -56,7 +56,9 @@ export default function ChoferBottomNav() {
               key={item.name} 
               href={item.href}
               className={`flex flex-col items-center justify-center w-full h-full transition-colors ${
-                isActive ? 'text-primary-600' : 'text-gray-500 hover:text-primary-600'
+                isActive 
+                  ? 'text-primary-600 dark:text-primary-400 font-semibold' 
+                  : 'text-gray-500 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400'
               }`}
             >
               {item.icon}

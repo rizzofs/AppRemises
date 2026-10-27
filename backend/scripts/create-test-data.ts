@@ -61,8 +61,8 @@ async function createTestData() {
     // Crear remiserías de prueba
     const remiserias = [
       {
-        nombreFantasia: 'Remises Express',
-        razonSocial: 'Remises Express S.A.',
+        nombreFantasia: 'Remises Bruno',
+        razonSocial: 'Remises Bruno S.R.L.',
         cuit: '20-11111111-9',
         direccion: 'Av. San Martín 123',
         telefono: '011-1234-5678'

@@ -63,6 +63,15 @@ export const registerCliente = async (req: Request, res: Response) => {
       }
     });
 
+    // Buscar remisería activa (Remises Bruno)
+    let targetRemiseriaId = req.body.remiseriaId;
+    if (!targetRemiseriaId) {
+      const activeRemiseria = await prisma.remiseria.findFirst({
+        where: { estado: true }
+      });
+      targetRemiseriaId = activeRemiseria?.id || null;
+    }
+
     // Crear cliente
     const cliente = await prisma.cliente.create({
       data: {
@@ -75,7 +84,8 @@ export const registerCliente = async (req: Request, res: Response) => {
         fechaNacimiento: new Date(fechaNacimiento),
         genero,
         activo: true,
-        userId: user.id
+        userId: user.id,
+        remiseriaId: targetRemiseriaId
       }
     });
 
@@ -439,13 +449,26 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
       });
     }
 
-    // Obtener remisería (priorizando aquella que tenga coordinadores activos)
-    const remiseria =
-      (await prisma.remiseria.findFirst({
-        where: { estado: true, coordinadores: { some: { activo: true } } }
-      })) ||
-      (await prisma.remiseria.findFirst({ where: { estado: true } })) ||
-      (await prisma.remiseria.findFirst());
+    // Obtener remisería del cliente o remisería activa
+    const clienteActual = await prisma.cliente.findUnique({
+      where: { id: clienteId }
+    });
+
+    let remiseria = null;
+    if (clienteActual?.remiseriaId) {
+      remiseria = await prisma.remiseria.findUnique({
+        where: { id: clienteActual.remiseriaId }
+      });
+    }
+
+    if (!remiseria) {
+      remiseria =
+        (await prisma.remiseria.findFirst({
+          where: { estado: true, coordinadores: { some: { activo: true } } }
+        })) ||
+        (await prisma.remiseria.findFirst({ where: { estado: true } })) ||
+        (await prisma.remiseria.findFirst());
+    }
 
     if (!remiseria) {
       return res.status(400).json({
@@ -545,7 +568,8 @@ export const calcularPrecio = async (req: Request, res: Response) => {
       });
     }
 
-    const remiseria = await prisma.remiseria.findFirst();
+    // Buscar remisería activa (Remises Bruno)
+    const remiseria = await prisma.remiseria.findFirst({ where: { estado: true } }) || await prisma.remiseria.findFirst();
     const bajadaBandera = remiseria?.bajadaBandera || 3500;
     const valorKm = remiseria?.valorKm || 1200;
 

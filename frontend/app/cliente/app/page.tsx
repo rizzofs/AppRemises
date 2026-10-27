@@ -350,13 +350,13 @@ export default function ClienteApp() {
   if (!user) return null;
 
   return (
-    <div className="relative flex flex-col h-[calc(100vh-8rem)] bg-gray-50">
+    <div className="relative flex flex-col h-[calc(100vh-8rem)] bg-gray-50 dark:bg-slate-950 transition-colors">
       
       {/* MAPA DE FONDO (Usa Google Maps si hay API Key configurada, o el mapa libre sin requerir API Key) */}
-      <div className="absolute inset-0 bg-slate-100 z-0">
+      <div className="absolute inset-0 bg-slate-100 dark:bg-slate-950 z-0">
         {process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? (
           <div
-            className="w-full h-full bg-cover bg-center opacity-30"
+            className="w-full h-full bg-cover bg-center opacity-30 dark:opacity-20"
             style={{
               backgroundImage: `url(https://maps.googleapis.com/maps/api/staticmap?center=-34.6037,-58.3816&zoom=13&size=800x600&maptype=roadmap&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY})`,
               filter: 'grayscale(60%) contrast(90%)'
@@ -364,7 +364,7 @@ export default function ClienteApp() {
           ></div>
         ) : (
           <div
-            className="w-full h-full opacity-35"
+            className="w-full h-full opacity-35 dark:opacity-20"
             style={{
               backgroundImage:
                 'radial-gradient(#94a3b8 1px, transparent 1px), linear-gradient(to right, #e2e8f0 1px, transparent 1px), linear-gradient(to bottom, #e2e8f0 1px, transparent 1px)',
@@ -372,12 +372,12 @@ export default function ClienteApp() {
             }}
           ></div>
         )}
-        <div className="absolute inset-0 bg-gradient-to-b from-white/60 via-transparent to-white/90"></div>
+        <div className="absolute inset-0 bg-gradient-to-b from-white/60 via-transparent to-white/90 dark:from-slate-950/70 dark:via-transparent dark:to-slate-950/90"></div>
         {estadoViaje === 'IDLE' && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 p-8 text-center select-none pointer-events-none">
-            <Compass className="w-16 h-16 mb-2 text-slate-300 animate-pulse" />
-            <h3 className="font-bold text-slate-700 text-sm">¿A dónde quieres ir hoy?</h3>
-            <p className="text-xs text-slate-500 max-w-xs mt-1">Ingresa el origen y destino para comenzar tu viaje en remís</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500 p-8 text-center select-none pointer-events-none">
+            <Compass className="w-16 h-16 mb-2 text-slate-300 dark:text-slate-600 animate-pulse" />
+            <h3 className="font-bold text-slate-700 dark:text-slate-200 text-sm">¿A dónde quieres ir hoy?</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 max-w-xs mt-1">Ingresa el origen y destino para comenzar tu viaje en remís</p>
           </div>
         )}
       </div>
@@ -385,7 +385,7 @@ export default function ClienteApp() {
       {/* CONTROLES SUPERIORES (Ingreso de dirección) */}
       {estadoViaje === 'IDLE' && (
         <div className="z-20 p-4 w-full max-w-lg mx-auto">
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-150">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-150 dark:border-slate-800 transition-colors">
             <div className="p-4 space-y-4">
               
               {/* Input de Origen */}
@@ -405,12 +405,12 @@ export default function ClienteApp() {
                         setPresupuesto(null);
                       }}
                       placeholder="¿Dónde te buscamos? (Origen)"
-                      className="w-full bg-gray-50 border-none rounded-xl p-3 pr-9 text-sm focus:ring-2 focus:ring-primary-500 text-gray-900 font-medium placeholder-gray-500"
+                      className="w-full bg-gray-50 dark:bg-slate-800 border-none rounded-xl p-3 pr-9 text-sm focus:ring-2 focus:ring-primary-500 text-gray-900 dark:text-white font-medium placeholder-gray-500 dark:placeholder-slate-400"
                     />
                     <button 
                       type="button"
                       onClick={usarUbicacionActual}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-primary-600 hover:text-primary-800 transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-primary-600 dark:text-primary-400 hover:text-primary-800 dark:hover:text-primary-300 transition-colors"
                       title="Usar mi ubicación actual"
                     >
                       <Navigation className="w-4 h-4" />
@@ -420,13 +420,13 @@ export default function ClienteApp() {
 
                 {/* Sugerencias Origen */}
                 {origenSuggestions.length > 0 && (
-                  <div className="absolute left-7 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
+                  <div className="absolute left-7 right-0 mt-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
                     {origenSuggestions.map((s, idx) => (
                       <button
                         type="button"
                         key={idx}
                         onClick={() => handleSelectOrigen(s)}
-                        className="w-full text-left p-3 text-xs hover:bg-gray-50 border-b border-gray-100 last:border-0 text-gray-800 font-medium truncate block"
+                        className="w-full text-left p-3 text-xs hover:bg-gray-50 dark:hover:bg-slate-800 border-b border-gray-100 dark:border-slate-800 last:border-0 text-gray-800 dark:text-slate-200 font-medium truncate block"
                       >
                         {s.display_name}
                       </button>
@@ -435,7 +435,7 @@ export default function ClienteApp() {
                 )}
               </div>
 
-              <div className="w-0.5 h-4 bg-gray-200 ml-[7px] -my-2"></div>
+              <div className="w-0.5 h-4 bg-gray-200 dark:bg-slate-700 ml-[7px] -my-2"></div>
 
               {/* Input de Destino */}
               <div className="relative z-10">
@@ -454,20 +454,20 @@ export default function ClienteApp() {
                         setPresupuesto(null);
                       }}
                       placeholder="¿A dónde quieres ir? (Destino)"
-                      className="w-full bg-gray-50 border-none rounded-xl p-3 text-sm focus:ring-2 focus:ring-primary-500 text-gray-900 font-medium placeholder-gray-500"
+                      className="w-full bg-gray-50 dark:bg-slate-800 border-none rounded-xl p-3 text-sm focus:ring-2 focus:ring-primary-500 text-gray-900 dark:text-white font-medium placeholder-gray-500 dark:placeholder-slate-400"
                     />
                   </div>
                 </div>
 
                 {/* Sugerencias Destino */}
                 {destinoSuggestions.length > 0 && (
-                  <div className="absolute left-7 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
+                  <div className="absolute left-7 right-0 mt-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl shadow-xl z-50 max-h-48 overflow-y-auto">
                     {destinoSuggestions.map((s, idx) => (
                       <button
                         type="button"
                         key={idx}
                         onClick={() => handleSelectDestino(s)}
-                        className="w-full text-left p-3 text-xs hover:bg-gray-50 border-b border-gray-100 last:border-0 text-gray-800 font-medium truncate block"
+                        className="w-full text-left p-3 text-xs hover:bg-gray-50 dark:hover:bg-slate-800 border-b border-gray-100 dark:border-slate-800 last:border-0 text-gray-800 dark:text-slate-200 font-medium truncate block"
                       >
                         {s.display_name}
                       </button>
@@ -483,30 +483,30 @@ export default function ClienteApp() {
           {disponibilidad && (
             <div className="mt-3 space-y-2 relative z-0">
               {disponibilidad.hayAutosDisponibles ? (
-                <div className="bg-emerald-50/95 backdrop-blur-sm border border-emerald-200 rounded-xl px-4 py-3 shadow-sm flex items-center justify-between">
+                <div className="bg-emerald-50/95 dark:bg-emerald-950/70 backdrop-blur-sm border border-emerald-200 dark:border-emerald-800/60 rounded-xl px-4 py-3 shadow-sm flex items-center justify-between transition-colors">
                   <div className="flex items-center gap-2.5">
                     <span className="relative flex h-3 w-3 shrink-0">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                       <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
                     </span>
                     <div>
-                      <p className="text-xs font-bold text-emerald-900">
+                      <p className="text-xs font-bold text-emerald-900 dark:text-emerald-200">
                         {disponibilidad.autosDisponibles === 1
                           ? '1 auto disponible ahora'
                           : `${disponibilidad.autosDisponibles} autos disponibles ahora`}
                       </p>
-                      <p className="text-[11px] text-emerald-700">
+                      <p className="text-[11px] text-emerald-700 dark:text-emerald-300">
                         Conductores activos en línea para asignarte de inmediato
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 bg-white px-2.5 py-1 rounded-lg border border-emerald-100 text-emerald-800 text-xs font-bold shrink-0">
-                    <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                  <div className="flex items-center gap-1 bg-white dark:bg-slate-900 px-2.5 py-1 rounded-lg border border-emerald-100 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 text-xs font-bold shrink-0">
+                    <Clock className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                     <span>{disponibilidad.demoraMin}-{disponibilidad.demoraMax} min</span>
                   </div>
                 </div>
               ) : (
-                <div className="bg-amber-50/95 backdrop-blur-sm border border-amber-200 rounded-xl p-3.5 shadow-sm space-y-2">
+                <div className="bg-amber-50/95 dark:bg-amber-950/70 backdrop-blur-sm border border-amber-200 dark:border-amber-800/60 rounded-xl p-3.5 shadow-sm space-y-2 transition-colors">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-2.5">
                       <span className="relative flex h-3 w-3 shrink-0 mt-1">
@@ -514,12 +514,12 @@ export default function ClienteApp() {
                         <span className="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
                       </span>
                       <div>
-                        <p className="text-xs font-bold text-amber-950">
+                        <p className="text-xs font-bold text-amber-950 dark:text-amber-200">
                           {disponibilidad.todosOcupados
                             ? 'Todos los vehículos están ocupados en este momento'
                             : 'No hay vehículos libres en línea en este instante'}
                         </p>
-                        <p className="text-[11px] text-amber-800 mt-0.5">
+                        <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-0.5">
                           {disponibilidad.todosOcupados
                             ? `Hay ${disponibilidad.autosEnViaje} ${
                                 disponibilidad.autosEnViaje === 1 ? 'auto realizando un viaje' : 'autos realizando viajes'
@@ -529,12 +529,12 @@ export default function ClienteApp() {
                       </div>
                     </div>
 
-                    <div className="bg-white border border-amber-200 rounded-xl px-3 py-1.5 text-right shrink-0 shadow-xs">
-                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-amber-600">
+                    <div className="bg-white dark:bg-slate-900 border border-amber-200 dark:border-amber-800/60 rounded-xl px-3 py-1.5 text-right shrink-0 shadow-xs">
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
                         Demora aprox.
                       </span>
-                      <span className="text-xs font-extrabold text-amber-950 flex items-center justify-end gap-1">
-                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                      <span className="text-xs font-extrabold text-amber-950 dark:text-amber-200 flex items-center justify-end gap-1">
+                        <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                         {disponibilidad.demoraMin} - {disponibilidad.demoraMax} min
                       </span>
                     </div>
@@ -562,51 +562,51 @@ export default function ClienteApp() {
 
         {/* Caso 2: Calculando */}
         {isCalculando && (
-          <div className="p-6 bg-white rounded-2xl border border-gray-200 shadow-xl text-center space-y-3">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto"></div>
-            <p className="text-gray-600 font-semibold text-sm">Cotizando viaje y buscando mejor ruta...</p>
+          <div className="p-6 bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-xl text-center space-y-3 transition-colors">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 dark:border-primary-400 mx-auto"></div>
+            <p className="text-gray-600 dark:text-slate-300 font-semibold text-sm">Cotizando viaje y buscando mejor ruta...</p>
           </div>
         )}
 
         {/* Caso 3: Presupuesto Listo para pedir */}
         {estadoViaje === 'IDLE' && presupuesto && !isCalculando && (
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-150 overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-150 dark:border-slate-800 overflow-hidden transition-colors">
             <div className="p-5 space-y-4">
               
-              <div className="flex justify-between items-center pb-3 border-b border-gray-100">
+              <div className="flex justify-between items-center pb-3 border-b border-gray-100 dark:border-slate-800">
                 <div className="flex items-center gap-3">
-                  <div className="bg-primary-50 p-2.5 rounded-xl text-primary-600">
+                  <div className="bg-primary-50 dark:bg-primary-950/60 p-2.5 rounded-xl text-primary-600 dark:text-primary-400">
                     <Car className="w-6 h-6" />
                   </div>
                   <div>
-                    <h3 className="font-bold text-gray-900 text-sm">Remís de la Agencia</h3>
-                    <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                    <h3 className="font-bold text-gray-900 dark:text-white text-sm">Remís de la Agencia</h3>
+                    <p className="text-xs text-gray-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
                       <Clock className="w-3.5 h-3.5" />
                       Estimado: {presupuesto.tiempo} ({presupuesto.distancia})
                     </p>
                   </div>
                 </div>
                 <div className="text-right">
-                  <span className="text-2xl font-black text-gray-950">${presupuesto.precio}</span>
-                  <span className="text-xxs text-gray-400 block">Tarifa fija</span>
+                  <span className="text-2xl font-black text-gray-950 dark:text-white">${presupuesto.precio}</span>
+                  <span className="text-xxs text-gray-400 dark:text-slate-500 block">Tarifa fija</span>
                 </div>
               </div>
 
               {/* Notas opcionales */}
               <div>
-                <label className="block text-xxs font-bold text-gray-500 uppercase tracking-wider mb-1">Indicaciones para el chofer</label>
+                <label className="block text-xxs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-1">Indicaciones para el chofer</label>
                 <input 
                   type="text" 
                   value={observaciones}
                   onChange={(e) => setObservaciones(e.target.value)}
                   placeholder="Ej: Portón verde, depto B..."
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs text-gray-900 placeholder-gray-400 focus:ring-1 focus:ring-primary-500"
+                  className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl p-2.5 text-xs text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:ring-1 focus:ring-primary-500"
                 />
               </div>
 
               <div className="flex gap-2">
-                <div className="flex-1 bg-slate-50 border border-gray-200 text-gray-700 py-2.5 rounded-xl flex items-center justify-center gap-2 font-semibold text-xs select-none">
-                  <CreditCard className="w-4 h-4 text-slate-500" />
+                <div className="flex-1 bg-slate-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 py-2.5 rounded-xl flex items-center justify-center gap-2 font-semibold text-xs select-none">
+                  <CreditCard className="w-4 h-4 text-slate-500 dark:text-slate-400" />
                   Pago en Efectivo
                 </div>
               </div>
@@ -631,19 +631,19 @@ export default function ClienteApp() {
 
         {/* Caso 4: Buscando Chofer */}
         {estadoViaje === 'BUSCANDO' && (
-          <div className="bg-white rounded-2xl border border-gray-250 shadow-xl p-6 text-center space-y-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-gray-250 dark:border-slate-800 shadow-xl p-6 text-center space-y-4 transition-colors">
             <div className="relative w-16 h-16 mx-auto">
-              <div className="absolute inset-0 bg-primary-100 rounded-full animate-ping"></div>
+              <div className="absolute inset-0 bg-primary-100 dark:bg-primary-950/60 rounded-full animate-ping"></div>
               <div className="relative bg-primary-600 text-white w-16 h-16 rounded-full flex items-center justify-center shadow-lg">
                 <Navigation className="w-8 h-8 rotate-45" />
               </div>
             </div>
             <div>
-              <h3 className="font-bold text-lg text-gray-900">Buscando conductor...</h3>
-              <p className="text-xs text-gray-500 mt-1">Tu solicitud ha sido enviada al coordinador de la remisería</p>
+              <h3 className="font-bold text-lg text-gray-900 dark:text-white">Buscando conductor...</h3>
+              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Tu solicitud ha sido enviada al coordinador de la remisería</p>
               {disponibilidad && !disponibilidad.hayAutosDisponibles && (
-                <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-xs font-semibold">
-                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800/60 rounded-lg text-amber-900 dark:text-amber-200 text-xs font-semibold">
+                  <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                   <span>
                     Demora estimada: {disponibilidad.demoraMin} a {disponibilidad.demoraMax} min
                   </span>
@@ -651,14 +651,14 @@ export default function ClienteApp() {
               )}
             </div>
             
-            <div className="h-1.5 w-full bg-gray-150 rounded-full overflow-hidden mt-6">
+            <div className="h-1.5 w-full bg-gray-150 dark:bg-slate-800 rounded-full overflow-hidden mt-6">
               <div className="h-full bg-primary-600 w-1/3 rounded-full animate-pulse-loader"></div>
             </div>
 
             <button 
               onClick={cancelarViaje}
               disabled={isCanceling}
-              className="mt-6 text-red-500 hover:text-red-700 font-bold text-xs flex items-center justify-center mx-auto gap-1 py-2 px-4 hover:bg-red-50 rounded-xl"
+              className="mt-6 text-red-500 hover:text-red-700 font-bold text-xs flex items-center justify-center mx-auto gap-1 py-2 px-4 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl"
             >
               {isCanceling ? (
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>
@@ -672,7 +672,7 @@ export default function ClienteApp() {
 
         {/* Caso 5: Viaje Aceptado / Chofer en camino */}
         {['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'].includes(estadoViaje) && activeViaje && (
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-150 overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-150 dark:border-slate-800 overflow-hidden transition-colors">
             <div className="bg-emerald-600 text-white p-4 text-center">
               <h3 className="font-bold text-sm flex items-center justify-center gap-2">
                 <Car className="w-4 h-4" />
@@ -685,18 +685,18 @@ export default function ClienteApp() {
             
             <div className="p-5 space-y-4">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center text-slate-600 font-black text-sm">
+                <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center text-slate-600 dark:text-slate-300 font-black text-sm">
                   {activeViaje.chofer?.nombre?.charAt(0) || 'C'}
                 </div>
                 <div className="flex-1">
-                  <h4 className="font-bold text-sm text-gray-900">
+                  <h4 className="font-bold text-sm text-gray-900 dark:text-white">
                     {activeViaje.chofer
                       ? `${activeViaje.chofer.nombre} ${activeViaje.chofer.apellido || ''}`.trim()
                       : 'Conductor asignado'}
                   </h4>
                   {(activeViaje.vehiculo || activeViaje.chofer?.vehiculo) ? (
-                    <div className="flex gap-2 items-center text-xs text-gray-500 mt-1">
-                      <span className="font-bold bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded">
+                    <div className="flex gap-2 items-center text-xs text-gray-500 dark:text-slate-400 mt-1">
+                      <span className="font-bold bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-1.5 py-0.5 rounded">
                         {(activeViaje.vehiculo || activeViaje.chofer?.vehiculo).patente}
                       </span>
                       <span>
@@ -705,12 +705,12 @@ export default function ClienteApp() {
                       </span>
                     </div>
                   ) : (
-                    <p className="text-xs text-gray-500 mt-0.5">Auto de la agencia</p>
+                    <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">Auto de la agencia</p>
                   )}
                 </div>
                 <div className="text-right">
-                  <span className="text-xxs text-gray-400 block">Total</span>
-                  <p className="font-black text-lg text-gray-950">${activeViaje.precio}</p>
+                  <span className="text-xxs text-gray-400 dark:text-slate-500 block">Total</span>
+                  <p className="font-black text-lg text-gray-950 dark:text-white">${activeViaje.precio}</p>
                 </div>
               </div>
 
@@ -719,9 +719,9 @@ export default function ClienteApp() {
                 {activeViaje.chofer?.telefono && (
                   <a 
                     href={`tel:${activeViaje.chofer.telefono}`}
-                    className="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 font-bold text-gray-700 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+                    className="flex-1 py-2.5 bg-gray-50 dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700 font-bold text-gray-700 dark:text-slate-200 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors"
                   >
-                    <Phone className="w-3.5 h-3.5 text-gray-500" />
+                    <Phone className="w-3.5 h-3.5 text-gray-500 dark:text-slate-400" />
                     <span>Llamar</span>
                   </a>
                 )}
@@ -729,9 +729,9 @@ export default function ClienteApp() {
                   href={`https://wa.me/${activeViaje.chofer?.telefono || ''}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 py-2.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 font-bold text-gray-700 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+                  className="flex-1 py-2.5 bg-gray-50 dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700 font-bold text-gray-700 dark:text-slate-200 text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors"
                 >
-                  <MessageSquare className="w-3.5 h-3.5 text-gray-500" />
+                  <MessageSquare className="w-3.5 h-3.5 text-gray-500 dark:text-slate-400" />
                   <span>WhatsApp</span>
                 </a>
               </div>
@@ -740,7 +740,7 @@ export default function ClienteApp() {
                 <button 
                   onClick={cancelarViaje}
                   disabled={isCanceling}
-                  className="w-full text-red-500 hover:text-red-700 font-bold text-xs mt-2 py-2 flex items-center justify-center gap-1 hover:bg-red-50 rounded-xl"
+                  className="w-full text-red-500 hover:text-red-700 font-bold text-xs mt-2 py-2 flex items-center justify-center gap-1 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-xl"
                 >
                   {isCanceling ? (
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-red-500"></div>

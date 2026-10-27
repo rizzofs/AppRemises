@@ -853,15 +853,51 @@ export const coordinatorDashboardController = {
               id: true,
               nombre: true,
               apellido: true,
-              telefono: true
+              telefono: true,
+              isOnline: true
             }
           }
         }
       });
 
+      // También traer choferes activos que están online y no tienen vehículo asignado
+      const choferesSinVehiculo = await prisma.chofer.findMany({
+        where: {
+          remiseriaId: coordinador.remiseriaId,
+          estado: 'ACTIVO',
+          isOnline: true,
+          vehiculoId: null
+        }
+      });
+
+      const choferesMapeados = choferesSinVehiculo.map(c => ({
+        id: c.id,
+        patente: 'Auto Propio',
+        marca: 'Chofer',
+        modelo: 'Móvil',
+        anio: 2024,
+        color: 'Azul',
+        tipo: 'Auto',
+        capacidad: 4,
+        estado: 'ACTIVO' as const,
+        propietario: `${c.nombre} ${c.apellido}`,
+        latitud: null,
+        longitud: null,
+        ultimaUbicacion: null,
+        remiseriaId: coordinador.remiseriaId,
+        observaciones: 'Chofer conectado',
+        choferes: [{
+          id: c.id,
+          nombre: c.nombre,
+          apellido: c.apellido,
+          telefono: c.telefono,
+          isOnline: c.isOnline
+        }]
+      }));
+
       res.json({
         success: true,
-        data: vehiculos
+        data: [...vehiculos, ...choferesMapeados]
       });
     } catch (error) {
       console.error('Error getting vehiculos tiempo real:', error);

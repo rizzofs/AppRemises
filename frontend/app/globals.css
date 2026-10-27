@@ -20,6 +20,10 @@
   .btn-secondary {
     @apply bg-gray-200 text-gray-900 hover:bg-gray-300 focus:ring-2 focus:ring-gray-500 focus:ring-offset-2;
   }
+
+  .dark .btn-secondary {
+    @apply bg-slate-800 text-slate-200 hover:bg-slate-700 focus:ring-slate-600;
+  }
   
   .btn-danger {
     @apply bg-red-600 text-white hover:bg-red-700 focus:ring-2 focus:ring-red-500 focus:ring-offset-2;
@@ -32,9 +36,17 @@
   .input {
     @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
   }
+
+  .dark .input {
+    @apply bg-slate-900 border-slate-700 text-slate-100 placeholder-slate-500 focus:ring-primary-400 focus:border-primary-400;
+  }
   
   .card {
     @apply bg-white rounded-lg shadow-md border border-gray-200 hover:shadow-lg transition-shadow duration-200;
+  }
+
+  .dark .card {
+    @apply bg-slate-900 border-slate-800 text-slate-100;
   }
 
   .card-hover {
@@ -44,4 +56,66 @@
   .loading-spinner {
     @apply animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600;
   }
-} 
+}
+
+/* ==========================================================
+   Estilos de Modo Oscuro EXCLUSIVOS para Choferes y Clientes
+   ========================================================== */
+
+.dark .chofer-module,
+.dark .cliente-module {
+  color-scheme: dark;
+}
+
+/* Mapas Leaflet en Modo Nocturno para conducción y uso con poca luz */
+.dark .chofer-module .leaflet-tile,
+.dark .cliente-module .leaflet-tile {
+  filter: brightness(0.65) invert(1) contrast(2.6) hue-rotate(200deg) saturate(0.35) brightness(0.75);
+}
+
+.dark .chofer-module .leaflet-container,
+.dark .cliente-module .leaflet-container {
+  background: #090d16 !important;
+}
+
+.dark .chofer-module .leaflet-popup-content-wrapper,
+.dark .cliente-module .leaflet-popup-content-wrapper {
+  background: #1e293b !important;
+  color: #f8fafc !important;
+  border: 1px solid #334155;
+}
+
+.dark .chofer-module .leaflet-popup-tip,
+.dark .cliente-module .leaflet-popup-tip {
+  background: #1e293b !important;
+}
+
+.dark .chofer-module .leaflet-control-zoom a,
+.dark .cliente-module .leaflet-control-zoom a {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+  color: #e2e8f0 !important;
+}
+
+.dark .chofer-module .leaflet-control-zoom a:hover,
+.dark .cliente-module .leaflet-control-zoom a:hover {
+  background-color: #334155 !important;
+}
+
+/* Scrollbars discretos para modo oscuro */
+.dark .chofer-module::-webkit-scrollbar,
+.dark .cliente-module::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.dark .chofer-module::-webkit-scrollbar-thumb,
+.dark .cliente-module::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 9999px;
+}
+
+.dark .chofer-module::-webkit-scrollbar-track,
+.dark .cliente-module::-webkit-scrollbar-track {
+  background: transparent;
+}

@@ -245,7 +245,7 @@ export default function ChoferRouteMap({ origen, destino, estado }: ChoferRouteM
   };
 
   return (
-    <div className="rounded-xl overflow-hidden border border-gray-200 shadow-sm bg-slate-50">
+    <div className="rounded-xl overflow-hidden border border-gray-200 dark:border-slate-800 shadow-sm bg-slate-50 dark:bg-slate-900">
       {/* Barra superior de métricas de ruta en tiempo real */}
       <div className="bg-slate-900 text-white px-3.5 py-2.5 flex items-center justify-between text-xs">
         <div className="flex items-center gap-3">
@@ -286,7 +286,7 @@ export default function ChoferRouteMap({ origen, destino, estado }: ChoferRouteM
       {/* Mapa Interactivo Leaflet */}
       <div className="w-full h-64 relative">
         {loadingRoute && !origenCoords ? (
-          <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 text-gray-500 text-xs">
+          <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 dark:bg-slate-900 text-gray-500 dark:text-slate-400 text-xs">
             <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mb-2"></div>
             Calculando el mejor camino...
           </div>
@@ -372,7 +372,7 @@ export default function ChoferRouteMap({ origen, destino, estado }: ChoferRouteM
       </div>
 
       {/* Leyenda rápida inferior */}
-      <div className="px-3 py-2 bg-white border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-600">
+      <div className="px-3 py-2 bg-white dark:bg-slate-900 border-t border-gray-100 dark:border-slate-800 flex items-center justify-between text-[11px] text-gray-600 dark:text-slate-400">
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1">
             <span className="w-2.5 h-2.5 rounded-full bg-green-600 inline-block"></span>

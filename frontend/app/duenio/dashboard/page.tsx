@@ -79,7 +79,7 @@ export default function DuenioDashboard() {
         <div className="relative z-10">
           <h2 className="text-3xl font-bold mb-2">¡Hola de nuevo, {user?.duenio?.nombre?.split(' ')[0]}! 👋</h2>
           <p className="text-primary-100 text-lg max-w-2xl">
-            Aquí tienes un resumen de la actividad de tus remiserías. Tienes {activeRemiserias} remiserías activas y operando al día de hoy.
+            Aquí tienes un resumen de la actividad de tu remisería {remiserias[0]?.nombreFantasia || 'Remises Bruno'}.
           </p>
         </div>
         {/* Abstract shapes for design */}
@@ -98,10 +98,9 @@ export default function DuenioDashboard() {
             <Building className="w-7 h-7" />
           </div>
           <div>
-            <p className="text-sm font-medium text-slate-500">Remiserías Activas</p>
+            <p className="text-sm font-medium text-slate-500">Mi Remisería</p>
             <div className="flex items-baseline gap-2">
-              <h3 className="text-3xl font-bold text-slate-900">{activeRemiserias}</h3>
-              <span className="text-xs font-medium text-slate-400">/ {totalRemiserias}</span>
+              <h3 className="text-lg font-bold text-slate-900 truncate max-w-[140px]">{remiserias[0]?.nombreFantasia || 'Remises Bruno'}</h3>
             </div>
           </div>
         </div>
@@ -143,13 +142,13 @@ export default function DuenioDashboard() {
           <div className="flex items-center justify-between">
             <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
               <Activity className="w-5 h-5 text-primary-500" />
-              Tus Remiserías
+              Mi Remisería
             </h3>
             <Link 
-              href="/duenio/remiserias"
+              href="/duenio/configuracion"
               className="text-sm font-medium text-primary-600 hover:text-primary-700 flex items-center gap-1 transition-colors"
             >
-              Ver todas <ArrowRight className="w-4 h-4" />
+              Configurar Tarifas y Precios <ArrowRight className="w-4 h-4" />
             </Link>
           </div>
 

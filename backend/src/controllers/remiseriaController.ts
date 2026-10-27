@@ -2,6 +2,46 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { CreateRemiseriaRequest, UpdateRemiseriaRequest, AuthenticatedRequest, ApiResponse } from '../types';
 
+export const getRemiseriaActiva = async (req: Request, res: Response) => {
+  try {
+    const remiseria = await prisma.remiseria.findFirst({
+      where: { estado: true },
+      select: {
+        id: true,
+        nombreFantasia: true,
+        razonSocial: true,
+        cuit: true,
+        direccion: true,
+        telefono: true,
+        estado: true,
+        valorKm: true,
+        bajadaBandera: true,
+        valorHoraEspera: true,
+        comisionPorcentaje: true,
+        comisionDuenioAuto: true,
+      }
+    });
+
+    if (!remiseria) {
+      return res.status(404).json({
+        success: false,
+        error: 'No hay ninguna remisería activa registrada'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: remiseria
+    });
+  } catch (error) {
+    console.error('Error al obtener remisería activa:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Error interno del servidor'
+    });
+  }
+};
+
 export const getAllRemiserias = async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { rol, id: userId } = req.user!;
@@ -224,6 +264,19 @@ export const createRemiseria = async (req: AuthenticatedRequest, res: Response) 
   try {
     const { nombreFantasia, razonSocial, cuit, direccion, telefono, duenioIds }: CreateRemiseriaRequest = req.body;
 
+    // Verificar si alguno de los dueños ya tiene una remisería asociada (máximo 1 por cuenta)
+    if (duenioIds && duenioIds.length > 0) {
+      const existingAssignment = await prisma.remiseriaDuenio.findFirst({
+        where: { duenioId: { in: duenioIds } }
+      });
+      if (existingAssignment) {
+        return res.status(400).json({
+          success: false,
+          error: 'Un dueño solo puede tener una remisería por cuenta. Uno o más dueños seleccionados ya poseen una remisería.'
+        });
+      }
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       // Crear la remisería
       const remiseria = await tx.remiseria.create({
@@ -305,12 +358,11 @@ export const updateRemiseria = async (req: AuthenticatedRequest, res: Response) 
         });
       }
 
-      // Dueños NO pueden modificar: nombreFantasia, razonSocial, cuit, estado, duenioIds
-      if (nombreFantasia !== undefined || razonSocial !== undefined || cuit !== undefined || 
-          estado !== undefined || duenioIds !== undefined) {
+      // Dueños no pueden modificar estado ni reasignar dueños
+      if (estado !== undefined || duenioIds !== undefined) {
         return res.status(403).json({
           success: false,
-          error: 'No tienes permisos para modificar nombre, razón social, CUIT, estado o dueños'
+          error: 'No tienes permisos para modificar estado o reasignar dueños'
         });
       }
     }
@@ -318,15 +370,17 @@ export const updateRemiseria = async (req: AuthenticatedRequest, res: Response) 
     // Construir datos de actualización según permisos
     const updateData: any = {};
     
-    // Solo admin puede modificar estos campos
-    if (rol === 'ADMIN') {
-      if (nombreFantasia !== undefined) updateData.nombreFantasia = nombreFantasia;
-      if (razonSocial !== undefined) updateData.razonSocial = razonSocial;
-      if (cuit !== undefined) updateData.cuit = cuit;
-      if (estado !== undefined) updateData.estado = estado;
+    // Tanto Dueño como Admin pueden modificar nombre, razón social, CUIT, dirección, teléfono y tarifas
+    if (nombreFantasia !== undefined) updateData.nombreFantasia = nombreFantasia;
+    if (razonSocial !== undefined) updateData.razonSocial = razonSocial;
+    if (cuit !== undefined) updateData.cuit = cuit;
+
+    // Solo admin puede modificar estado
+    if (rol === 'ADMIN' && estado !== undefined) {
+      updateData.estado = estado;
     }
     
-    // Ambos pueden modificar dirección y teléfono y configuración de precios y comisiones
+    // Ambos pueden modificar dirección, teléfono y tarifas
     if (direccion !== undefined) updateData.direccion = direccion;
     if (telefono !== undefined) updateData.telefono = telefono;
     if (valorKm !== undefined) updateData.valorKm = valorKm;

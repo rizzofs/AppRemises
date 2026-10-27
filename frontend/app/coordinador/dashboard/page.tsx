@@ -25,7 +25,8 @@ import {
   User,
   Loader2,
   CheckCircle2,
-  X
+  X,
+  PanelRight
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -38,6 +39,7 @@ export default function CoordinadorDashboard() {
   
   const [activeTab, setActiveTab] = useState('en-curso');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [choferesConectados, setChoferesConectados] = useState<any[]>([]);
   const [todosLosChoferes, setTodosLosChoferes] = useState<any[]>([]);
   const [todosLosVehiculos, setTodosLosVehiculos] = useState<any[]>([]);
@@ -562,21 +564,48 @@ export default function CoordinadorDashboard() {
     }
   };
 
-  const handleActualizarEstadoViaje = async (viajeId: string, nuevoEstado: string) => {
+  const handleCancelarViaje = async (viajeId: string) => {
+    if (!window.confirm('¿Confirmas que deseas cancelar este viaje?')) return;
     try {
-      const res = await coordinadorDashboardService.actualizarEstadoViaje(viajeId, nuevoEstado);
+      const res = await coordinadorDashboardService.actualizarEstadoViaje(viajeId, 'CANCELADO');
       if (res.success) {
-        toast.success('Estado del viaje actualizado');
+        toast.success('Viaje cancelado correctamente');
         fetchData();
       } else {
-        toast.error(res.message || 'Error al actualizar el estado');
+        toast.error(res.message || 'Error al cancelar el viaje');
       }
     } catch (error) {
-      toast.error('Error al actualizar estado del viaje');
+      toast.error('Error al cancelar el viaje');
     }
   };
 
   const selectedViajeObj = viajesSinAsignar.find((v) => v.id === selectedViajeId);
+
+  const filterList = (items: any[]) => {
+    if (!searchTerm.trim()) return items;
+    const term = searchTerm.toLowerCase();
+    return items.filter((item: any) => {
+      const cliente = (item.cliente || '').toLowerCase();
+      const telefono = (item.telefono || '').toLowerCase();
+      const origen = (item.origen || '').toLowerCase();
+      const destino = (item.destino || '').toLowerCase();
+      const chofer = (item.chofer || `${item.nombre || ''} ${item.apellido || ''}`).toLowerCase();
+      const vehiculo = (item.vehiculo || (item.vehiculo?.patente ? `${item.vehiculo.patente} ${item.vehiculo.marca} ${item.vehiculo.modelo}` : '')).toLowerCase();
+      return (
+        cliente.includes(term) ||
+        telefono.includes(term) ||
+        origen.includes(term) ||
+        destino.includes(term) ||
+        chofer.includes(term) ||
+        vehiculo.includes(term)
+      );
+    });
+  };
+
+  const filteredEnCurso = filterList(viajesEnCurso);
+  const filteredSinAsignar = filterList(viajesSinAsignar);
+  const filteredReservas = filterList(reservas);
+  const filteredChoferes = filterList(choferesConectados);
 
   const tabs = [
     { id: 'en-curso', label: 'Viajes en Curso', icon: Car, count: stats.viajesEnCurso },
@@ -588,21 +617,33 @@ export default function CoordinadorDashboard() {
   const hasAlerts = stats.viajesSinAsignar > 0;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 flex flex-col overflow-x-hidden w-full">
       {/* Header */}
-      <div className="bg-white shadow-sm border-b">
-        <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center py-4">
+      <div className="bg-white shadow-sm border-b shrink-0">
+        <div className="w-full px-4 sm:px-6 lg:px-8">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center py-3 sm:py-4 gap-3">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Dashboard Coordinador</h1>
-              <p className="text-sm text-gray-600">Bienvenido, {user?.coordinador?.nombre || user?.email}</p>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Dashboard Coordinador</h1>
+              <p className="text-xs sm:text-sm text-gray-600">Bienvenido, {user?.coordinador?.nombre || user?.email}</p>
             </div>
             
-            <div className="flex items-center space-x-4">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              {/* Botón Nuevo Viaje Rápido */}
+              <button 
+                onClick={() => {
+                  setModalStep(1);
+                  setIsModalOpen(true);
+                }}
+                className="bg-green-600 text-white px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg flex items-center space-x-1.5 hover:bg-green-700 transition-colors text-xs sm:text-sm font-semibold shadow-sm"
+              >
+                <Plus className="h-4 w-4" />
+                <span>Nuevo Viaje</span>
+              </button>
+
               {/* Notificaciones */}
-              <button className="relative p-2 text-gray-600 hover:text-gray-900">
-                <Bell className="h-6 w-6" />
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
+              <button className="relative p-2 text-gray-600 hover:text-gray-900 rounded-lg hover:bg-gray-100 transition-colors">
+                <Bell className="h-5 w-5" />
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] rounded-full h-4 w-4 flex items-center justify-center font-bold">
                   3
                 </span>
               </button>
@@ -610,28 +651,40 @@ export default function CoordinadorDashboard() {
               {/* Cierre de Caja */}
               <Link 
                 href="/coordinador/cierre"
-                className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 hover:bg-emerald-700 transition-colors"
+                className="bg-emerald-600 text-white px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-lg flex items-center space-x-1.5 hover:bg-emerald-700 transition-colors text-xs sm:text-sm font-medium"
               >
                 <DollarSign className="h-4 w-4" />
-                <span>Cierre de Caja Chofer</span>
+                <span className="hidden md:inline">Cierre de Caja Chofer</span>
+                <span className="md:hidden">Caja</span>
               </Link>
 
               {/* Mapa en tiempo real */}
               <Link 
                 href="/coordinador/mapa"
-                className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 hover:bg-blue-700"
+                className="bg-blue-600 text-white px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-lg flex items-center space-x-1.5 hover:bg-blue-700 transition-colors text-xs sm:text-sm font-medium"
               >
                 <MapPin className="h-4 w-4" />
-                <span>Ver Mapa</span>
+                <span className="hidden md:inline">Ver Mapa</span>
+                <span className="md:hidden">Mapa</span>
               </Link>
+
+              {/* Toggle Sidebar en Desktop */}
+              <button
+                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                title={isSidebarOpen ? "Ocultar panel lateral" : "Mostrar panel de acciones"}
+                className="hidden lg:flex items-center space-x-1.5 px-3 py-1.5 sm:py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 text-xs sm:text-sm font-medium transition-colors"
+              >
+                <PanelRight className="h-4 w-4 text-gray-500" />
+                <span>{isSidebarOpen ? 'Ocultar Lateral' : 'Panel Rápido'}</span>
+              </button>
 
               {/* Cerrar sesión */}
               <button 
                 onClick={handleLogout}
-                className="bg-red-600 text-white px-4 py-2 rounded-lg flex items-center space-x-2 hover:bg-red-700 transition-colors"
+                className="bg-red-600 text-white px-3 py-1.5 sm:py-2 rounded-lg flex items-center space-x-1 hover:bg-red-700 transition-colors text-xs sm:text-sm font-medium"
               >
                 <LogOut className="h-4 w-4" />
-                <span>Cerrar Sesión</span>
+                <span className="hidden sm:inline">Salir</span>
               </button>
             </div>
           </div>
@@ -640,20 +693,22 @@ export default function CoordinadorDashboard() {
 
       {/* Alerta de viajes sin asignar */}
       {hasAlerts && (
-        <div className="bg-red-50 border-l-4 border-red-400 p-4">
-          <div className="flex items-center">
-            <AlertTriangle className="h-5 w-5 text-red-400 mr-3" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-red-800">
-                ¡Atención! Tienes {stats.viajesSinAsignar} viaje{stats.viajesSinAsignar > 1 ? 's' : ''} sin asignar
-              </p>
-              <p className="text-sm text-red-700">
-                Asigna choferes y vehículos lo antes posible para evitar retrasos
-              </p>
+        <div className="bg-red-50 border-l-4 border-red-500 p-3 sm:p-4 shrink-0">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="flex items-center">
+              <AlertTriangle className="h-5 w-5 text-red-500 mr-2.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-red-900">
+                  ¡Atención! Tienes {stats.viajesSinAsignar} viaje{stats.viajesSinAsignar > 1 ? 's' : ''} sin asignar
+                </p>
+                <p className="text-xs text-red-700">
+                  Asigna choferes y vehículos lo antes posible para evitar retrasos
+                </p>
+              </div>
             </div>
             <button 
               onClick={() => setActiveTab('sin-asignar')}
-              className="bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
+              className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-red-700 transition-colors self-start sm:self-auto shrink-0"
             >
               Ver Viajes
             </button>
@@ -661,61 +716,64 @@ export default function CoordinadorDashboard() {
         </div>
       )}
 
-      <div className="flex h-screen">
+      <div className="flex-1 flex flex-col lg:flex-row min-w-0 min-h-0 w-full overflow-hidden">
         {/* Panel principal - Tablas */}
-        <div className="flex-1 flex flex-col">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto">
           {/* Estadísticas rápidas */}
-          <div className="bg-white shadow-sm border-b p-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600">{stats.viajesEnCurso}</div>
-                <div className="text-sm text-gray-600">En Curso</div>
+          <div className="bg-white shadow-sm border-b p-3 sm:p-4 shrink-0">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
+              <div className="text-center p-2 rounded-lg bg-blue-50/40 border border-blue-100/50">
+                <div className="text-xl sm:text-2xl font-bold text-blue-600">{stats.viajesEnCurso}</div>
+                <div className="text-xs sm:text-sm text-gray-600">En Curso</div>
               </div>
-              <div className={`text-center ${hasAlerts ? 'bg-red-50 rounded-lg p-2 border-2 border-red-200' : ''}`}>
-                <div className={`text-2xl font-bold ${hasAlerts ? 'text-red-600' : 'text-yellow-600'}`}>
-                  {stats.viajesSinAsignar}
+              <div className={`text-center p-2 rounded-lg border ${hasAlerts ? 'bg-red-50 border-red-200' : 'bg-amber-50/40 border-amber-100/50'}`}>
+                <div className={`text-xl sm:text-2xl font-bold flex items-center justify-center gap-1 ${hasAlerts ? 'text-red-600' : 'text-yellow-600'}`}>
+                  <span>{stats.viajesSinAsignar}</span>
                   {hasAlerts && (
-                    <span className="ml-2 inline-block animate-pulse">
+                    <span className="inline-block animate-pulse">
                       <AlertTriangle className="h-4 w-4 text-red-500" />
                     </span>
                   )}
                 </div>
-                <div className="text-sm text-gray-600">Sin Asignar</div>
+                <div className="text-xs sm:text-sm text-gray-600">Sin Asignar</div>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-green-600">{stats.choferesDisponibles}</div>
-                <div className="text-sm text-gray-600">Choferes</div>
+              <div className="text-center p-2 rounded-lg bg-green-50/40 border border-green-100/50">
+                <div className="text-xl sm:text-2xl font-bold text-green-600">{stats.choferesDisponibles}</div>
+                <div className="text-xs sm:text-sm text-gray-600">Choferes</div>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-purple-600">{stats.vehiculosDisponibles}</div>
-                <div className="text-sm text-gray-600">Vehículos</div>
+              <div className="text-center p-2 rounded-lg bg-purple-50/40 border border-purple-100/50">
+                <div className="text-xl sm:text-2xl font-bold text-purple-600">{stats.vehiculosDisponibles}</div>
+                <div className="text-xs sm:text-sm text-gray-600">Vehículos</div>
               </div>
             </div>
           </div>
 
           {/* Barra de búsqueda */}
-          <div className="bg-white shadow-sm border-b p-4">
-            <div className="flex gap-4">
+          <div className="bg-white shadow-sm border-b p-3 sm:p-4 shrink-0">
+            <div className="flex flex-col sm:flex-row gap-3">
               <div className="flex-1">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
                   <input
                     type="text"
-                    placeholder="Buscar por cliente, chofer, dirección..."
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Buscar por cliente, teléfono, chofer, dirección..."
+                    className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
+                  {searchTerm && (
+                    <button 
+                      onClick={() => setSearchTerm('')}
+                      className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               </div>
               
               <div className="flex gap-2">
-                <button className="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50">
-                  <Filter className="h-4 w-4" />
-                  <span>Filtros</span>
-                </button>
-                
-                <select className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500">
+                <select className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 bg-white">
                   <option>Hoy</option>
                   <option>Esta semana</option>
                   <option>Este mes</option>
@@ -725,312 +783,383 @@ export default function CoordinadorDashboard() {
           </div>
 
           {/* Tabs de navegación */}
-          <div className="bg-white shadow-sm border-b">
-            <nav className="flex space-x-8 px-6">
+          <div className="bg-white shadow-sm border-b shrink-0">
+            <nav className="flex space-x-2 sm:space-x-6 px-3 sm:px-6 overflow-x-auto">
               {tabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
-                  className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 relative ${
+                  className={`py-3 px-2 border-b-2 font-medium text-xs sm:text-sm flex items-center space-x-1.5 shrink-0 transition-colors relative ${
                     activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
+                      ? 'border-blue-500 text-blue-600 font-bold'
                       : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  } ${tab.alert ? 'bg-red-50 rounded-t-lg' : ''}`}
+                  } ${tab.alert ? 'bg-red-50/50' : ''}`}
                 >
-                  <tab.icon className="h-5 w-5" />
+                  <tab.icon className="h-4 w-4" />
                   <span>{tab.label}</span>
-                  <span className={`py-1 px-2 rounded-full text-xs ${
+                  <span className={`py-0.5 px-2 rounded-full text-xs font-semibold ${
                     tab.alert 
                       ? 'bg-red-100 text-red-900 animate-pulse' 
-                      : 'bg-gray-100 text-gray-900'
+                      : 'bg-gray-100 text-gray-800'
                   }`}>
                     {tab.count}
                   </span>
-                  {tab.alert && (
-                    <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-ping"></div>
-                  )}
                 </button>
               ))}
             </nav>
           </div>
 
-          {/* Contenido de las tablas - Ocupa todo el espacio restante */}
-          <div className="flex-1 overflow-auto">
+          {/* Contenido de las tablas - Ocupa todo el espacio adaptándose al tamaño de pantalla */}
+          <div className="flex-1 p-3 sm:p-5 lg:p-6 w-full min-w-0">
             {activeTab === 'en-curso' && (
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Viajes en Curso</h3>
-                <div className="bg-white rounded-lg shadow overflow-hidden">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Origen</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Destino</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Chofer</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vehículo</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tiempo</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {viajesEnCurso.map((viaje) => (
-                        <tr key={viaje.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">{viaje.cliente}</div>
-                              <div className="text-sm text-gray-500 flex items-center">
-                                <Phone className="h-3 w-3 mr-1" />
-                                {viaje.telefono}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900 flex items-center">
-                              <LocationIcon className="h-3 w-3 mr-1" />
-                              {viaje.origen}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900 flex items-center">
-                              <LocationIcon className="h-3 w-3 mr-1" />
-                              {viaje.destino}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{viaje.chofer}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{viaje.vehiculo}</td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                              {viaje.estado}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{viaje.tiempo}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-xs font-medium space-x-2">
-                            {viaje.estadoRaw === 'ACEPTADO' && (
-                              <button
-                                onClick={() => handleActualizarEstadoViaje(viaje.id, 'EN_CAMINO')}
-                                className="px-2.5 py-1 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded border border-amber-200 font-semibold"
-                              >
-                                En Camino
-                              </button>
-                            )}
-                            {['ACEPTADO', 'EN_CAMINO'].includes(viaje.estadoRaw) && (
-                              <button
-                                onClick={() => handleActualizarEstadoViaje(viaje.id, 'EN_CURSO')}
-                                className="px-2.5 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded border border-blue-200 font-semibold"
-                              >
-                                Iniciar Viaje
-                              </button>
-                            )}
-                            <button
-                              onClick={() => handleActualizarEstadoViaje(viaje.id, 'COMPLETADO')}
-                              className="px-2.5 py-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded border border-emerald-200 font-semibold"
-                            >
-                              Finalizar
-                            </button>
-                          </td>
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Viajes en Curso ({filteredEnCurso.length})</h3>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm divide-y divide-gray-200 table-auto lg:table-fixed">
+                      <thead className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                        <tr>
+                          <th className="px-3 sm:px-4 py-3 w-36 lg:w-[15%]">Cliente</th>
+                          <th className="px-3 sm:px-4 py-3 min-w-[130px] lg:w-[16%]">Origen</th>
+                          <th className="px-3 sm:px-4 py-3 min-w-[130px] lg:w-[16%]">Destino</th>
+                          <th className="px-3 sm:px-4 py-3 w-28 lg:w-[12%]">Chofer</th>
+                          <th className="px-3 sm:px-4 py-3 w-32 lg:w-[13%]">Vehículo</th>
+                          <th className="px-3 sm:px-4 py-3 w-24 lg:w-[10%]">Estado</th>
+                          <th className="px-3 sm:px-4 py-3 w-16 lg:w-[6%]">Tiempo</th>
+                          <th className="px-3 sm:px-4 py-3 w-32 lg:w-[12%] text-right">Acciones</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {filteredEnCurso.length === 0 ? (
+                          <tr>
+                            <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
+                              <Car className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                              <p className="font-medium text-gray-600">No hay viajes en curso en este momento.</p>
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredEnCurso.map((viaje) => (
+                            <tr key={viaje.id} className="hover:bg-gray-50/70 transition-colors">
+                              <td className="px-3 sm:px-4 py-3">
+                                <div className="font-medium text-gray-900 truncate" title={viaje.cliente}>
+                                  {viaje.cliente}
+                                </div>
+                                <div className="text-xs text-gray-500 flex items-center mt-0.5 truncate" title={viaje.telefono}>
+                                  <Phone className="h-3 w-3 mr-1 shrink-0 text-gray-400" />
+                                  <span>{viaje.telefono}</span>
+                                </div>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3">
+                                <div className="text-xs sm:text-sm text-gray-900 line-clamp-2 leading-snug" title={viaje.origen}>
+                                  <LocationIcon className="h-3.5 w-3.5 mr-1 inline text-blue-500 shrink-0" />
+                                  <span>{viaje.origen}</span>
+                                </div>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3">
+                                <div className="text-xs sm:text-sm text-gray-900 line-clamp-2 leading-snug" title={viaje.destino}>
+                                  <LocationIcon className="h-3.5 w-3.5 mr-1 inline text-emerald-500 shrink-0" />
+                                  <span>{viaje.destino}</span>
+                                </div>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3">
+                                <div className="text-xs sm:text-sm font-medium text-gray-900 truncate" title={viaje.chofer}>
+                                  {viaje.chofer}
+                                </div>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3">
+                                <div className="text-xs font-semibold text-gray-900 truncate" title={viaje.vehiculo}>
+                                  {viaje.vehiculo}
+                                </div>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3">
+                                <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800 whitespace-nowrap">
+                                  {viaje.estado}
+                                </span>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3 text-xs font-mono text-gray-600 whitespace-nowrap">
+                                {viaje.tiempo}
+                              </td>
+                              <td className="px-3 sm:px-4 py-3 text-right">
+                                <div className="flex flex-wrap gap-1.5 justify-end items-center">
+                                  {/* Ver en Mapa */}
+                                  <Link
+                                    href="/coordinador/mapa"
+                                    className="px-2 py-1 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded text-xs font-semibold border border-blue-200 transition-colors inline-flex items-center space-x-1"
+                                    title="Rastrear chofer en el mapa en tiempo real"
+                                  >
+                                    <MapPin className="h-3 w-3" />
+                                    <span>Mapa</span>
+                                  </Link>
+
+                                  {/* Llamar Cliente */}
+                                  {viaje.telefono && viaje.telefono !== 'S/N' && (
+                                    <a
+                                      href={`tel:${viaje.telefono}`}
+                                      className="p-1 text-gray-500 hover:text-green-600 rounded hover:bg-green-50 transition-colors border border-gray-200 hover:border-green-300"
+                                      title={`Llamar cliente (${viaje.telefono})`}
+                                    >
+                                      <Phone className="h-3.5 w-3.5" />
+                                    </a>
+                                  )}
+
+                                  {/* Cancelar Viaje */}
+                                  <button
+                                    onClick={() => handleCancelarViaje(viaje.id)}
+                                    className="px-2 py-1 bg-red-50 text-red-700 hover:bg-red-100 rounded text-xs font-semibold border border-red-200 transition-colors inline-flex items-center space-x-1"
+                                    title="Cancelar viaje (por solicitud del cliente o fuerza mayor)"
+                                  >
+                                    <X className="h-3 w-3" />
+                                    <span>Cancelar</span>
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             )}
 
             {activeTab === 'sin-asignar' && (
-              <div className="p-6">
+              <div>
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Viajes Sin Asignar</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">Viajes Sin Asignar ({filteredSinAsignar.length})</h3>
                   {hasAlerts && (
-                    <div className="flex items-center space-x-2 bg-red-100 text-red-800 px-3 py-1 rounded-full">
-                      <AlertTriangle className="h-4 w-4" />
-                      <span className="text-sm font-medium">Requiere atención</span>
+                    <div className="flex items-center space-x-1.5 bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-medium">
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      <span>Requiere atención</span>
                     </div>
                   )}
                 </div>
-                <div className="bg-white rounded-lg shadow overflow-hidden border-2 border-red-200">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-red-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-red-600 uppercase tracking-wider">Cliente</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-red-600 uppercase tracking-wider">Origen</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-red-600 uppercase tracking-wider">Destino</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-red-600 uppercase tracking-wider">Prioridad</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-red-600 uppercase tracking-wider">Tiempo</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-red-600 uppercase tracking-wider">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {viajesSinAsignar.map((viaje) => (
-                        <tr key={viaje.id} className="hover:bg-red-50 bg-red-25">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">{viaje.cliente}</div>
-                              <div className="text-sm text-gray-500 flex items-center">
-                                <Phone className="h-3 w-3 mr-1" />
-                                {viaje.telefono}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900 flex items-center">
-                              <LocationIcon className="h-3 w-3 mr-1" />
-                              {viaje.origen}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900 flex items-center">
-                              <LocationIcon className="h-3 w-3 mr-1" />
-                              {viaje.destino}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-red-100 text-red-800 animate-pulse">
-                              {viaje.prioridad}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{viaje.tiempo}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            <button
-                              type="button"
-                              onClick={() => openAssignModalForViaje(viaje)}
-                              className="bg-red-600 text-white hover:bg-red-700 px-3 py-1.5 rounded-lg font-semibold shadow-sm transition-colors flex items-center space-x-1"
-                            >
-                              <Car className="h-4 w-4" />
-                              <span>Asignar Auto</span>
-                            </button>
-                          </td>
+                <div className="bg-white rounded-xl shadow-sm border-2 border-red-200 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm divide-y divide-gray-200 table-auto lg:table-fixed">
+                      <thead className="bg-red-50 text-xs font-semibold text-red-700 uppercase tracking-wider">
+                        <tr>
+                          <th className="px-3 sm:px-4 py-3 w-40 lg:w-[18%]">Cliente</th>
+                          <th className="px-3 sm:px-4 py-3 min-w-[140px] lg:w-[25%]">Origen</th>
+                          <th className="px-3 sm:px-4 py-3 min-w-[140px] lg:w-[25%]">Destino</th>
+                          <th className="px-3 sm:px-4 py-3 w-24 lg:w-[12%]">Prioridad</th>
+                          <th className="px-3 sm:px-4 py-3 w-20 lg:w-[8%]">Tiempo</th>
+                          <th className="px-3 sm:px-4 py-3 w-32 lg:w-[12%] text-right">Acciones</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {filteredSinAsignar.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
+                              <CheckCircle2 className="h-8 w-8 mx-auto mb-2 text-emerald-500" />
+                              <p className="font-medium text-gray-700">¡Al día! No hay viajes pendientes de asignación.</p>
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredSinAsignar.map((viaje) => (
+                            <tr key={viaje.id} className="hover:bg-red-50/50 bg-red-25/30 transition-colors">
+                              <td className="px-3 sm:px-4 py-3">
+                                <div className="font-medium text-gray-900 truncate" title={viaje.cliente}>
+                                  {viaje.cliente}
+                                </div>
+                                <div className="text-xs text-gray-500 flex items-center mt-0.5 truncate" title={viaje.telefono}>
+                                  <Phone className="h-3 w-3 mr-1 shrink-0 text-gray-400" />
+                                  <span>{viaje.telefono}</span>
+                                </div>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3">
+                                <div className="text-xs sm:text-sm text-gray-900 line-clamp-2 leading-snug" title={viaje.origen}>
+                                  <LocationIcon className="h-3.5 w-3.5 mr-1 inline text-red-500 shrink-0" />
+                                  <span>{viaje.origen}</span>
+                                </div>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3">
+                                <div className="text-xs sm:text-sm text-gray-900 line-clamp-2 leading-snug" title={viaje.destino}>
+                                  <LocationIcon className="h-3.5 w-3.5 mr-1 inline text-red-500 shrink-0" />
+                                  <span>{viaje.destino}</span>
+                                </div>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3">
+                                <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full bg-red-100 text-red-800 animate-pulse whitespace-nowrap">
+                                  {viaje.prioridad}
+                                </span>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3 text-xs font-mono text-gray-700 whitespace-nowrap">
+                                {viaje.tiempo}
+                              </td>
+                              <td className="px-3 sm:px-4 py-3 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => openAssignModalForViaje(viaje)}
+                                  className="bg-red-600 hover:bg-red-700 text-white px-2.5 sm:px-3 py-1.5 rounded-lg font-semibold text-xs shadow-sm transition-colors inline-flex items-center space-x-1"
+                                >
+                                  <Car className="h-3.5 w-3.5" />
+                                  <span>Asignar Auto</span>
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             )}
 
             {activeTab === 'reservados' && (
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Viajes Reservados</h3>
-                <div className="bg-white rounded-lg shadow overflow-hidden">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Origen</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Destino</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Hora</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo</th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {reservas.map((reserva) => (
-                        <tr key={reserva.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">{reserva.cliente}</div>
-                              <div className="text-sm text-gray-500 flex items-center">
-                                <Phone className="h-3 w-3 mr-1" />
-                                {reserva.telefono}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900 flex items-center">
-                              <LocationIcon className="h-3 w-3 mr-1" />
-                              {reserva.origen}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="text-sm text-gray-900 flex items-center">
-                              <LocationIcon className="h-3 w-3 mr-1" />
-                              {reserva.destino}
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{reserva.fecha}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{reserva.hora}</td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{reserva.tipo}</td>
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold text-gray-900">Viajes Reservados ({filteredReservas.length})</h3>
+                </div>
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-sm divide-y divide-gray-200 table-auto lg:table-fixed">
+                      <thead className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                        <tr>
+                          <th className="px-3 sm:px-4 py-3 w-40 lg:w-[20%]">Cliente</th>
+                          <th className="px-3 sm:px-4 py-3 min-w-[140px] lg:w-[28%]">Origen</th>
+                          <th className="px-3 sm:px-4 py-3 min-w-[140px] lg:w-[28%]">Destino</th>
+                          <th className="px-3 sm:px-4 py-3 w-24 lg:w-[10%]">Fecha</th>
+                          <th className="px-3 sm:px-4 py-3 w-20 lg:w-[8%]">Hora</th>
+                          <th className="px-3 sm:px-4 py-3 w-20 lg:w-[6%] text-right">Tipo</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="bg-white divide-y divide-gray-200">
+                        {filteredReservas.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
+                              <Calendar className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                              <p className="font-medium text-gray-600">No hay reservas pendientes programadas.</p>
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredReservas.map((reserva) => (
+                            <tr key={reserva.id} className="hover:bg-gray-50/70 transition-colors">
+                              <td className="px-3 sm:px-4 py-3">
+                                <div className="font-medium text-gray-900 truncate" title={reserva.cliente}>
+                                  {reserva.cliente}
+                                </div>
+                                <div className="text-xs text-gray-500 flex items-center mt-0.5 truncate" title={reserva.telefono}>
+                                  <Phone className="h-3 w-3 mr-1 shrink-0 text-gray-400" />
+                                  <span>{reserva.telefono}</span>
+                                </div>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3">
+                                <div className="text-xs sm:text-sm text-gray-900 line-clamp-2 leading-snug" title={reserva.origen}>
+                                  <LocationIcon className="h-3.5 w-3.5 mr-1 inline text-blue-500 shrink-0" />
+                                  <span>{reserva.origen}</span>
+                                </div>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3">
+                                <div className="text-xs sm:text-sm text-gray-900 line-clamp-2 leading-snug" title={reserva.destino}>
+                                  <LocationIcon className="h-3.5 w-3.5 mr-1 inline text-emerald-500 shrink-0" />
+                                  <span>{reserva.destino}</span>
+                                </div>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm text-gray-800 whitespace-nowrap">
+                                {reserva.fecha}
+                              </td>
+                              <td className="px-3 sm:px-4 py-3 text-xs font-mono text-gray-700 whitespace-nowrap">
+                                {reserva.hora}
+                              </td>
+                              <td className="px-3 sm:px-4 py-3 text-right">
+                                <span className={`inline-flex px-2 py-0.5 text-xs font-medium rounded-full ${
+                                  reserva.tipo === 'Periódica' ? 'bg-purple-100 text-purple-800' : 'bg-gray-100 text-gray-800'
+                                }`}>
+                                  {reserva.tipo}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             )}
 
             {activeTab === 'conectados' && (
-              <div className="p-6">
+              <div>
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Choferes Conectados ({choferesConectados.length})</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">Choferes Conectados ({filteredChoferes.length})</h3>
                   <button onClick={() => {
                     coordinadorDashboardService.getChoferesTiempoReal().then(res => {
                       if (res.success) setChoferesConectados(res.data || []);
                     });
-                  }} className="text-sm bg-blue-50 text-blue-600 px-3 py-1 rounded hover:bg-blue-100 flex items-center">
+                  }} className="text-xs sm:text-sm bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg hover:bg-blue-100 flex items-center font-medium transition-colors">
                     Actualizar
                   </button>
                 </div>
-                {choferesConectados.length === 0 ? (
-                  <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
-                    No hay choferes conectados en este momento.
+                {filteredChoferes.length === 0 ? (
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 text-center text-gray-500">
+                    <Users className="h-8 w-8 mx-auto mb-2 text-gray-300" />
+                    <p className="font-medium">No hay choferes conectados en este momento.</p>
                   </div>
                 ) : (
-                  <div className="bg-white rounded-lg shadow overflow-hidden border">
-                    <table className="min-w-full divide-y divide-gray-200">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Chofer</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Vehículo</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
-                          <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody className="bg-white divide-y divide-gray-200">
-                        {choferesConectados.map((chofer) => (
-                          <tr key={chofer.id} className="hover:bg-gray-50">
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <div className="flex items-center">
-                                <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-bold mr-3">
-                                  {chofer.nombre.charAt(0)}{chofer.apellido.charAt(0)}
-                                </div>
-                                <div>
-                                  <div className="text-sm font-medium text-gray-900">{chofer.nombre} {chofer.apellido}</div>
-                                  <div className="text-sm text-gray-500 flex items-center">
-                                    <Phone className="h-3 w-3 mr-1" />
-                                    {chofer.telefono}
+                  <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-sm divide-y divide-gray-200 table-auto lg:table-fixed">
+                        <thead className="bg-gray-50 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                          <tr>
+                            <th className="px-3 sm:px-4 py-3 w-48 lg:w-[35%]">Chofer</th>
+                            <th className="px-3 sm:px-4 py-3 w-44 lg:w-[32%]">Vehículo</th>
+                            <th className="px-3 sm:px-4 py-3 w-28 lg:w-[15%]">Estado</th>
+                            <th className="px-3 sm:px-4 py-3 w-32 lg:w-[18%] text-right">Acciones</th>
+                          </tr>
+                        </thead>
+                        <tbody className="bg-white divide-y divide-gray-200">
+                          {filteredChoferes.map((chofer) => (
+                            <tr key={chofer.id} className="hover:bg-gray-50/70 transition-colors">
+                              <td className="px-3 sm:px-4 py-3">
+                                <div className="flex items-center space-x-2.5">
+                                  <div className="h-8 w-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-700 font-bold text-xs shrink-0">
+                                    {chofer.nombre?.charAt(0)}{chofer.apellido?.charAt(0)}
+                                  </div>
+                                  <div className="min-w-0">
+                                    <div className="font-medium text-gray-900 truncate" title={`${chofer.nombre} ${chofer.apellido}`}>
+                                      {chofer.nombre} {chofer.apellido}
+                                    </div>
+                                    <div className="text-xs text-gray-500 flex items-center truncate" title={chofer.telefono}>
+                                      <Phone className="h-3 w-3 mr-1 shrink-0 text-gray-400" />
+                                      <span>{chofer.telefono}</span>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              {chofer.vehiculo ? (
-                                <div>
-                                  <div className="text-sm text-gray-900 font-medium">{chofer.vehiculo.patente}</div>
-                                  <div className="text-sm text-gray-500">{chofer.vehiculo.marca} {chofer.vehiculo.modelo}</div>
-                                </div>
-                              ) : (
-                                <span className="text-sm text-gray-500 italic">Sin asignar</span>
-                              )}
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap">
-                              <span className="inline-flex px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800 flex items-center">
-                                <div className="w-2 h-2 bg-green-500 rounded-full mr-2 animate-pulse"></div>
-                                Online
-                              </span>
-                            </td>
-                            <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                              <button
-                                type="button"
-                                onClick={() => openAssignModalForChofer(chofer)}
-                                className="text-blue-600 hover:text-blue-900 font-semibold bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors"
-                              >
-                                Asignar Viaje
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3">
+                                {chofer.vehiculo ? (
+                                  <div className="min-w-0">
+                                    <div className="text-sm text-gray-900 font-medium truncate">{chofer.vehiculo.patente}</div>
+                                    <div className="text-xs text-gray-500 truncate">{chofer.vehiculo.marca} {chofer.vehiculo.modelo}</div>
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-gray-400 italic">Sin asignar</span>
+                                )}
+                              </td>
+                              <td className="px-3 sm:px-4 py-3">
+                                <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full bg-green-100 text-green-800 items-center whitespace-nowrap">
+                                  <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse"></span>
+                                  Online
+                                </span>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => openAssignModalForChofer(chofer)}
+                                  className="text-blue-700 hover:text-blue-900 font-semibold bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg text-xs transition-colors inline-block"
+                                >
+                                  Asignar Viaje
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1039,79 +1168,89 @@ export default function CoordinadorDashboard() {
         </div>
 
         {/* Panel lateral derecho - Botones de acción */}
-        <div className="w-80 bg-white shadow-lg border-l">
-          <div className="p-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-6">Acciones Rápidas</h3>
-            
-            <div className="space-y-4">
-              <button 
-                onClick={() => {
-                  setModalStep(1);
-                  setIsModalOpen(true);
-                }}
-                className="w-full bg-green-600 text-white px-4 py-3 rounded-lg flex items-center space-x-3 hover:bg-green-700 transition-colors text-left"
-              >
-                <Plus className="h-5 w-5" />
-                <span>Nuevo Viaje</span>
-              </button>
-
-
-              <Link 
-                href="/coordinador/choferes"
-                className="w-full bg-purple-600 text-white px-4 py-3 rounded-lg flex items-center space-x-3 hover:bg-purple-700 transition-colors"
-              >
-                <Users className="h-5 w-5" />
-                <span>Gestionar Choferes</span>
-              </Link>
-
-              <Link 
-                href="/coordinador/reportes"
-                className="w-full bg-gray-600 text-white px-4 py-3 rounded-lg flex items-center space-x-3 hover:bg-gray-700 transition-colors"
-              >
-                <TrendingUp className="h-5 w-5" />
-                <span>Reportes</span>
-              </Link>
-            </div>
-
-            {/* Información adicional */}
-            <div className="mt-8 pt-6 border-t border-gray-200">
-              <h4 className="text-sm font-medium text-gray-900 mb-4">Información Rápida</h4>
+        {isSidebarOpen && (
+          <div className="w-full lg:w-64 xl:w-72 2xl:w-80 bg-white shadow-md border-t lg:border-t-0 lg:border-l shrink-0">
+            <div className="p-4 sm:p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-md font-bold text-gray-900">Acciones Rápidas</h3>
+                <button
+                  onClick={() => setIsSidebarOpen(false)}
+                  className="hidden lg:flex text-gray-400 hover:text-gray-600 p-1 rounded hover:bg-gray-100 transition-colors"
+                  title="Ocultar panel lateral"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
               
               <div className="space-y-3">
-                 <div className="flex items-center justify-between text-sm">
-                   <span className="text-gray-600">Vehículos disponibles:</span>
-                   <span className="font-medium">{stats.vehiculosDisponibles}</span>
-                 </div>
-                 
-                  <div className="flex items-center justify-between text-sm">
+                <button 
+                  onClick={() => {
+                    setModalStep(1);
+                    setIsModalOpen(true);
+                  }}
+                  className="w-full bg-green-600 text-white px-4 py-2.5 rounded-xl flex items-center space-x-3 hover:bg-green-700 transition-colors shadow-sm font-medium text-sm"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span>Nuevo Viaje</span>
+                </button>
+
+                <Link 
+                  href="/coordinador/choferes"
+                  className="w-full bg-purple-600 text-white px-4 py-2.5 rounded-xl flex items-center space-x-3 hover:bg-purple-700 transition-colors shadow-sm font-medium text-sm"
+                >
+                  <Users className="h-4 w-4" />
+                  <span>Gestionar Choferes</span>
+                </Link>
+
+                <Link 
+                  href="/coordinador/reportes"
+                  className="w-full bg-gray-600 text-white px-4 py-2.5 rounded-xl flex items-center space-x-3 hover:bg-gray-700 transition-colors shadow-sm font-medium text-sm"
+                >
+                  <TrendingUp className="h-4 w-4" />
+                  <span>Reportes</span>
+                </Link>
+              </div>
+
+              {/* Información adicional */}
+              <div className="mt-6 pt-5 border-t border-gray-200">
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Información Rápida</h4>
+                
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between text-xs sm:text-sm">
+                    <span className="text-gray-600">Vehículos disponibles:</span>
+                    <span className="font-semibold text-gray-900">{stats.vehiculosDisponibles}</span>
+                  </div>
+                  
+                  <div className="flex items-center justify-between text-xs sm:text-sm">
                     <span className="text-gray-600">Choferes activos:</span>
-                    <span className="font-medium text-green-600 font-bold">{choferesConectados.length}</span>
+                    <span className="font-bold text-green-600">{choferesConectados.length}</span>
                   </div>
-                 
-                 <div className="flex items-center justify-between text-sm">
-                   <span className="text-gray-600">Viajes hoy:</span>
-                   <span className="font-medium">{stats.viajesEnCurso + stats.viajesSinAsignar}</span>
-                 </div>
+                  
+                  <div className="flex items-center justify-between text-xs sm:text-sm">
+                    <span className="text-gray-600">Viajes hoy:</span>
+                    <span className="font-semibold text-gray-900">{stats.viajesEnCurso + stats.viajesSinAsignar}</span>
+                  </div>
 
-                 <div className="flex items-center justify-between text-sm">
-                   <span className="text-gray-600">Tiempo promedio:</span>
-                   <span className="font-medium">{stats.tiempoPromedio}</span>
-                 </div>
+                  <div className="flex items-center justify-between text-xs sm:text-sm">
+                    <span className="text-gray-600">Tiempo promedio:</span>
+                    <span className="font-semibold text-gray-900">{stats.tiempoPromedio}</span>
+                  </div>
 
-                {hasAlerts && (
-                  <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
-                    <div className="flex items-center space-x-2">
-                      <AlertTriangle className="h-4 w-4 text-red-500" />
-                      <span className="text-sm font-medium text-red-800">
-                        {stats.viajesSinAsignar} viaje{stats.viajesSinAsignar > 1 ? 's' : ''} pendiente{stats.viajesSinAsignar > 1 ? 's' : ''}
-                      </span>
+                  {hasAlerts && (
+                    <div className="mt-3 p-2.5 bg-red-50 border border-red-200 rounded-lg">
+                      <div className="flex items-center space-x-2">
+                        <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
+                        <span className="text-xs font-semibold text-red-800">
+                          {stats.viajesSinAsignar} viaje{stats.viajesSinAsignar > 1 ? 's' : ''} pendiente{stats.viajesSinAsignar > 1 ? 's' : ''}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Modal Paso a Paso - Nuevo Viaje */}

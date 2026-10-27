@@ -35,7 +35,43 @@ export default function LoginPage() {
         login(user as any, accessToken, refreshToken);
         toast.success('¡Sesión iniciada correctamente!');
         
-        // Redirigir según el rol
+        // Redirección inteligente según el rol y subdominio de producción
+        const hostname = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+        const isProdDomain = hostname.includes('brunoremises.com.ar');
+
+        if (isProdDomain) {
+          if (user.rol === 'CLIENTE') {
+            if (!hostname.startsWith('clientes.')) {
+              window.location.href = 'https://clientes.brunoremises.com.ar/';
+              return;
+            }
+            router.push('/');
+            return;
+          } else if (user.rol === 'CHOFER') {
+            if (!hostname.startsWith('choferes.')) {
+              window.location.href = 'https://choferes.brunoremises.com.ar/';
+              return;
+            }
+            router.push('/');
+            return;
+          } else if (user.rol === 'COORDINADOR') {
+            if (!hostname.startsWith('coordinacion.')) {
+              window.location.href = 'https://coordinacion.brunoremises.com.ar/';
+              return;
+            }
+            router.push('/');
+            return;
+          } else {
+            if (!hostname.startsWith('admin.')) {
+              window.location.href = 'https://admin.brunoremises.com.ar/';
+              return;
+            }
+            router.push('/');
+            return;
+          }
+        }
+
+        // Redirigir según el rol en entorno de desarrollo / staging
         if (user.rol === 'ADMIN') {
           router.push('/admin/dashboard');
         } else if (user.rol === 'COORDINADOR') {
@@ -73,7 +109,7 @@ export default function LoginPage() {
                 className="object-contain drop-shadow-md"
               />
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">App Remises</h1>
+            <h1 className="text-2xl font-bold text-gray-900">Remises Bruno</h1>
             <p className="text-gray-600 mt-2">Inicia sesión en tu cuenta</p>
           </div>
 
