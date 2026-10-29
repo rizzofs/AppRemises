@@ -842,9 +842,9 @@ export const getUbicacionActual = async (req: AuthenticatedRequest, res: Respons
     // Por ahora retornamos una ubicación simulada
     // En producción, esto se obtendría del GPS del dispositivo
     const ubicacion = {
-      lat: -34.6037, // Buenos Aires
-      lng: -58.3816,
-      direccion: 'Ubicación actual (simulada)'
+      lat: -34.8957, // Chivilcoy, Buenos Aires
+      lng: -60.0189,
+      direccion: 'Chivilcoy, Buenos Aires (simulada)'
     };
 
     res.json({

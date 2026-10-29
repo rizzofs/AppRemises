@@ -123,9 +123,9 @@ export default function ChoferRouteMap({ origen, destino, estado }: ChoferRouteM
           }
         }
 
-        // Coordenadas de respaldo en caso de direcciones sin match exacto
+        // Coordenadas de respaldo en caso de direcciones sin match exacto (Chivilcoy)
         if (!orig) {
-          orig = [-34.6037, -58.3816];
+          orig = [-34.8957, -60.0189];
         }
         if (!dest) {
           dest = [orig[0] + 0.015, orig[1] + 0.018];

@@ -326,9 +326,9 @@ export const batchDispatchService = {
       }
     }
 
-    // Coordenadas de referencia por defecto (Remisería Bruno o centro urbano)
-    const fallbackLat = -34.6037;
-    const fallbackLng = -58.3816;
+    // Coordenadas de referencia por defecto (Remisería Chivilcoy centro)
+    const fallbackLat = -34.8957;
+    const fallbackLng = -60.0189;
 
     // 4. Construir la Matriz de Costos (ETA en minutos con factor de tráfico y equidad de espera por turno)
     const numChoferes = choferesDisponibles.length;

@@ -1,16 +1,23 @@
 // Configuración del mapa para la aplicación
 
+export const CHIVILCOY_COORDS = {
+  LAT: -34.8957,
+  LNG: -60.0189,
+  NAME: 'Chivilcoy, Buenos Aires'
+};
+
 export const MAP_CONFIG = {
-  // Coordenadas por defecto (Buenos Aires, Argentina)
-  DEFAULT_CENTER: [-34.6037, -58.3816] as [number, number],
-  DEFAULT_ZOOM: 12,
+  // Coordenadas por defecto (Chivilcoy, Provincia de Buenos Aires, Argentina)
+  DEFAULT_CENTER: [-34.8957, -60.0189] as [number, number],
+  DEFAULT_ZOOM: 13,
+  CHIVILCOY_CENTER: [-34.8957, -60.0189] as [number, number],
   
-  // Límites del mapa (opcional, para restringir el área)
+  // Límites amplios de la provincia y alrededores (para permitir ver vehículos en ruta sin restringir)
   BOUNDS: {
-    NORTH: -34.4,
-    SOUTH: -34.8,
-    EAST: -58.2,
-    WEST: -58.6
+    NORTH: -33.0,
+    SOUTH: -39.0,
+    EAST: -56.5,
+    WEST: -63.5
   },
   
   // Configuración de tiles (mapas base)
@@ -106,4 +113,10 @@ export const formatDistance = (distance: number): string => {
     return `${Math.round(distance * 1000)}m`;
   }
   return `${distance.toFixed(1)}km`;
+};
+
+// Función para determinar si una coordenada está dentro del radio urbano de Chivilcoy (aprox 12 km)
+export const isEnChivilcoy = (lat: number, lng: number): boolean => {
+  const distancia = calculateDistance(lat, lng, CHIVILCOY_COORDS.LAT, CHIVILCOY_COORDS.LNG);
+  return distancia <= 12;
 };

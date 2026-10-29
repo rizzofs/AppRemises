@@ -42,11 +42,11 @@ export default function MapComponent({
 
   // Función para convertir coordenadas a posición relativa en el mapa
   const getVehiculoPosition = (vehiculo: Vehiculo) => {
-    // Buenos Aires bounds aproximados
-    const minLat = -34.8;
-    const maxLat = -34.4;
-    const minLng = -58.6;
-    const maxLng = -58.2;
+    // Chivilcoy bounds aproximados
+    const minLat = -34.95;
+    const maxLat = -34.84;
+    const minLng = -60.08;
+    const maxLng = -59.95;
     
     const x = ((vehiculo.ubicacion.lng - minLng) / (maxLng - minLng)) * 100;
     const y = ((maxLat - vehiculo.ubicacion.lat) / (maxLat - minLat)) * 100;

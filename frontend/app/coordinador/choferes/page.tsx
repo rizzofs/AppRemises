@@ -63,9 +63,9 @@ export default function GestionarChoferes() {
         modelo: 'Toyota Corolla'
       },
       ubicacion: {
-        lat: -34.6037,
-        lng: -58.3816,
-        direccion: 'Av. Corrientes 1234, CABA'
+        lat: -34.8957,
+        lng: -60.0189,
+        direccion: 'Plaza 25 de Mayo (Centro), Chivilcoy'
       },
       ultimaActualizacion: '2024-01-15T10:30:00Z',
       viajesHoy: 5,
@@ -82,9 +82,9 @@ export default function GestionarChoferes() {
         modelo: 'Honda Civic'
       },
       ubicacion: {
-        lat: -34.6084,
-        lng: -58.3731,
-        direccion: 'Palermo, CABA'
+        lat: -34.8905,
+        lng: -60.0250,
+        direccion: 'Av. Villarino y 25 de Mayo, Chivilcoy'
       },
       ultimaActualizacion: '2024-01-15T10:25:00Z',
       viajesHoy: 3,
