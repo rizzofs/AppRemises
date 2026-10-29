@@ -898,10 +898,56 @@ export const coordinatorDashboardController = {
 
       res.json({
         success: true,
-        data: [...vehiculos, ...choferesMapeados]
+        data: [...vehiculos, ...choferesMapeados],
+        remiseria: coordinador.remiseria ? {
+          id: coordinador.remiseria.id,
+          nombreFantasia: coordinador.remiseria.nombreFantasia,
+          razonSocial: coordinador.remiseria.razonSocial,
+          cuit: coordinador.remiseria.cuit,
+          direccion: coordinador.remiseria.direccion,
+          telefono: coordinador.remiseria.telefono,
+          latitud: coordinador.remiseria.latitud,
+          longitud: coordinador.remiseria.longitud,
+        } : null
       });
     } catch (error) {
       console.error('Error getting vehiculos tiempo real:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor'
+      });
+    }
+  },
+
+  // Obtener los datos y ubicación de la remisería del coordinador
+  async getMiRemiseria(req: AuthenticatedRequest, res: Response) {
+    try {
+      const coordinadorId = req.user?.id;
+      if (!coordinadorId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Usuario no autenticado'
+        });
+      }
+
+      const coordinador = await prisma.coordinador.findFirst({
+        where: { userId: coordinadorId },
+        include: { remiseria: true }
+      });
+
+      if (!coordinador || !coordinador.remiseria) {
+        return res.status(404).json({
+          success: false,
+          message: 'Remisería no encontrada para este coordinador'
+        });
+      }
+
+      res.json({
+        success: true,
+        data: coordinador.remiseria
+      });
+    } catch (error) {
+      console.error('Error getting mi remiseria:', error);
       res.status(500).json({
         success: false,
         message: 'Error interno del servidor'

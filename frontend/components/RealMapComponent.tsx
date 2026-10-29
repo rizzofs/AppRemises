@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { 
@@ -18,7 +18,8 @@ import {
   MapPin, 
   Building2, 
   Maximize2, 
-  Compass 
+  Compass,
+  Phone
 } from 'lucide-react';
 
 // El CSS de leaflet se importa globalmente en app/layout.tsx
@@ -44,19 +45,28 @@ interface Vehiculo {
   direccionActual: string;
 }
 
+export interface RemiseriaBase {
+  id?: string;
+  nombreFantasia?: string;
+  razonSocial?: string;
+  direccion?: string;
+  telefono?: string;
+  latitud?: number | null;
+  longitud?: number | null;
+}
+
 interface RealMapComponentProps {
   vehiculos: Vehiculo[];
+  remiseria?: RemiseriaBase | null;
   onVehiculoClick?: (vehiculo: Vehiculo) => void;
   center?: [number, number];
   zoom?: number;
   height?: string;
   selectedVehiculo?: Vehiculo | null;
-  onCentrarChivilcoy?: () => void;
-  onVerTodos?: () => void;
 }
 
 interface MapActionSignal {
-  type: 'chivilcoy' | 'fit_all' | 'focus_vehicle';
+  type: 'base' | 'fit_all' | 'focus_vehicle';
   id: number;
   target?: [number, number];
 }
@@ -65,19 +75,21 @@ interface MapActionSignal {
 function MapController({
   actionSignal,
   vehiculos,
-  selectedVehiculo
+  selectedVehiculo,
+  baseCoords
 }: {
   actionSignal: MapActionSignal | null;
   vehiculos: Vehiculo[];
   selectedVehiculo: Vehiculo | null;
+  baseCoords: [number, number];
 }) {
   const map = useMap();
 
   useEffect(() => {
     if (!actionSignal) return;
 
-    if (actionSignal.type === 'chivilcoy') {
-      map.flyTo(MAP_CONFIG.DEFAULT_CENTER, MAP_CONFIG.DEFAULT_ZOOM, {
+    if (actionSignal.type === 'base') {
+      map.flyTo(baseCoords, 15, {
         duration: 1.2
       });
     } else if (actionSignal.type === 'fit_all') {
@@ -85,11 +97,11 @@ function MapController({
         .filter(v => v.ubicacion && typeof v.ubicacion.lat === 'number' && typeof v.ubicacion.lng === 'number')
         .map(v => [v.ubicacion.lat, v.ubicacion.lng] as [number, number]);
 
-      // Incluimos la base central de Chivilcoy para mantener la referencia
-      validPoints.push(MAP_CONFIG.DEFAULT_CENTER);
+      // Incluimos la ubicación de la base registrada por el dueño
+      validPoints.push(baseCoords);
 
       if (validPoints.length === 1) {
-        map.flyTo(validPoints[0], MAP_CONFIG.DEFAULT_ZOOM, { duration: 1.2 });
+        map.flyTo(validPoints[0], 14, { duration: 1.2 });
       } else {
         const bounds = L.latLngBounds(validPoints);
         map.fitBounds(bounds, { padding: [60, 60], maxZoom: 15 });
@@ -97,7 +109,7 @@ function MapController({
     } else if (actionSignal.type === 'focus_vehicle' && actionSignal.target) {
       map.flyTo(actionSignal.target, 16, { duration: 1.2 });
     }
-  }, [actionSignal, map, vehiculos]);
+  }, [actionSignal, map, vehiculos, baseCoords]);
 
   // Centrar suavemente cuando se selecciona un vehículo externamente
   useEffect(() => {
@@ -113,6 +125,7 @@ function MapController({
 
 export default function RealMapComponent({
   vehiculos,
+  remiseria,
   onVehiculoClick,
   center = MAP_CONFIG.DEFAULT_CENTER,
   zoom = MAP_CONFIG.DEFAULT_ZOOM,
@@ -121,23 +134,36 @@ export default function RealMapComponent({
 }: RealMapComponentProps) {
   const [actionSignal, setActionSignal] = useState<MapActionSignal | null>(null);
 
-  // Marcador para la Central / Base de Remises en Chivilcoy
-  const createBaseIcon = () => {
+  // Coordenadas oficiales de la remisería cargadas por el dueño
+  const baseCoords: [number, number] = useMemo(() => {
+    if (remiseria?.latitud && remiseria?.longitud) {
+      return [remiseria.latitud, remiseria.longitud];
+    }
+    return center || MAP_CONFIG.DEFAULT_CENTER;
+  }, [remiseria?.latitud, remiseria?.longitud, center]);
+
+  const baseNombre = remiseria?.nombreFantasia || 'Remisería Central';
+  const baseDireccion = remiseria?.direccion || 'Chivilcoy, Buenos Aires';
+  const baseTelefono = remiseria?.telefono;
+
+  // Marcador para la Central / Base de Remises con los datos cargados por el dueño
+  const createBaseIcon = (nombre: string) => {
+    const abrev = nombre.length > 18 ? nombre.slice(0, 16) + '...' : nombre;
     return L.divIcon({
       className: 'base-marker-wrapper z-[400]',
       html: `
-        <div class="relative flex items-center justify-center w-9 h-9 rounded-xl bg-indigo-600 text-white border-2 border-white shadow-xl hover:scale-110 transition-transform">
+        <div class="relative flex items-center justify-center w-10 h-10 rounded-xl bg-indigo-600 text-white border-2 border-white shadow-xl hover:scale-110 transition-transform">
           <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
           </svg>
-          <div class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 bg-indigo-900 text-white text-[9px] px-1.5 py-0.5 rounded shadow whitespace-nowrap border border-indigo-700 font-bold uppercase tracking-wider">
-            Base Chivilcoy
+          <div class="absolute -bottom-6 left-1/2 transform -translate-x-1/2 bg-indigo-950 text-white text-[9px] px-2 py-0.5 rounded-md shadow whitespace-nowrap border border-indigo-700 font-bold uppercase tracking-wider">
+            ${abrev}
           </div>
         </div>
       `,
-      iconSize: [36, 36],
-      iconAnchor: [18, 18],
-      popupAnchor: [0, -18]
+      iconSize: [40, 40],
+      iconAnchor: [20, 20],
+      popupAnchor: [0, -20]
     });
   };
 
@@ -170,17 +196,17 @@ export default function RealMapComponent({
     onVehiculoClick?.(vehiculo);
   };
 
-  // Cuántos vehículos están fuera del casco urbano de Chivilcoy (> 12 km)
-  const vehiculosFueraDeChivilcoy = vehiculos.filter(v => {
+  // Cuántos vehículos están alejados de la base (> 12 km)
+  const vehiculosFueraDeRadio = vehiculos.filter(v => {
     if (!v.ubicacion?.lat || !v.ubicacion?.lng) return false;
-    const dist = calculateDistance(v.ubicacion.lat, v.ubicacion.lng, CHIVILCOY_COORDS.LAT, CHIVILCOY_COORDS.LNG);
+    const dist = calculateDistance(v.ubicacion.lat, v.ubicacion.lng, baseCoords[0], baseCoords[1]);
     return dist > 12;
   }).length;
 
   return (
     <div className="w-full rounded-2xl overflow-hidden relative shadow-inner border border-gray-200" style={{ height }}>
       <MapContainer 
-        center={center} 
+        center={baseCoords} 
         zoom={zoom} 
         scrollWheelZoom={true}
         className="w-full h-full"
@@ -190,6 +216,7 @@ export default function RealMapComponent({
           actionSignal={actionSignal} 
           vehiculos={vehiculos} 
           selectedVehiculo={selectedVehiculo} 
+          baseCoords={baseCoords}
         />
 
         {/* Capa de mapa OpenStreetMap */}
@@ -198,19 +225,35 @@ export default function RealMapComponent({
           attribution={MAP_CONFIG.TILE_LAYERS.OPENSTREETMAP.attribution}
         />
 
-        {/* Marcador fijo de la Central de Remisería en Chivilcoy */}
+        {/* Marcador oficial de la Remisería registrado por el Dueño */}
         <Marker
-          position={MAP_CONFIG.CHIVILCOY_CENTER}
-          icon={createBaseIcon()}
+          position={baseCoords}
+          icon={createBaseIcon(baseNombre)}
         >
-          <Popup maxWidth={260} className="custom-leaflet-popup">
-            <div className="p-2 font-sans">
-              <div className="flex items-center space-x-2 border-b pb-1.5 mb-1.5">
-                <Building2 className="w-4 h-4 text-indigo-600" />
-                <h4 className="font-bold text-gray-900 text-xs">Base Central Chivilcoy</h4>
+          <Popup maxWidth={280} className="custom-leaflet-popup">
+            <div className="p-2.5 font-sans">
+              <div className="flex items-center space-x-2 border-b pb-2 mb-2">
+                <Building2 className="w-5 h-5 text-indigo-600 shrink-0" />
+                <div>
+                  <h4 className="font-extrabold text-gray-900 text-sm leading-tight">{baseNombre}</h4>
+                  <span className="text-[10px] text-indigo-600 font-semibold uppercase">Base Central de Remisería</span>
+                </div>
               </div>
-              <p className="text-xs text-gray-600">Centro neurálgico de operaciones de la remisería.</p>
-              <p className="text-[10px] text-gray-400 mt-1">Plaza 25 de Mayo, Chivilcoy, Bs. As.</p>
+              <div className="space-y-1 text-xs text-gray-600">
+                <p className="flex items-start space-x-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-gray-400 mt-0.5 shrink-0" />
+                  <span className="font-medium text-gray-800">{baseDireccion}</span>
+                </p>
+                {baseTelefono && (
+                  <p className="flex items-center space-x-1.5 text-gray-500">
+                    <Phone className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                    <span>Tel: {baseTelefono}</span>
+                  </p>
+                )}
+                <p className="text-[10px] text-gray-400 pt-1">
+                  Ubicación oficial registrada por el dueño.
+                </p>
+              </div>
             </div>
           </Popup>
         </Marker>
@@ -223,8 +266,8 @@ export default function RealMapComponent({
           const distKm = calculateDistance(
             vehiculo.ubicacion.lat, 
             vehiculo.ubicacion.lng, 
-            CHIVILCOY_COORDS.LAT, 
-            CHIVILCOY_COORDS.LNG
+            baseCoords[0], 
+            baseCoords[1]
           );
           const esRuta = distKm > 12;
 
@@ -265,7 +308,7 @@ export default function RealMapComponent({
                     <p className="flex items-center space-x-1 text-[11px]">
                       <Compass className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                       <span className={esRuta ? 'text-amber-700 font-semibold' : 'text-gray-500'}>
-                        {esRuta ? `A ${formatDistance(distKm)} de Chivilcoy (En viaje/ruta)` : 'Radio urbano Chivilcoy'}
+                        {esRuta ? `A ${formatDistance(distKm)} de la Base (En ruta)` : `A ${formatDistance(distKm)} de la Base (Urbano)`}
                       </span>
                     </p>
 
@@ -290,17 +333,18 @@ export default function RealMapComponent({
         })}
       </MapContainer>
 
-      {/* Control Superior Izquierdo: Identificación de Base Chivilcoy */}
-      <div className="absolute top-4 left-4 bg-white/90 backdrop-blur-md border border-gray-100 rounded-xl shadow-lg p-3 z-[1000] flex items-center space-x-2.5 text-xs font-medium text-gray-800 pointer-events-auto">
-        <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg">
-          <MapPin className="w-4 h-4" />
+      {/* Control Superior Izquierdo: Identificación de la Base Registrada por el Dueño */}
+      <div className="absolute top-4 left-4 bg-white/95 backdrop-blur-md border border-gray-100 rounded-xl shadow-lg p-3 z-[1000] flex items-center space-x-3 text-xs font-medium text-gray-800 pointer-events-auto">
+        <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl">
+          <Building2 className="w-4 h-4" />
         </div>
         <div>
-          <span className="font-semibold block text-[10px] uppercase tracking-wider text-indigo-700">Base Operativa</span>
-          <span className="font-bold text-gray-900">Chivilcoy, Buenos Aires</span>
-          {vehiculosFueraDeChivilcoy > 0 && (
-            <span className="block text-[10px] text-amber-600 font-semibold">
-              {vehiculosFueraDeChivilcoy} {vehiculosFueraDeChivilcoy === 1 ? 'móvil en viaje exterior' : 'móviles en viaje exterior'}
+          <span className="font-bold block text-[10px] uppercase tracking-wider text-indigo-700">Base Operativa</span>
+          <span className="font-extrabold text-gray-900 text-xs block leading-tight">{baseNombre}</span>
+          <span className="text-[11px] text-gray-500 block truncate max-w-[190px] sm:max-w-xs">{baseDireccion}</span>
+          {vehiculosFueraDeRadio > 0 && (
+            <span className="block text-[10px] text-amber-600 font-semibold mt-0.5">
+              {vehiculosFueraDeRadio} {vehiculosFueraDeRadio === 1 ? 'móvil en viaje exterior' : 'móviles en viaje exterior'}
             </span>
           )}
         </div>
@@ -310,12 +354,12 @@ export default function RealMapComponent({
       <div className="absolute top-4 right-4 z-[1000] flex items-center space-x-2 pointer-events-auto">
         <button
           type="button"
-          onClick={() => setActionSignal({ type: 'chivilcoy', id: Date.now() })}
+          onClick={() => setActionSignal({ type: 'base', id: Date.now() })}
           className="flex items-center space-x-1.5 px-3 py-2 bg-white/95 hover:bg-white text-gray-800 rounded-xl shadow-md border border-gray-200 text-xs font-semibold backdrop-blur-sm transition-all hover:scale-105 active:scale-95"
-          title="Centrar vista en la ciudad de Chivilcoy"
+          title={`Centrar vista en ${baseNombre} (${baseDireccion})`}
         >
           <Building2 className="w-4 h-4 text-indigo-600" />
-          <span className="hidden sm:inline">Centrar en</span> Chivilcoy
+          <span className="hidden sm:inline">Centrar en</span> Base
         </button>
 
         <button

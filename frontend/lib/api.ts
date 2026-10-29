@@ -1153,6 +1153,19 @@ export const coordinadorDashboardService = {
     }
   },
 
+  // Datos de la Remisería asignada al coordinador
+  getMiRemiseria: async (): Promise<ApiResponse<Remiseria>> => {
+    try {
+      const response = await api.get('/coordinator-dashboard/mi-remiseria');
+      return handleApiResponse<Remiseria>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar datos de la remisería',
+      };
+    }
+  },
+
   // Mapa y ubicaciones
   getVehiculosTiempoReal: async (): Promise<ApiResponse<any[]>> => {
     try {

@@ -13,6 +13,8 @@ export const getRemiseriaActiva = async (req: Request, res: Response) => {
         cuit: true,
         direccion: true,
         telefono: true,
+        latitud: true,
+        longitud: true,
         estado: true,
         valorKm: true,
         bajadaBandera: true,
@@ -336,7 +338,7 @@ export const updateRemiseria = async (req: AuthenticatedRequest, res: Response) 
   try {
     const { id } = req.params;
     const { rol, id: userId } = req.user!;
-    const { nombreFantasia, razonSocial, cuit, direccion, telefono, estado, duenioIds, valorKm, bajadaBandera, valorHoraEspera, comisionDuenioAuto, comisionPorcentaje }: UpdateRemiseriaRequest = req.body;
+    const { nombreFantasia, razonSocial, cuit, direccion, telefono, estado, duenioIds, valorKm, bajadaBandera, valorHoraEspera, comisionDuenioAuto, comisionPorcentaje, latitud, longitud }: UpdateRemiseriaRequest = req.body;
 
     // Verificar acceso
     if (rol === 'DUENIO') {
@@ -383,6 +385,25 @@ export const updateRemiseria = async (req: AuthenticatedRequest, res: Response) 
     // Ambos pueden modificar dirección, teléfono y tarifas
     if (direccion !== undefined) updateData.direccion = direccion;
     if (telefono !== undefined) updateData.telefono = telefono;
+    if (latitud !== undefined) updateData.latitud = latitud;
+    if (longitud !== undefined) updateData.longitud = longitud;
+
+    // Si se actualizó la dirección y no se pasaron coordenadas explícitas, geocodificar automáticamente
+    if (direccion && (latitud === undefined || longitud === undefined)) {
+      try {
+        const query = /chivilcoy|buenos\s+aires/i.test(direccion) ? direccion : `${direccion}, Chivilcoy`;
+        const geoRes = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&countrycodes=ar&limit=1`, {
+          headers: { 'User-Agent': 'AppRemises/1.0 (remiseria@app.com)' }
+        });
+        const geoData = await geoRes.json() as any[];
+        if (geoData && geoData.length > 0) {
+          updateData.latitud = parseFloat(geoData[0].lat);
+          updateData.longitud = parseFloat(geoData[0].lon);
+        }
+      } catch (err) {
+        console.warn('Geocodificación automática de remisería fallida:', err);
+      }
+    }
     if (valorKm !== undefined) updateData.valorKm = valorKm;
     if (bajadaBandera !== undefined) updateData.bajadaBandera = bajadaBandera;
     if (valorHoraEspera !== undefined) updateData.valorHoraEspera = valorHoraEspera;

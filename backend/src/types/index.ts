@@ -67,6 +67,8 @@ export interface CreateRemiseriaRequest {
   cuit: string;
   direccion: string;
   telefono: string;
+  latitud?: number;
+  longitud?: number;
   duenioIds: string[];
 }
 
@@ -76,6 +78,8 @@ export interface UpdateRemiseriaRequest {
   cuit?: string;
   direccion?: string;
   telefono?: string;
+  latitud?: number;
+  longitud?: number;
   estado?: boolean;
   duenioIds?: string[];
   valorKm?: number;

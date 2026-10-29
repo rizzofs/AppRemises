@@ -17,7 +17,8 @@ import {
   Building2,
   Maximize2,
   Compass,
-  Search
+  Search,
+  Phone
 } from 'lucide-react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
@@ -30,7 +31,8 @@ import {
   formatDistance,
   isEnChivilcoy
 } from '@/lib/mapConfig';
-import { coordinadorDashboardService } from '@/lib/api';
+import { coordinadorDashboardService, remiseriaService } from '@/lib/api';
+import { RemiseriaBase } from '@/components/RealMapComponent';
 import { io } from 'socket.io-client';
 
 // Cargar dinámicamente el componente del mapa real (Leaflet) para desactivar SSR
@@ -44,8 +46,8 @@ const MapComponent = dynamic(
           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
         </svg>
-        <span className="text-sm font-semibold text-gray-700">Cargando mapa de Chivilcoy y alrededores...</span>
-        <span className="text-xs text-gray-400 mt-1">Conectando con OpenStreetMap en tiempo real</span>
+        <span className="text-sm font-semibold text-gray-700">Cargando mapa interactivo...</span>
+        <span className="text-xs text-gray-400 mt-1">Obteniendo coordenadas de la base y móviles en tiempo real</span>
       </div>
     )
   }
@@ -69,6 +71,7 @@ export default function MapaTiempoReal() {
   useAppTracking('COORDINADOR_MAPA_TIEMPO_REAL');
   
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
+  const [remiseria, setRemiseria] = useState<RemiseriaBase | null>(null);
   const [filtroEstado, setFiltroEstado] = useState<string>('todos');
   const [filtroZona, setFiltroZona] = useState<string>('todos');
   const [busqueda, setBusqueda] = useState<string>('');
@@ -76,7 +79,14 @@ export default function MapaTiempoReal() {
   const [isLoading, setIsLoading] = useState(true);
   const [vehiculoSeleccionado, setVehiculoSeleccionado] = useState<Vehiculo | null>(null);
 
-  // Vehículos de ejemplo ubicados en la ciudad de Chivilcoy y rutas aledañas
+  // Ubicación base oficial de la remisería configurada por el dueño
+  const baseLat = remiseria?.latitud || -34.901138;
+  const baseLng = remiseria?.longitud || -60.013778;
+  const baseNombre = remiseria?.nombreFantasia || 'Remises Bruno';
+  const baseDireccion = remiseria?.direccion || 'Av. Sarmiento 271, Chivilcoy';
+  const baseTelefono = remiseria?.telefono || '';
+
+  // Vehículos de ejemplo ubicados alrededor de la sede física de la remisería
   const vehiculosEjemplo: Vehiculo[] = [
     {
       id: '1',
@@ -152,11 +162,37 @@ export default function MapaTiempoReal() {
     }
   ];
 
-  // Cargar vehículos reales desde la API con fallback seguro en Chivilcoy
+  // Cargar remisería oficial del coordinador
+  const cargarRemiseria = async () => {
+    try {
+      const res = await coordinadorDashboardService.getMiRemiseria();
+      if (res.success && res.data) {
+        setRemiseria(res.data);
+        return;
+      }
+    } catch (e) {
+      // Intento alternativo
+    }
+
+    try {
+      const resActiva = await remiseriaService.getActiva();
+      if (resActiva.success && resActiva.data) {
+        setRemiseria(resActiva.data);
+      }
+    } catch (e) {
+      console.warn('Error al cargar datos de remisería activa:', e);
+    }
+  };
+
+  // Cargar vehículos reales desde la API con fallback seguro
   const cargarVehiculosReales = async () => {
     setIsLoading(true);
     try {
       const response = await coordinadorDashboardService.getVehiculosTiempoReal();
+      if ((response as any).remiseria) {
+        setRemiseria((response as any).remiseria);
+      }
+
       if (response.success && response.data && response.data.length > 0) {
         const mapped: Vehiculo[] = response.data.map(v => {
           const chofer = v.choferes && v.choferes[0];
@@ -168,11 +204,11 @@ export default function MapaTiempoReal() {
             chofer: chofer ? `${chofer.nombre} ${chofer.apellido}` : (v.propietario || 'Sin Chofer'),
             estado: estado as any,
             ubicacion: {
-              lat: v.latitud || CHIVILCOY_COORDS.LAT,
-              lng: v.longitud || CHIVILCOY_COORDS.LNG
+              lat: v.latitud || baseLat,
+              lng: v.longitud || baseLng
             },
             ultimaActualizacion: v.ultimaUbicacion || new Date().toISOString(),
-            direccionActual: v.observaciones || (v.latitud ? `Lat: ${v.latitud.toFixed(4)}, Lng: ${v.longitud.toFixed(4)}` : 'Chivilcoy')
+            direccionActual: v.observaciones || (v.latitud ? `Lat: ${v.latitud.toFixed(4)}, Lng: ${v.longitud.toFixed(4)}` : baseDireccion)
           };
         });
         setVehiculos(mapped);
@@ -188,6 +224,7 @@ export default function MapaTiempoReal() {
   };
 
   useEffect(() => {
+    cargarRemiseria();
     cargarVehiculosReales();
   }, []);
 
@@ -200,7 +237,7 @@ export default function MapaTiempoReal() {
     });
 
     socket.on('connect', () => {
-      const remiseriaId = user?.coordinador?.remiseriaId;
+      const remiseriaId = user?.coordinador?.remiseriaId || remiseria?.id;
       if (remiseriaId) {
         socket.emit('join_room', { remiseriaId });
       }
@@ -236,7 +273,7 @@ export default function MapaTiempoReal() {
     return () => {
       socket.disconnect();
     };
-  }, [user]);
+  }, [user, remiseria?.id]);
 
   // Sincronizar vehículo seleccionado con actualizaciones
   useEffect(() => {
@@ -252,7 +289,7 @@ export default function MapaTiempoReal() {
     }
   }, [vehiculos, vehiculoSeleccionado]);
 
-  // Simulación de patrullaje suave en modo demo para Chivilcoy
+  // Simulación de patrullaje suave en modo demo
   useEffect(() => {
     const isDemo = vehiculos.length > 0 && vehiculos.every(v => ['1', '2', '3', '4', '5', '6', '7', '8'].includes(v.id));
     if (!isDemo || isLoading) return;
@@ -262,7 +299,6 @@ export default function MapaTiempoReal() {
         prev.map((v) => {
           if (v.estado === 'fuera_servicio') return v;
 
-          // Si es el móvil 7 en Ruta 5, avanza a lo largo de la ruta
           if (v.id === '7') {
             return {
               ...v,
@@ -299,11 +335,13 @@ export default function MapaTiempoReal() {
         return false;
       }
       
-      const enChivilcoy = isEnChivilcoy(vehiculo.ubicacion.lat, vehiculo.ubicacion.lng);
-      if (filtroZona === 'chivilcoy' && !enChivilcoy) {
+      const dist = calculateDistance(vehiculo.ubicacion.lat, vehiculo.ubicacion.lng, baseLat, baseLng);
+      const enRadio = dist <= 12;
+
+      if (filtroZona === 'chivilcoy' && !enRadio) {
         return false;
       }
-      if (filtroZona === 'ruta' && enChivilcoy) {
+      if (filtroZona === 'ruta' && enRadio) {
         return false;
       }
 
@@ -319,7 +357,7 @@ export default function MapaTiempoReal() {
 
       return true;
     });
-  }, [vehiculos, filtroEstado, filtroZona, busqueda]);
+  }, [vehiculos, filtroEstado, filtroZona, busqueda, baseLat, baseLng]);
 
   const getEstadoColor = (estado: string) => getVehicleColor(estado);
   const getEstadoTexto = (estado: string) => getVehicleStatusText(estado);
@@ -328,17 +366,20 @@ export default function MapaTiempoReal() {
     setVehiculoSeleccionado(vehiculo);
   };
 
-  // Contadores para estadísticas operativas
+  // Contadores para estadísticas operativas calculadas desde la base de la remisería
   const stats = useMemo(() => {
     const total = vehiculos.length;
     const disponibles = vehiculos.filter(v => v.estado === 'disponible').length;
     const enViaje = vehiculos.filter(v => v.estado === 'en_viaje').length;
     const fueraServicio = vehiculos.filter(v => v.estado === 'fuera_servicio').length;
-    const enRadioChivilcoy = vehiculos.filter(v => isEnChivilcoy(v.ubicacion.lat, v.ubicacion.lng)).length;
-    const enRuta = total - enRadioChivilcoy;
+    const enRadioBase = vehiculos.filter(v => {
+      const dist = calculateDistance(v.ubicacion.lat, v.ubicacion.lng, baseLat, baseLng);
+      return dist <= 12;
+    }).length;
+    const enRuta = total - enRadioBase;
 
-    return { total, disponibles, enViaje, fueraServicio, enRadioChivilcoy, enRuta };
-  }, [vehiculos]);
+    return { total, disponibles, enViaje, fueraServicio, enRadioBase, enRuta };
+  }, [vehiculos, baseLat, baseLng]);
 
   return (
     <div className="min-h-screen bg-gray-50 overflow-x-hidden w-full">
@@ -356,15 +397,15 @@ export default function MapaTiempoReal() {
               </Link>
               
               <div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-2 flex-wrap">
                   <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Mapa de Flota en Vivo</h1>
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800">
                     <Building2 className="w-3.5 h-3.5 mr-1" />
-                    Chivilcoy, Bs. As.
+                    {baseNombre}
                   </span>
                 </div>
                 <p className="text-xs sm:text-sm text-gray-500">
-                  Monitoreo centralizado de vehículos en radio urbano y viajes de ruta
+                  Base Central: <span className="font-medium text-gray-700">{baseDireccion}</span>
                 </p>
               </div>
             </div>
@@ -433,7 +474,7 @@ export default function MapaTiempoReal() {
               {/* Filtro por Zona Geográfica */}
               <div>
                 <label className="block text-xs font-semibold text-gray-700 mb-1.5">
-                  Zona Geográfica
+                  Zona Respecto a la Base
                 </label>
                 <div className="grid grid-cols-3 gap-1 bg-gray-100 p-1 rounded-xl text-[11px] font-medium text-gray-600">
                   <button
@@ -447,9 +488,9 @@ export default function MapaTiempoReal() {
                     type="button"
                     onClick={() => setFiltroZona('chivilcoy')}
                     className={`py-1.5 rounded-lg transition-all ${filtroZona === 'chivilcoy' ? 'bg-white shadow text-indigo-700 font-bold' : 'hover:text-gray-900'}`}
-                    title="Vehículos en el radio urbano de Chivilcoy"
+                    title="Vehículos en el radio urbano cercano a la base"
                   >
-                    Chivilcoy
+                    Urbano
                   </button>
                   <button
                     type="button"
@@ -477,6 +518,31 @@ export default function MapaTiempoReal() {
                   <option value="en_viaje">🔵 En Viaje</option>
                   <option value="fuera_servicio">🔴 Fuera de Servicio</option>
                 </select>
+              </div>
+            </div>
+
+            {/* Ficha de la Base de la Remisería (Configurada por el Dueño) */}
+            <div className="bg-gradient-to-br from-indigo-900 to-slate-900 rounded-2xl shadow-sm p-5 text-white space-y-3">
+              <div className="flex items-center space-x-2">
+                <div className="p-2 bg-indigo-500/20 text-indigo-400 rounded-xl border border-indigo-400/30">
+                  <Building2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-300 block">Sede Registrada</span>
+                  <h4 className="text-sm font-bold truncate">{baseNombre}</h4>
+                </div>
+              </div>
+              <div className="text-xs space-y-1.5 text-slate-300 pt-1 border-t border-slate-700/60">
+                <p className="flex items-start space-x-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-indigo-400 shrink-0 mt-0.5" />
+                  <span className="leading-snug">{baseDireccion}</span>
+                </p>
+                {baseTelefono && (
+                  <p className="flex items-center space-x-1.5">
+                    <Phone className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                    <span>{baseTelefono}</span>
+                  </p>
+                )}
               </div>
             </div>
 
@@ -516,8 +582,8 @@ export default function MapaTiempoReal() {
 
                 <div className="pt-2">
                   <div className="flex justify-between items-center text-[11px] text-gray-500">
-                    <span>En Chivilcoy (urbano):</span>
-                    <span className="font-bold text-gray-800">{stats.enRadioChivilcoy}</span>
+                    <span>En radio de base ({baseNombre}):</span>
+                    <span className="font-bold text-gray-800">{stats.enRadioBase}</span>
                   </div>
                   <div className="flex justify-between items-center text-[11px] text-gray-500 mt-1">
                     <span>En ruta / Interurbano:</span>
@@ -562,16 +628,16 @@ export default function MapaTiempoReal() {
                       <span className="font-medium text-gray-800">{vehiculoSeleccionado.direccionActual}</span>
                     </div>
                     <div>
-                      <span className="text-gray-500 block">Distancia a Base:</span>
+                      <span className="text-gray-500 block">Distancia a {baseNombre}:</span>
                       <span className="font-semibold text-indigo-700">
                         {(() => {
                           const dist = calculateDistance(
                             vehiculoSeleccionado.ubicacion.lat,
                             vehiculoSeleccionado.ubicacion.lng,
-                            CHIVILCOY_COORDS.LAT,
-                            CHIVILCOY_COORDS.LNG
+                            baseLat,
+                            baseLng
                           );
-                          return dist <= 12 ? 'Dentro de Chivilcoy' : `A ${formatDistance(dist)} de Chivilcoy (En Ruta)`;
+                          return dist <= 12 ? `A ${formatDistance(dist)} (Radio urbano)` : `A ${formatDistance(dist)} de la Base (En Ruta)`;
                         })()}
                       </span>
                     </div>
@@ -602,7 +668,7 @@ export default function MapaTiempoReal() {
                   <div>
                     <h2 className="text-base font-bold text-gray-900">Ubicación en Tiempo Real</h2>
                     <p className="text-xs text-gray-500">
-                      Centrado en Chivilcoy con cobertura de toda la flota en viaje
+                      Sede oficial: <span className="font-semibold text-gray-800">{baseNombre}</span> ({baseDireccion})
                     </p>
                   </div>
                 </div>
@@ -612,10 +678,10 @@ export default function MapaTiempoReal() {
                     type="button"
                     onClick={() => setVehiculoSeleccionado(null)}
                     className="flex items-center space-x-1 text-gray-600 hover:text-indigo-600 font-medium"
-                    title="Restablecer selección"
+                    title="Restablecer selección a la base"
                   >
                     <Building2 className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>Base Chivilcoy</span>
+                    <span>Base {baseNombre}</span>
                   </button>
                   <span className="text-gray-300">|</span>
                   <span className="font-semibold text-gray-700">
@@ -627,8 +693,9 @@ export default function MapaTiempoReal() {
               <div className="p-3 sm:p-4">
                 <MapComponent
                   vehiculos={vehiculosFiltrados}
+                  remiseria={remiseria}
                   onVehiculoClick={centrarEnVehiculo}
-                  center={MAP_CONFIG.DEFAULT_CENTER}
+                  center={[baseLat, baseLng]}
                   zoom={MAP_CONFIG.DEFAULT_ZOOM}
                   height="520px"
                   selectedVehiculo={vehiculoSeleccionado}
@@ -655,10 +722,10 @@ export default function MapaTiempoReal() {
                   const distKm = calculateDistance(
                     vehiculo.ubicacion.lat,
                     vehiculo.ubicacion.lng,
-                    CHIVILCOY_COORDS.LAT,
-                    CHIVILCOY_COORDS.LNG
+                    baseLat,
+                    baseLng
                   );
-                  const fueraChivilcoy = distKm > 12;
+                  const fueraDeRadio = distKm > 12;
                   const isSelected = vehiculoSeleccionado?.id === vehiculo.id;
 
                   return (
@@ -682,15 +749,15 @@ export default function MapaTiempoReal() {
                               <span className="text-gray-400">•</span>
                               <span className="text-xs text-gray-700 font-medium truncate">{vehiculo.chofer}</span>
                               
-                              {fueraChivilcoy ? (
+                              {fueraDeRadio ? (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
                                   <Compass className="w-3 h-3 mr-1" />
-                                  A {formatDistance(distKm)} (En ruta)
+                                  A {formatDistance(distKm)} de la Base (En ruta)
                                 </span>
                               ) : (
                                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                                   <MapPin className="w-3 h-3 mr-1" />
-                                  Chivilcoy Urbano
+                                  A {formatDistance(distKm)} de la Base
                                 </span>
                               )}
                             </div>

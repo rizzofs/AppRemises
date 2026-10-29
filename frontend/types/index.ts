@@ -32,6 +32,8 @@ export interface Remiseria {
   cuit: string;
   direccion: string;
   telefono: string;
+  latitud?: number;
+  longitud?: number;
   estado: boolean;
   valorKm?: number;
   bajadaBandera?: number;
@@ -301,6 +303,8 @@ export interface CreateRemiseriaData {
   cuit: string;
   direccion: string;
   telefono: string;
+  latitud?: number;
+  longitud?: number;
   duenioIds: string[];
 }
 
@@ -310,6 +314,8 @@ export interface UpdateRemiseriaData {
   cuit?: string;
   direccion?: string;
   telefono?: string;
+  latitud?: number;
+  longitud?: number;
   estado?: boolean;
   duenioIds?: string[];
   valorKm?: number;

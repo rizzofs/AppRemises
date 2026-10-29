@@ -65,6 +65,8 @@ model Remiseria {
   cuit          String   @unique
   direccion     String
   telefono      String
+  latitud       Float?
+  longitud      Float?
   estado        Boolean  @default(true)
   comisionPorcentaje Float @default(30.0)
   comisionDuenioAuto Float @default(20.0)

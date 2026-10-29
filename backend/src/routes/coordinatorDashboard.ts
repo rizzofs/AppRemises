@@ -38,6 +38,9 @@ router.get('/geocode', coordinatorDashboardController.geocode);
 // Crear nueva reserva
 router.post('/reservas', coordinatorDashboardController.createReserva);
 
+// Obtener remisería del coordinador
+router.get('/mi-remiseria', coordinatorDashboardController.getMiRemiseria);
+
 // Obtener vehículos en tiempo real
 router.get('/vehiculos/tiempo-real', coordinatorDashboardController.getVehiculosTiempoReal);
 
