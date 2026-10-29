@@ -639,6 +639,7 @@ export default function ChoferApp() {
   if (!user) return null;
 
   const precioAlerta = alertaViaje?.precio ?? alertaViaje?.precioEstimado ?? 0;
+  const clienteFotoAlerta = alertaViaje?.clienteFoto || alertaViaje?.cliente?.fotoUrl || null;
   const clienteNombreAlerta =
     alertaViaje?.clienteNombre ||
     (alertaViaje?.cliente
@@ -646,6 +647,7 @@ export default function ChoferApp() {
       : 'Pasajero');
 
   const precioActual = viajeActual?.precio ?? viajeActual?.precioEstimado ?? 0;
+  const clienteFotoActual = viajeActual?.clienteFoto || viajeActual?.cliente?.fotoUrl || null;
   const clienteNombreActual =
     viajeActual?.clienteNombre ||
     (viajeActual?.cliente
@@ -833,9 +835,26 @@ export default function ChoferApp() {
               </span>
             </div>
             <div className="p-4 space-y-3">
-              <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-slate-300 bg-gray-50 dark:bg-slate-800/80 px-3 py-2 rounded-lg">
-                <User className="w-4 h-4 text-primary-600 dark:text-primary-400 shrink-0" />
-                <span className="font-semibold text-gray-800 dark:text-white">{clienteNombreAlerta}</span>
+              <div className="flex items-center gap-3 bg-gray-50 dark:bg-slate-800/80 p-2.5 rounded-xl border border-gray-100 dark:border-slate-700/60">
+                {clienteFotoAlerta ? (
+                  <img
+                    src={clienteFotoAlerta}
+                    alt="Foto Pasajero"
+                    className="w-10 h-10 rounded-full object-cover border-2 border-primary-500 shrink-0"
+                  />
+                ) : (
+                  <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-slate-700 text-primary-700 dark:text-primary-300 flex items-center justify-center shrink-0 font-bold">
+                    <User className="w-5 h-5" />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] text-gray-400 dark:text-slate-400 font-bold uppercase tracking-wider">
+                    Pasajero a buscar
+                  </p>
+                  <p className="font-bold text-sm text-gray-900 dark:text-white truncate">
+                    {clienteNombreAlerta}
+                  </p>
+                </div>
               </div>
 
               <div className="flex gap-3">
@@ -902,19 +921,27 @@ export default function ChoferApp() {
 
           <div className="p-4 space-y-4">
             <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/70 p-3 rounded-xl border border-slate-100 dark:border-slate-700">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-full bg-primary-100 dark:bg-slate-700 text-primary-700 dark:text-primary-300 flex items-center justify-center font-bold">
-                  <User className="w-5 h-5" />
-                </div>
+              <div className="flex items-center gap-3">
+                {clienteFotoActual ? (
+                  <img
+                    src={clienteFotoActual}
+                    alt="Foto Pasajero"
+                    className="w-11 h-11 rounded-full object-cover border-2 border-primary-500 shrink-0 shadow-xs"
+                  />
+                ) : (
+                  <div className="w-11 h-11 rounded-full bg-primary-100 dark:bg-slate-700 text-primary-700 dark:text-primary-300 flex items-center justify-center font-bold shrink-0">
+                    <User className="w-6 h-6" />
+                  </div>
+                )}
                 <div>
-                  <p className="text-xs text-gray-400 dark:text-slate-400">Pasajero</p>
+                  <p className="text-[11px] text-gray-400 dark:text-slate-400 font-medium">Pasajero a buscar</p>
                   <p className="text-sm font-bold text-gray-900 dark:text-white">{clienteNombreActual}</p>
                 </div>
               </div>
               {clienteTelefonoActual && (
                 <a
                   href={`tel:${clienteTelefonoActual}`}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 rounded-lg text-xs font-semibold"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 rounded-lg text-xs font-semibold hover:bg-emerald-200 transition-colors"
                 >
                   <Phone className="w-3.5 h-3.5" />
                   {clienteTelefonoActual}

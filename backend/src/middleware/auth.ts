@@ -82,6 +82,8 @@ export const authenticateToken = async (req: AuthenticatedRequest, res: Response
         direccion: user.cliente.direccion,
         fechaNacimiento: user.cliente.fechaNacimiento,
         genero: user.cliente.genero || undefined,
+        fotoUrl: user.cliente.fotoUrl,
+        direccionesFrecuentes: user.cliente.direccionesFrecuentes,
         activo: user.cliente.activo,
         userId: user.cliente.userId
       } : undefined,

@@ -146,6 +146,7 @@ model Cliente {
   fechaNacimiento DateTime
   genero    String?  // M, F, O
   fotoUrl   String?
+  direccionesFrecuentes String? // JSON array de direcciones frecuentes/favoritas
   activo    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
@@ -20,8 +20,15 @@ import {
   ArrowRight,
   Info,
   BellRing,
-  Volume2
+  Volume2,
+  Bookmark,
+  Home,
+  Briefcase,
+  Dumbbell,
+  Heart,
+  GraduationCap
 } from 'lucide-react';
+import { DireccionFrecuente } from '@/types';
 
 // Generador de tono de campana / timbre de llegada (Web Audio API nativo)
 function reproducirAlertaLlegada() {
@@ -97,6 +104,81 @@ export default function ClienteApp() {
   const [estadoViaje, setEstadoViaje] = useState<'IDLE' | 'BUSCANDO' | 'ACEPTADO' | 'EN_CAMINO' | 'EN_CURSO'>('IDLE');
   const [isRequesting, setIsRequesting] = useState(false);
   const [isCanceling, setIsCanceling] = useState(false);
+
+  // Direcciones Frecuentes / Favoritas del Cliente
+  const direccionesFrecuentesList: DireccionFrecuente[] = useMemo(() => {
+    if (!user?.cliente?.direccionesFrecuentes) {
+      if (user?.cliente?.direccion) {
+        return [{ id: 'casa-def', alias: 'Casa', direccion: user.cliente.direccion, icono: 'home' }];
+      }
+      return [];
+    }
+    try {
+      if (Array.isArray(user.cliente.direccionesFrecuentes)) {
+        return user.cliente.direccionesFrecuentes;
+      }
+      if (typeof user.cliente.direccionesFrecuentes === 'string') {
+        const parsed = JSON.parse(user.cliente.direccionesFrecuentes);
+        return Array.isArray(parsed) ? parsed : [];
+      }
+    } catch {
+      return [];
+    }
+    return [];
+  }, [user]);
+
+  const handleAplicarDireccionFrecuente = async (dir: DireccionFrecuente) => {
+    if (!origen.trim()) {
+      setIsOrigenSelected(true);
+      setOrigen(dir.direccion);
+      setPresupuesto(null);
+      try {
+        const res = await coordinadorDashboardService.geocode(dir.direccion);
+        if (res.success && res.data && res.data[0]) {
+          setOrigenCoords({
+            lat: parseFloat(res.data[0].lat),
+            lon: parseFloat(res.data[0].lon)
+          });
+        }
+      } catch (e) {
+        // fallback
+      }
+      toast.success(`Origen fijado: ${dir.alias}`);
+    } else {
+      setIsDestinoSelected(true);
+      setDestino(dir.direccion);
+      setPresupuesto(null);
+      try {
+        const res = await coordinadorDashboardService.geocode(dir.direccion);
+        if (res.success && res.data && res.data[0]) {
+          setDestinoCoords({
+            lat: parseFloat(res.data[0].lat),
+            lon: parseFloat(res.data[0].lon)
+          });
+        }
+      } catch (e) {
+        // fallback
+      }
+      toast.success(`Destino fijado: ${dir.alias}`);
+    }
+  };
+
+  const renderIconoDir = (icono?: string) => {
+    switch (icono) {
+      case 'home':
+        return <Home className="w-3.5 h-3.5 text-emerald-500" />;
+      case 'briefcase':
+        return <Briefcase className="w-3.5 h-3.5 text-blue-500" />;
+      case 'dumbbell':
+        return <Dumbbell className="w-3.5 h-3.5 text-purple-500" />;
+      case 'heart':
+        return <Heart className="w-3.5 h-3.5 text-rose-500" />;
+      case 'graduation':
+        return <GraduationCap className="w-3.5 h-3.5 text-amber-500" />;
+      default:
+        return <MapPin className="w-3.5 h-3.5 text-primary-500" />;
+    }
+  };
 
   const previousEstadoRef = useRef<string | null>(null);
   const activeViajeRef = useRef<any>(null);
@@ -615,6 +697,35 @@ export default function ClienteApp() {
                   </div>
                 )}
               </div>
+
+              {/* Chips de Lugares Frecuentes / Favoritas */}
+              {direccionesFrecuentesList.length > 0 && (
+                <div className="pt-2 border-t border-gray-100 dark:border-slate-800">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-gray-500 dark:text-slate-400 mb-1.5 px-0.5">
+                    <span className="flex items-center gap-1">
+                      <Bookmark className="w-3 h-3 text-primary-500" />
+                      Tus lugares frecuentes:
+                    </span>
+                    <Link href="/cliente/perfil" className="text-primary-600 dark:text-primary-400 hover:underline">
+                      Gestionar
+                    </Link>
+                  </div>
+                  <div className="flex gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                    {direccionesFrecuentesList.map((dir, idx) => (
+                      <button
+                        key={dir.id || idx}
+                        type="button"
+                        onClick={() => handleAplicarDireccionFrecuente(dir)}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 dark:bg-slate-800 border border-gray-200/80 dark:border-slate-700/80 hover:border-primary-500 dark:hover:border-primary-500 rounded-xl text-xs font-semibold text-gray-700 dark:text-slate-200 shrink-0 shadow-2xs transition-all active:scale-95"
+                        title={`${dir.alias}: ${dir.direccion}`}
+                      >
+                        {renderIconoDir(dir.icono)}
+                        <span>{dir.alias}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
             </div>
           </div>

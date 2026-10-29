@@ -950,6 +950,7 @@ export const choferController = {
               nombre: true,
               apellido: true,
               telefono: true,
+              fotoUrl: true,
             },
           },
           vehiculo: {
@@ -986,6 +987,7 @@ export const choferController = {
                 nombre: true,
                 apellido: true,
                 telefono: true,
+                fotoUrl: true,
               },
             },
           },
@@ -1249,6 +1251,7 @@ export const choferController = {
               nombre: true,
               apellido: true,
               telefono: true,
+              fotoUrl: true,
             },
           },
           chofer: {
@@ -1343,6 +1346,7 @@ export const choferController = {
               nombre: true,
               apellido: true,
               telefono: true,
+              fotoUrl: true,
             },
           },
           vehiculo: {
@@ -1470,6 +1474,7 @@ export const choferController = {
               nombre: true,
               apellido: true,
               telefono: true,
+              fotoUrl: true,
             },
           },
           vehiculo: {

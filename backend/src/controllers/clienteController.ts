@@ -210,7 +210,9 @@ export const updateClienteProfile = async (req: AuthenticatedRequest, res: Respo
       apellido,
       telefono,
       direccion,
-      genero
+      genero,
+      fotoUrl,
+      direccionesFrecuentes
     } = req.body;
 
     if (!userId) {
@@ -231,16 +233,24 @@ export const updateClienteProfile = async (req: AuthenticatedRequest, res: Respo
       });
     }
 
-    // Actualizar solo los campos permitidos
+    const updateData: any = {};
+    if (nombre !== undefined) updateData.nombre = nombre;
+    if (apellido !== undefined) updateData.apellido = apellido;
+    if (telefono !== undefined) updateData.telefono = telefono;
+    if (direccion !== undefined) updateData.direccion = direccion;
+    if (genero !== undefined) updateData.genero = genero;
+    if (fotoUrl !== undefined) updateData.fotoUrl = fotoUrl;
+    if (direccionesFrecuentes !== undefined) {
+      updateData.direccionesFrecuentes =
+        typeof direccionesFrecuentes === 'object'
+          ? JSON.stringify(direccionesFrecuentes)
+          : direccionesFrecuentes;
+    }
+
+    // Actualizar campos del cliente
     const updatedCliente = await prisma.cliente.update({
       where: { userId },
-      data: {
-        nombre: nombre || cliente.nombre,
-        apellido: apellido || cliente.apellido,
-        telefono: telefono || cliente.telefono,
-        direccion: direccion || cliente.direccion,
-        genero: genero || cliente.genero
-      }
+      data: updateData
     });
 
     // Track the action
@@ -308,6 +318,15 @@ export const getClienteViajes = async (req: AuthenticatedRequest, res: Response)
     const viajes = await prisma.viaje.findMany({
       where: { clienteId: cliente.id },
       include: {
+        cliente: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            telefono: true,
+            fotoUrl: true,
+          }
+        },
         chofer: {
           select: {
             id: true,
@@ -379,6 +398,15 @@ export const getClienteReservas = async (req: AuthenticatedRequest, res: Respons
     const reservas = await prisma.reserva.findMany({
       where: { clienteId: cliente.id },
       include: {
+        cliente: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            telefono: true,
+            fotoUrl: true,
+          }
+        },
         chofer: {
           select: {
             nombre: true,
@@ -510,6 +538,15 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
         destinoDetallado: latitudDestino && longitudDestino ? `${latitudDestino},${longitudDestino}` : undefined
       },
       include: {
+        cliente: {
+          select: {
+            id: true,
+            nombre: true,
+            apellido: true,
+            telefono: true,
+            fotoUrl: true,
+          }
+        },
         chofer: {
           select: {
             id: true,

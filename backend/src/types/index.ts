@@ -30,6 +30,8 @@ export interface AuthenticatedRequest extends Request {
       direccion: string;
       fechaNacimiento: Date;
       genero?: string;
+      fotoUrl?: string | null;
+      direccionesFrecuentes?: string | null;
       activo: boolean;
       userId: string;
     };

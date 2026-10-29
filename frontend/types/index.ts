@@ -68,6 +68,17 @@ export interface Coordinador {
   remiseria?: Remiseria;
 }
 
+export interface DireccionFrecuente {
+  id: string;
+  alias: string; // ej: "Casa", "Trabajo", "Gimnasio", "Novia/o", "Facultad", "Otro"
+  direccion: string;
+  pisoDepto?: string;
+  referencia?: string;
+  icono?: string;
+  latitud?: number;
+  longitud?: number;
+}
+
 export interface Cliente {
   id: string;
   nombre: string;
@@ -78,6 +89,8 @@ export interface Cliente {
   direccion: string;
   fechaNacimiento: string;
   genero?: string;
+  fotoUrl?: string | null;
+  direccionesFrecuentes?: string | DireccionFrecuente[] | null;
   activo: boolean;
   createdAt: string;
   updatedAt: string;

@@ -23,7 +23,8 @@ import {
   CalculoPrecioData,
   ReservaClienteData,
   ViajeCliente,
-  ReservaCliente
+  ReservaCliente,
+  Cliente
 } from '@/types';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
@@ -1495,6 +1496,31 @@ export const clienteService = {
       return {
         success: false,
         message: error.response?.data?.message || error.response?.data?.error || 'Error al consultar disponibilidad',
+      };
+    }
+  },
+
+  // Perfil del cliente
+  getProfile: async (): Promise<ApiResponse<Cliente>> => {
+    try {
+      const response = await api.get('/cliente/profile');
+      return handleApiResponse<Cliente>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al obtener perfil',
+      };
+    }
+  },
+
+  updateProfile: async (data: any): Promise<ApiResponse<Cliente>> => {
+    try {
+      const response = await api.put('/cliente/profile', data);
+      return handleApiResponse<Cliente>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al actualizar perfil',
       };
     }
   },
