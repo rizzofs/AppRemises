@@ -14,15 +14,19 @@ router.use(authenticateToken);
 // Rutas de la App del Chofer (deben ir antes de /:id)
 router.get('/mi-estado', choferController.getMiEstado);
 router.get('/mis-viajes', choferController.getMisViajes);
+router.get('/vehiculos-disponibles', choferController.getVehiculosDisponibles);
+router.patch('/mi-perfil', choferController.updateMiPerfil);
 router.patch('/online-status', choferController.updateOnlineStatus);
 router.post('/viajes/:viajeId/aceptar', choferController.aceptarViaje);
 router.patch('/viajes/:viajeId/estado', choferController.actualizarEstadoViaje);
 
 // Rutas de Turno y Tracking de Kilometraje
 router.get('/turno/activo', choferController.getTurnoActivo);
+router.get('/turnos', choferController.getMisTurnos);
 router.post('/turno/iniciar', choferController.iniciarTurno);
 router.post('/turno/finalizar', choferController.finalizarTurno);
 router.patch('/turno/actualizar-km', choferController.actualizarKmTurno);
+router.post('/turno/pausa', choferController.togglePausa);
 
 // Rutas de Gastos y Finanzas del Chofer
 router.get('/gastos', choferController.getMisGastos);

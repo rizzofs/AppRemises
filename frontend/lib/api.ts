@@ -526,14 +526,26 @@ export const choferService = {
     }
   },
 
-  getMiEstado: async (choferId?: string): Promise<ApiResponse<{ chofer: any; viajeActual: any; viajesDisponibles: any[]; turnoActivo?: any }>> => {
+  getMiEstado: async (choferId?: string): Promise<ApiResponse<{ chofer: any; viajeActual: any; viajesDisponibles: any[]; turnoActivo?: any; enPausa?: boolean; motivoPausa?: string | null; pausaInicio?: string | null }>> => {
     try {
       const response = await api.get('/choferes/mi-estado', { params: choferId ? { choferId } : undefined });
-      return handleApiResponse<{ chofer: any; viajeActual: any; viajesDisponibles: any[]; turnoActivo?: any }>(response);
+      return handleApiResponse<{ chofer: any; viajeActual: any; viajesDisponibles: any[]; turnoActivo?: any; enPausa?: boolean; motivoPausa?: string | null; pausaInicio?: string | null }>(response);
     } catch (error: any) {
       return {
         success: false,
         message: error.response?.data?.message || error.response?.data?.error || 'Error al obtener estado del chofer',
+      };
+    }
+  },
+
+  togglePausa: async (enPausa: boolean, motivo?: string, choferId?: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/choferes/turno/pausa', { enPausa, motivo, choferId });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al cambiar pausa de turno',
       };
     }
   },
@@ -553,7 +565,7 @@ export const choferService = {
   actualizarEstadoViaje: async (
     viajeId: string,
     estado: 'ACEPTADO' | 'EN_CAMINO' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO',
-    distancias?: { distanciaKmConPasajero?: number; distanciaKmSinPasajero?: number }
+    distancias?: { distanciaKmConPasajero?: number; distanciaKmSinPasajero?: number; metodoPago?: 'EFECTIVO' | 'TRANSFERENCIA' }
   ): Promise<ApiResponse<any>> => {
     try {
       const response = await api.patch(`/choferes/viajes/${viajeId}/estado`, {
@@ -569,14 +581,68 @@ export const choferService = {
     }
   },
 
-  getMisViajes: async (choferId?: string): Promise<ApiResponse<any[]>> => {
+  getVehiculosDisponibles: async (): Promise<ApiResponse<Vehiculo[]>> => {
     try {
-      const response = await api.get('/choferes/mis-viajes', { params: choferId ? { choferId } : undefined });
+      const response = await api.get('/choferes/vehiculos-disponibles');
+      return handleApiResponse<Vehiculo[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar vehículos disponibles',
+      };
+    }
+  },
+
+  updateMiPerfil: async (data: { vehiculoId?: string | null; fotoUrl?: string | null }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch('/choferes/mi-perfil', data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al actualizar perfil',
+      };
+    }
+  },
+
+  getMisViajes: async (
+    choferId?: string,
+    filters?: { fecha?: string; desde?: string; hasta?: string }
+  ): Promise<ApiResponse<any[]>> => {
+    try {
+      const params: any = {};
+      if (choferId) params.choferId = choferId;
+      if (filters?.fecha) params.fecha = filters.fecha;
+      if (filters?.desde) params.desde = filters.desde;
+      if (filters?.hasta) params.hasta = filters.hasta;
+
+      const response = await api.get('/choferes/mis-viajes', { params });
       return handleApiResponse<any[]>(response);
     } catch (error: any) {
       return {
         success: false,
         message: error.response?.data?.message || error.response?.data?.error || 'Error al cargar viajes del chofer',
+      };
+    }
+  },
+
+  getMisTurnos: async (
+    choferId?: string,
+    filters?: { fecha?: string; desde?: string; hasta?: string }
+  ): Promise<ApiResponse<any[]>> => {
+    try {
+      const params: any = {};
+      if (choferId) params.choferId = choferId;
+      if (filters?.fecha) params.fecha = filters.fecha;
+      if (filters?.desde) params.desde = filters.desde;
+      if (filters?.hasta) params.hasta = filters.hasta;
+
+      const response = await api.get('/choferes/turnos', { params });
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al cargar turnos del chofer',
       };
     }
   },
@@ -1193,6 +1259,31 @@ export const coordinadorDashboardService = {
       return {
         success: false,
         message: error.response?.data?.message || 'Error al cargar historial de liquidaciones del chofer',
+      };
+    }
+  },
+
+  // Despacho Óptimo por Lotes (Batch Matching tipo Uber)
+  getDespachoOptimo: async (): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/coordinator-dashboard/despacho-optimo');
+      return response.data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al calcular lote óptimo',
+      };
+    }
+  },
+
+  aplicarDespachoOptimo: async (matches: Array<{ viajeId: string; choferId: string; vehiculoId?: string | null }>): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/coordinator-dashboard/despacho-optimo/aplicar', { matches });
+      return response.data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al aplicar asignaciones en lote',
       };
     }
   },

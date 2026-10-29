@@ -91,6 +91,8 @@ export const authenticateToken = async (req: AuthenticatedRequest, res: Response
         nombre: user.chofer.nombre,
         apellido: user.chofer.apellido,
         remiseriaId: user.chofer.remiseriaId,
+        vehiculoId: user.chofer.vehiculoId,
+        fotoUrl: user.chofer.fotoUrl,
         estado: user.chofer.estado,
         motivoRechazo: user.chofer.motivoRechazo
       } : undefined

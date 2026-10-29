@@ -66,6 +66,8 @@ export const liquidacionController = {
 
       // Calcular totales
       const totalRecaudado = viajes.reduce((sum, v) => sum + Number(v.precio), 0);
+      const totalEfectivo = viajes.filter(v => v.metodoPago !== 'TRANSFERENCIA').reduce((sum, v) => sum + Number(v.precio), 0);
+      const totalTransferencia = viajes.filter(v => v.metodoPago === 'TRANSFERENCIA').reduce((sum, v) => sum + Number(v.precio), 0);
 
       // Comisiones calculadas por defecto (sin combustible)
       let comisionChofer = 0;
@@ -97,6 +99,8 @@ export const liquidacionController = {
           viajes,
           resumen: {
             totalRecaudado,
+            totalEfectivo,
+            totalTransferencia,
             comisionChofer,
             comisionAgencia,
             combustible: 0,
@@ -409,17 +413,37 @@ export const liquidacionController = {
         include: {
           coordinador: {
             select: {
+              id: true,
               email: true,
+              rol: true,
               coordinador: {
                 select: {
-                  nombre: true
+                  id: true,
+                  nombre: true,
+                  email: true
                 }
               },
               duenio: {
                 select: {
-                  nombre: true
+                  id: true,
+                  nombre: true,
+                  telefono: true
                 }
               }
+            }
+          },
+          viajes: {
+            select: {
+              id: true,
+              origen: true,
+              destino: true,
+              precio: true,
+              fecha: true,
+              metodoPago: true,
+              clienteNombre: true
+            },
+            orderBy: {
+              fecha: 'desc'
             }
           }
         },

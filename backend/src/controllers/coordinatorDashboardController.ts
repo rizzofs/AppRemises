@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { AuthenticatedRequest } from '../types';
 import bcrypt from 'bcryptjs';
+import { batchDispatchService } from '../services/batchDispatchService';
 
 
 export const coordinatorDashboardController = {
@@ -1047,6 +1048,85 @@ export const coordinatorDashboardController = {
       res.status(500).json({
         success: false,
         message: 'Error interno del servidor'
+      });
+    }
+  },
+
+  // Obtener propuesta de despacho óptimo (Batch Matching)
+  async getDespachoOptimo(req: AuthenticatedRequest, res: Response) {
+    try {
+      const coordinadorId = req.user?.id;
+      if (!coordinadorId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Usuario no autenticado'
+        });
+      }
+
+      const coordinador = await prisma.coordinador.findFirst({
+        where: { userId: coordinadorId }
+      });
+
+      if (!coordinador) {
+        return res.status(404).json({
+          success: false,
+          message: 'Coordinador no encontrado'
+        });
+      }
+
+      const optimizacion = await batchDispatchService.calcularLoteOptimo(coordinador.remiseriaId);
+      res.json(optimizacion);
+    } catch (error) {
+      console.error('Error al calcular lote óptimo:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error al calcular lote de despacho óptimo'
+      });
+    }
+  },
+
+  // Aplicar las asignaciones de un lote óptimo
+  async aplicarDespachoOptimo(req: AuthenticatedRequest, res: Response) {
+    try {
+      const coordinadorId = req.user?.id;
+      if (!coordinadorId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Usuario no autenticado'
+        });
+      }
+
+      const coordinador = await prisma.coordinador.findFirst({
+        where: { userId: coordinadorId }
+      });
+
+      if (!coordinador) {
+        return res.status(404).json({
+          success: false,
+          message: 'Coordinador no encontrado'
+        });
+      }
+
+      const { matches } = req.body;
+      if (!matches || !Array.isArray(matches) || matches.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'Debe enviar un arreglo de asignaciones (matches) a aplicar'
+        });
+      }
+
+      const resultado = await batchDispatchService.aplicarLote(
+        coordinador.remiseriaId,
+        matches,
+        coordinadorId
+      );
+
+      res.json(resultado);
+    } catch (error: any) {
+      console.error('Error al aplicar lote óptimo:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'Error al aplicar asignaciones en lote'
       });
     }
   }

@@ -220,7 +220,8 @@ export const choferController = {
         remiseriaId, 
         vehiculoId,
         esPropietario,
-        comisionPorcentaje
+        comisionPorcentaje,
+        fotoUrl
       } = req.body;
 
       // Validar campos requeridos
@@ -356,6 +357,7 @@ export const choferController = {
             comisionPorcentaje: comisionPorcentaje !== undefined ? parseFloat(comisionPorcentaje) : 30.0,
             remiseriaId,
             vehiculoId: vehiculoId || null,
+            fotoUrl: fotoUrl || null,
             userId: user.id,
           },
           include: {
@@ -425,7 +427,8 @@ export const choferController = {
         estado, 
         vehiculoId,
         esPropietario,
-        comisionPorcentaje
+        comisionPorcentaje,
+        fotoUrl
       } = req.body;
 
       // Verificar que el chofer existe
@@ -532,6 +535,7 @@ export const choferController = {
       if (vehiculoId !== undefined) updateData.vehiculoId = vehiculoId;
       if (esPropietario !== undefined) updateData.esPropietario = esPropietario;
       if (comisionPorcentaje !== undefined) updateData.comisionPorcentaje = parseFloat(comisionPorcentaje);
+      if (fotoUrl !== undefined) updateData.fotoUrl = fotoUrl;
 
       const chofer = await prisma.chofer.update({
         where: { id },
@@ -1002,17 +1006,168 @@ export const choferController = {
         },
       });
 
+      // Extraer datos de pausa de observaciones
+      let enPausa = false;
+      let motivoPausa = null;
+      let pausaInicio = null;
+      try {
+        if (chofer.observaciones && chofer.observaciones.startsWith('{')) {
+          const obs = JSON.parse(chofer.observaciones);
+          enPausa = Boolean(obs.enPausa);
+          motivoPausa = obs.motivoPausa || null;
+          pausaInicio = obs.pausaInicio || null;
+        }
+      } catch {
+        // no es JSON
+      }
+
+      // Si está en pausa, no mostrar viajes disponibles
+      if (enPausa) {
+        viajesDisponibles = [];
+      }
+
       res.json({
         success: true,
         data: {
-          chofer,
+          chofer: {
+            ...chofer,
+            enPausa,
+            motivoPausa,
+            pausaInicio
+          },
           viajeActual,
           viajesDisponibles,
           turnoActivo,
+          enPausa,
+          motivoPausa,
+          pausaInicio,
         },
       });
     } catch (error) {
       console.error('Error getting estado del chofer:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // Pausar o reanudar el turno del chofer (sin cerrar sesión ni finalizar turno)
+  async togglePausa(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id || req.body?.choferId;
+      const { enPausa, motivo } = req.body;
+
+      if (!choferId && req.user?.id) {
+        const choferByUser = await prisma.chofer.findFirst({
+          where: { userId: req.user.id },
+        });
+        if (choferByUser) choferId = choferByUser.id;
+      }
+
+      if (!choferId) {
+        const fallbackChofer = await prisma.chofer.findFirst({
+          where: { estado: 'ACTIVO' },
+        });
+        choferId = fallbackChofer?.id;
+      }
+
+      if (!choferId) {
+        return res.status(401).json({
+          success: false,
+          message: 'No se pudo identificar al chofer',
+        });
+      }
+
+      if (enPausa) {
+        const viajeActivo = await prisma.viaje.findFirst({
+          where: {
+            choferId,
+            estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] }
+          }
+        });
+        if (viajeActivo) {
+          return res.status(400).json({
+            success: false,
+            message: 'No puedes pausar tu turno mientras tienes un viaje en curso.',
+          });
+        }
+      }
+
+      const chofer = await prisma.chofer.findUnique({
+        where: { id: choferId },
+        include: { vehiculo: true }
+      });
+
+      if (!chofer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      let obsObj: any = {};
+      try {
+        if (chofer.observaciones && chofer.observaciones.startsWith('{')) {
+          obsObj = JSON.parse(chofer.observaciones);
+        }
+      } catch (e) {
+        obsObj = {};
+      }
+
+      obsObj.enPausa = Boolean(enPausa);
+      obsObj.motivoPausa = enPausa ? (motivo || 'Descanso') : null;
+      obsObj.pausaInicio = enPausa ? new Date().toISOString() : null;
+
+      const updatedChofer = await prisma.chofer.update({
+        where: { id: choferId },
+        data: {
+          observaciones: JSON.stringify(obsObj)
+        },
+        include: { vehiculo: true }
+      });
+
+      // Notificar por WebSockets a la sala de la remisería
+      try {
+        const { getIO } = await import('../lib/socket');
+        const io = getIO();
+        if (io && chofer.remiseriaId) {
+          const estadoVehiculo = enPausa ? 'en_pausa' : 'disponible';
+          io.to(chofer.remiseriaId).emit('chofer_pausa_cambiada', {
+            choferId,
+            enPausa: Boolean(enPausa),
+            motivo: obsObj.motivoPausa,
+            nombre: `${chofer.nombre} ${chofer.apellido}`,
+            estado: estadoVehiculo
+          });
+
+          io.to(chofer.remiseriaId).emit('vehiculo_movido', {
+            id: chofer.vehiculoId || chofer.id,
+            choferId: chofer.id,
+            vehiculoId: chofer.vehiculoId,
+            patente: chofer.vehiculo?.patente || 'Auto Propio',
+            chofer: `${chofer.nombre} ${chofer.apellido}`,
+            estado: estadoVehiculo,
+            motivoPausa: obsObj.motivoPausa
+          });
+        }
+      } catch (wsErr) {
+        console.warn('Aviso socket al pausar turno:', wsErr);
+      }
+
+      res.json({
+        success: true,
+        data: {
+          enPausa: Boolean(enPausa),
+          motivoPausa: obsObj.motivoPausa,
+          pausaInicio: obsObj.pausaInicio,
+        },
+        message: enPausa
+          ? `Turno pausado (${obsObj.motivoPausa}). No recibirás viajes hasta reanudar.`
+          : '¡Turno reanudado! Ya estás disponible para recibir viajes.',
+      });
+    } catch (error) {
+      console.error('Error al cambiar pausa de turno:', error);
       res.status(500).json({
         success: false,
         message: 'Error interno del servidor',
@@ -1143,7 +1298,7 @@ export const choferController = {
   async actualizarEstadoViaje(req: AuthenticatedRequest, res: Response) {
     try {
       const { viajeId } = req.params;
-      const { estado, distanciaKmConPasajero, distanciaKmSinPasajero } = req.body;
+      const { estado, distanciaKmConPasajero, distanciaKmSinPasajero, metodoPago } = req.body;
 
       const estadosValidos = ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO', 'COMPLETADO', 'CANCELADO'];
       if (!estado || !estadosValidos.includes(estado)) {
@@ -1173,6 +1328,9 @@ export const choferController = {
       }
       if (distSin !== undefined && !isNaN(distSin)) {
         updateData.distanciaKmSinPasajero = distSin;
+      }
+      if (metodoPago && ['EFECTIVO', 'TRANSFERENCIA'].includes(metodoPago)) {
+        updateData.metodoPago = metodoPago;
       }
 
       const viajeActualizado = await prisma.viaje.update({
@@ -1219,6 +1377,20 @@ export const choferController = {
         }
       }
 
+      // Emitir evento por socket para notificar al cliente y coordinador en tiempo real
+      try {
+        const { getIO } = await import('../lib/socket');
+        const ioInstance = getIO();
+        ioInstance.to(viaje.remiseriaId).emit('viaje_estado_actualizado', {
+          viajeId: viaje.id,
+          estado,
+          mensaje: estado === 'EN_CAMINO' ? '¡El chofer está esperando afuera!' : undefined,
+          viaje: viajeActualizado,
+        });
+      } catch (errSocket) {
+        // Sockets opcional
+      }
+
       res.json({
         success: true,
         data: viajeActualizado,
@@ -1238,6 +1410,13 @@ export const choferController = {
     try {
       let choferId = req.user?.chofer?.id || (req.query.choferId as string | undefined);
 
+      if (!choferId && req.user?.id) {
+        const choferByUser = await prisma.chofer.findFirst({
+          where: { userId: req.user.id },
+        });
+        if (choferByUser) choferId = choferByUser.id;
+      }
+
       if (!choferId) {
         const fallbackChofer = await prisma.chofer.findFirst({
           where: { estado: 'ACTIVO' },
@@ -1252,10 +1431,39 @@ export const choferController = {
         });
       }
 
+      const { fecha, desde, hasta } = req.query;
+      const whereClause: any = { choferId };
+
+      if (fecha && typeof fecha === 'string') {
+        const parts = fecha.split('-');
+        if (parts.length === 3) {
+          const year = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1;
+          const day = parseInt(parts[2], 10);
+          const startOfDay = new Date(year, month, day, 0, 0, 0, 0);
+          const endOfDay = new Date(year, month, day, 23, 59, 59, 999);
+          whereClause.fecha = { gte: startOfDay, lte: endOfDay };
+        }
+      } else if (desde || hasta) {
+        whereClause.fecha = {};
+        if (desde && typeof desde === 'string') {
+          const parts = desde.split('-');
+          whereClause.fecha.gte =
+            parts.length === 3
+              ? new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 0, 0, 0, 0)
+              : new Date(desde);
+        }
+        if (hasta && typeof hasta === 'string') {
+          const parts = hasta.split('-');
+          whereClause.fecha.lte =
+            parts.length === 3
+              ? new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 23, 59, 59, 999)
+              : new Date(hasta);
+        }
+      }
+
       const viajes = await prisma.viaje.findMany({
-        where: {
-          choferId,
-        },
+        where: whereClause,
         include: {
           cliente: {
             select: {
@@ -1283,6 +1491,116 @@ export const choferController = {
       });
     } catch (error) {
       console.error('Error obteniendo viajes del chofer:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // Obtener historial de turnos del chofer (con métricas y vehículo)
+  async getMisTurnos(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id || (req.query.choferId as string | undefined);
+
+      if (!choferId && req.user?.id) {
+        const choferByUser = await prisma.chofer.findFirst({
+          where: { userId: req.user.id },
+        });
+        if (choferByUser) choferId = choferByUser.id;
+      }
+
+      if (!choferId) {
+        const fallbackChofer = await prisma.chofer.findFirst({
+          where: { estado: 'ACTIVO' },
+        });
+        choferId = fallbackChofer?.id;
+      }
+
+      if (!choferId) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      const { fecha, desde, hasta } = req.query;
+      const whereClause: any = { choferId };
+
+      if (fecha && typeof fecha === 'string') {
+        const parts = fecha.split('-');
+        if (parts.length === 3) {
+          const year = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10) - 1;
+          const day = parseInt(parts[2], 10);
+          const startOfDay = new Date(year, month, day, 0, 0, 0, 0);
+          const endOfDay = new Date(year, month, day, 23, 59, 59, 999);
+          whereClause.OR = [
+            { fechaInicio: { gte: startOfDay, lte: endOfDay } },
+            { fechaFin: { gte: startOfDay, lte: endOfDay } },
+            { activo: true, fechaInicio: { lte: endOfDay } },
+          ];
+        }
+      } else if (desde || hasta) {
+        let dDate: Date | null = null;
+        let hDate: Date | null = null;
+
+        if (desde && typeof desde === 'string') {
+          const parts = desde.split('-');
+          dDate =
+            parts.length === 3
+              ? new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 0, 0, 0, 0)
+              : new Date(desde);
+        }
+        if (hasta && typeof hasta === 'string') {
+          const parts = hasta.split('-');
+          hDate =
+            parts.length === 3
+              ? new Date(parseInt(parts[0], 10), parseInt(parts[1], 10) - 1, parseInt(parts[2], 10), 23, 59, 59, 999)
+              : new Date(hasta);
+        }
+
+        if (dDate && hDate) {
+          whereClause.OR = [
+            { fechaInicio: { gte: dDate, lte: hDate } },
+            { fechaFin: { gte: dDate, lte: hDate } },
+            { activo: true, fechaInicio: { lte: hDate } },
+          ];
+        } else if (dDate) {
+          whereClause.OR = [
+            { fechaInicio: { gte: dDate } },
+            { fechaFin: { gte: dDate } },
+            { activo: true },
+          ];
+        } else if (hDate) {
+          whereClause.fechaInicio = { lte: hDate };
+        }
+      }
+
+      const turnos = await prisma.turnoChofer.findMany({
+        where: whereClause,
+        include: {
+          vehiculo: {
+            select: {
+              id: true,
+              patente: true,
+              marca: true,
+              modelo: true,
+              color: true,
+            },
+          },
+        },
+        orderBy: {
+          fechaInicio: 'desc',
+        },
+      });
+
+      res.json({
+        success: true,
+        data: turnos,
+      });
+    } catch (error) {
+      console.error('Error obteniendo turnos del chofer:', error);
       res.status(500).json({
         success: false,
         message: 'Error interno del servidor',
@@ -1934,6 +2252,7 @@ export const choferController = {
         remiseriaId,
         esPropietario,
         observaciones,
+        fotoUrl,
       } = req.body;
 
       // Validar campos obligatorios
@@ -2040,6 +2359,7 @@ export const choferController = {
             esPropietario: Boolean(esPropietario),
             comisionPorcentaje: remiseria.comisionPorcentaje || 30.0,
             observaciones: observaciones ? observaciones.trim() : null,
+            fotoUrl: fotoUrl || null,
             estado: 'PENDIENTE_APROBACION',
             isOnline: false,
           },
@@ -2250,6 +2570,164 @@ export const choferController = {
       res.status(500).json({
         success: false,
         message: 'Error interno del servidor al rechazar chofer',
+      });
+    }
+  },
+
+  // Obtener vehículos disponibles para que el chofer pueda seleccionar/cambiar su unidad
+  async getVehiculosDisponibles(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { chofer, rol, id: userId } = req.user!;
+      let remiseriaId = chofer?.remiseriaId;
+
+      if (!remiseriaId) {
+        if (rol === 'CHOFER') {
+          const ch = await prisma.chofer.findFirst({ where: { userId } });
+          remiseriaId = ch?.remiseriaId;
+        }
+      }
+
+      if (!remiseriaId) {
+        return res.status(400).json({
+          success: false,
+          message: 'No se pudo determinar la remisería del chofer',
+        });
+      }
+
+      const vehiculos = await prisma.vehiculo.findMany({
+        where: {
+          remiseriaId,
+          estado: 'ACTIVO',
+        },
+        select: {
+          id: true,
+          patente: true,
+          marca: true,
+          modelo: true,
+          anio: true,
+          color: true,
+          tipo: true,
+          capacidad: true,
+          estado: true,
+        },
+        orderBy: {
+          patente: 'asc',
+        },
+      });
+
+      res.json({
+        success: true,
+        data: vehiculos,
+      });
+    } catch (error) {
+      console.error('Error al obtener vehículos disponibles para chofer:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
+      });
+    }
+  },
+
+  // Permitir al chofer actualizar su perfil (vehículo asignado, foto de perfil)
+  async updateMiPerfil(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { chofer: reqChofer, id: userId } = req.user!;
+      const { vehiculoId, fotoUrl } = req.body;
+
+      let choferId = reqChofer?.id;
+      if (!choferId) {
+        const ch = await prisma.chofer.findFirst({ where: { userId } });
+        choferId = ch?.id;
+      }
+
+      if (!choferId) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      const choferActual = await prisma.chofer.findUnique({
+        where: { id: choferId },
+        include: { vehiculo: true },
+      });
+
+      if (!choferActual) {
+        return res.status(404).json({
+          success: false,
+          message: 'Chofer no encontrado',
+        });
+      }
+
+      const dataToUpdate: any = {};
+
+      if (vehiculoId !== undefined) {
+        if (vehiculoId === null || vehiculoId === '') {
+          dataToUpdate.vehiculoId = null;
+        } else {
+          const vehiculo = await prisma.vehiculo.findFirst({
+            where: {
+              id: vehiculoId,
+              remiseriaId: choferActual.remiseriaId,
+            },
+          });
+
+          if (!vehiculo) {
+            return res.status(400).json({
+              success: false,
+              message: 'El vehículo seleccionado no es válido para su agencia',
+            });
+          }
+
+          dataToUpdate.vehiculoId = vehiculoId;
+        }
+      }
+
+      if (fotoUrl !== undefined) {
+        dataToUpdate.fotoUrl = fotoUrl;
+      }
+
+      const choferActualizado = await prisma.chofer.update({
+        where: { id: choferId },
+        data: dataToUpdate,
+        include: {
+          vehiculo: true,
+          remiseria: {
+            select: {
+              id: true,
+              nombreFantasia: true,
+            },
+          },
+        },
+      });
+
+      // Si cambió de vehículo y tiene un turno activo, actualizar también el turno activo
+      if (vehiculoId !== undefined) {
+        await prisma.turnoChofer.updateMany({
+          where: { choferId, activo: true },
+          data: { vehiculoId: dataToUpdate.vehiculoId || null },
+        });
+
+        // Y si tiene un viaje en curso o aceptado, actualizar también el vehículo del viaje
+        await prisma.viaje.updateMany({
+          where: {
+            choferId,
+            estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] },
+          },
+          data: { vehiculoId: dataToUpdate.vehiculoId || null },
+        });
+      }
+
+      res.json({
+        success: true,
+        data: choferActualizado,
+        message: 'Perfil de chofer actualizado correctamente',
+      });
+    } catch (error) {
+      console.error('Error actualizando perfil del chofer:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor',
       });
     }
   },

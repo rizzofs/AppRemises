@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
+import { io, Socket } from 'socket.io-client';
 import { 
   MapPin, 
   Navigation, 
@@ -17,8 +18,56 @@ import {
   Calendar,
   Compass,
   ArrowRight,
-  Info
+  Info,
+  BellRing,
+  Volume2
 } from 'lucide-react';
+
+// Generador de tono de campana / timbre de llegada (Web Audio API nativo)
+function reproducirAlertaLlegada() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (AudioContextClass) {
+      const ctx = new AudioContextClass();
+      const now = ctx.currentTime;
+
+      // Primer tono
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(587.33, now); // D5
+      gain1.gain.setValueAtTime(0.35, now);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.35);
+
+      // Segundo tono más alto (campana)
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(880, now + 0.18); // A5
+      gain2.gain.setValueAtTime(0.4, now + 0.18);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.65);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.18);
+      osc2.stop(now + 0.65);
+    }
+  } catch (err) {
+    console.warn('Audio de llegada no disponible:', err);
+  }
+
+  // Vibración háptica en celulares
+  if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+    try {
+      navigator.vibrate([200, 100, 200, 100, 300]);
+    } catch {
+      // ignore
+    }
+  }
+}
 import { clienteService, coordinadorDashboardService } from '@/lib/api';
 import Link from 'next/link';
 
@@ -48,6 +97,90 @@ export default function ClienteApp() {
   const [estadoViaje, setEstadoViaje] = useState<'IDLE' | 'BUSCANDO' | 'ACEPTADO' | 'EN_CAMINO' | 'EN_CURSO'>('IDLE');
   const [isRequesting, setIsRequesting] = useState(false);
   const [isCanceling, setIsCanceling] = useState(false);
+
+  const previousEstadoRef = useRef<string | null>(null);
+  const activeViajeRef = useRef<any>(null);
+
+  useEffect(() => {
+    activeViajeRef.current = activeViaje;
+  }, [activeViaje]);
+
+  const notificarLlegadaChofer = (viajeInfo?: any) => {
+    reproducirAlertaLlegada();
+    const viajeTarget = viajeInfo || activeViajeRef.current;
+    const choferNombre = viajeTarget?.chofer?.nombre || 'El chofer';
+    const vehiculo = viajeTarget?.vehiculo || viajeTarget?.chofer?.vehiculo;
+    const autoStr = vehiculo ? ` (${vehiculo.marca} ${vehiculo.modelo} - ${vehiculo.patente})` : '';
+
+    toast(
+      `🚕 ¡${choferNombre}${autoStr} está en la puerta esperándote!`,
+      {
+        duration: 9000,
+        icon: '🔔',
+        style: {
+          background: '#047857',
+          color: '#ffffff',
+          fontWeight: 'bold',
+          fontSize: '13px',
+          borderRadius: '16px',
+          padding: '16px',
+          boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.25)',
+        },
+      }
+    );
+
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification('¡Tu remís ha llegado!', {
+          body: `${choferNombre}${autoStr} está esperándote afuera.`,
+          icon: '/favicon.ico',
+        });
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  // Conexión WebSocket para recibir avisos en tiempo real inmediatamente
+  useEffect(() => {
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+    const socket: Socket = io(socketUrl, {
+      transports: ['websocket'],
+      withCredentials: true,
+    });
+
+    socket.on('connect', () => {
+      const remId = user?.cliente?.remiseriaId || activeViajeRef.current?.remiseriaId;
+      if (remId) {
+        socket.emit('join_room', { remiseriaId: remId });
+      }
+    });
+
+    socket.on('viaje_estado_actualizado', (data: { viajeId: string; estado: string; mensaje?: string; viaje?: any }) => {
+      if (activeViajeRef.current && data.viajeId === activeViajeRef.current.id) {
+        if (data.estado === 'EN_CAMINO') {
+          if (previousEstadoRef.current !== 'EN_CAMINO') {
+            notificarLlegadaChofer(data.viaje);
+          }
+          setEstadoViaje('EN_CAMINO');
+          setActiveViaje((prev: any) => ({ ...(prev || {}), estado: 'EN_CAMINO', ...(data.viaje || {}) }));
+        } else if (data.estado === 'COMPLETADO') {
+          toast.success('¡Viaje finalizado! Gracias por viajar con nosotros.', { duration: 6000 });
+          resetRequestState();
+        } else if (data.estado === 'CANCELADO') {
+          toast.error('El viaje fue cancelado.');
+          resetRequestState();
+        } else if (data.estado === 'EN_CURSO') {
+          setEstadoViaje('EN_CURSO');
+          setActiveViaje((prev: any) => ({ ...(prev || {}), estado: 'EN_CURSO' }));
+        }
+      }
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [user?.cliente?.remiseriaId, activeViaje?.remiseriaId]);
   const [disponibilidad, setDisponibilidad] = useState<{
     hayAutosDisponibles: boolean;
     autosDisponibles: number;
@@ -105,13 +238,20 @@ export default function ClienteApp() {
 
   // Ayudante para setear estado según viaje
   const actualizarEstadoSegunViaje = (viaje: any) => {
+    const estadoAnterior = previousEstadoRef.current;
+    previousEstadoRef.current = viaje.estado;
+    activeViajeRef.current = viaje;
     setActiveViaje(viaje);
+
     if (viaje.estado === 'PENDIENTE') {
       setEstadoViaje('BUSCANDO');
     } else if (viaje.estado === 'ACEPTADO') {
       setEstadoViaje('ACEPTADO');
     } else if (viaje.estado === 'EN_CAMINO') {
       setEstadoViaje('EN_CAMINO');
+      if (estadoAnterior && estadoAnterior !== 'EN_CAMINO') {
+        notificarLlegadaChofer(viaje);
+      }
     } else if (viaje.estado === 'EN_CURSO') {
       setEstadoViaje('EN_CURSO');
     }
@@ -673,21 +813,41 @@ export default function ClienteApp() {
         {/* Caso 5: Viaje Aceptado / Chofer en camino */}
         {['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'].includes(estadoViaje) && activeViaje && (
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-150 dark:border-slate-800 overflow-hidden transition-colors">
-            <div className="bg-emerald-600 text-white p-4 text-center">
-              <h3 className="font-bold text-sm flex items-center justify-center gap-2">
-                <Car className="w-4 h-4" />
-                {estadoViaje === 'EN_CURSO' ? '¡Estás en viaje!' : '¡Tu remís está asignado!'}
-              </h3>
-              <p className="text-xxs text-emerald-100 mt-0.5">
-                {estadoViaje === 'EN_CURSO' ? 'Buen viaje a tu destino' : 'El chofer se encuentra en camino'}
-              </p>
-            </div>
+            {estadoViaje === 'EN_CAMINO' ? (
+              <div className="bg-amber-500 text-white p-4 text-center animate-pulse shadow-md">
+                <h3 className="font-black text-sm flex items-center justify-center gap-2">
+                  <BellRing className="w-5 h-5 animate-bounce" />
+                  ¡TU REMÍS HA LLEGADO!
+                </h3>
+                <p className="text-xs text-amber-100 mt-0.5 font-medium">
+                  El chofer se encuentra afuera esperándote en la puerta
+                </p>
+              </div>
+            ) : (
+              <div className="bg-emerald-600 text-white p-4 text-center">
+                <h3 className="font-bold text-sm flex items-center justify-center gap-2">
+                  <Car className="w-4 h-4" />
+                  {estadoViaje === 'EN_CURSO' ? '¡Estás en viaje!' : '¡Tu remís está asignado!'}
+                </h3>
+                <p className="text-xxs text-emerald-100 mt-0.5">
+                  {estadoViaje === 'EN_CURSO' ? 'Buen viaje a tu destino' : 'El chofer se encuentra en camino'}
+                </p>
+              </div>
+            )}
             
             <div className="p-5 space-y-4">
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center text-slate-600 dark:text-slate-300 font-black text-sm">
-                  {activeViaje.chofer?.nombre?.charAt(0) || 'C'}
-                </div>
+                {activeViaje.chofer?.fotoUrl ? (
+                  <img
+                    src={activeViaje.chofer.fotoUrl}
+                    alt={activeViaje.chofer.nombre || 'Chofer'}
+                    className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full object-cover border-2 border-emerald-500 shadow-sm"
+                  />
+                ) : (
+                  <div className="w-12 h-12 bg-slate-100 dark:bg-slate-800 rounded-full flex items-center justify-center text-slate-600 dark:text-slate-300 font-black text-sm">
+                    {activeViaje.chofer?.nombre?.charAt(0) || 'C'}
+                  </div>
+                )}
                 <div className="flex-1">
                   <h4 className="font-bold text-sm text-gray-900 dark:text-white">
                     {activeViaje.chofer

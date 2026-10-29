@@ -490,9 +490,13 @@ export default function CierreCajaPage() {
                       <span className="text-2xl font-black text-slate-800 block mt-1">
                         ${calculos.totalRecaudado.toLocaleString('es-AR')}
                       </span>
-                      <span className="text-[10px] text-slate-400 mt-1 block">
-                        {pendingData.viajes.length} viaje{pendingData.viajes.length > 1 ? 's' : ''} completados
-                      </span>
+                      <div className="text-[11px] text-slate-500 mt-1 flex flex-col gap-0.5">
+                        <span>{pendingData.viajes.length} viaje{pendingData.viajes.length > 1 ? 's' : ''}</span>
+                        <div className="flex gap-2 text-[10px] font-semibold pt-0.5">
+                          <span className="text-emerald-700">💵 Efec: ${(pendingData.resumen.totalEfectivo ?? 0).toLocaleString('es-AR')}</span>
+                          <span className="text-blue-700">💳 Transf: ${(pendingData.resumen.totalTransferencia ?? 0).toLocaleString('es-AR')}</span>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="bg-emerald-50/50 rounded-xl p-4 border border-emerald-100">
@@ -560,6 +564,7 @@ export default function CierreCajaPage() {
                             <th className="px-3 sm:px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase">Fecha/Hora</th>
                             <th className="px-3 sm:px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase">Cliente</th>
                             <th className="px-3 sm:px-4 py-2.5 text-left text-xs font-semibold text-slate-500 uppercase">Origen / Destino</th>
+                            <th className="px-3 sm:px-4 py-2.5 text-center text-xs font-semibold text-slate-500 uppercase">Pago</th>
                             <th className="px-3 sm:px-4 py-2.5 text-right text-xs font-semibold text-slate-500 uppercase">Importe</th>
                           </tr>
                         </thead>
@@ -591,6 +596,17 @@ export default function CierreCajaPage() {
                                 <div className="mt-0.5 line-clamp-1" title={viaje.destino}>
                                   <span className="font-semibold text-slate-700">Dest:</span> {viaje.destino}
                                 </div>
+                              </td>
+                              <td className="px-3 sm:px-4 py-3 whitespace-nowrap text-center">
+                                {viaje.metodoPago === 'TRANSFERENCIA' ? (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-800">
+                                    Transferencia
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                    Efectivo
+                                  </span>
+                                )}
                               </td>
                               <td className="px-3 sm:px-4 py-3 whitespace-nowrap text-xs sm:text-sm text-right font-bold text-slate-900">
                                 ${Number(viaje.precio).toLocaleString('es-AR', { minimumFractionDigits: 2 })}

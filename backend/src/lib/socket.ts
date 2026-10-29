@@ -136,6 +136,13 @@ export const initSocket = (server: HttpServer): Server => {
       }
     });
 
+    // Notificar cambio de estado de viaje (ej: chofer avisa que está esperando afuera)
+    socket.on('viaje_estado_cambiado', ({ remiseriaId, viajeId, estado, mensaje }: { remiseriaId: string; viajeId: string; estado: string; mensaje?: string }) => {
+      if (remiseriaId) {
+        io?.to(remiseriaId).emit('viaje_estado_actualizado', { viajeId, estado, mensaje });
+      }
+    });
+
     // Desconexión
     socket.on('disconnect', () => {
       console.log(`🔌 Cliente desconectado: ${socket.id}`);

@@ -83,6 +83,8 @@ export interface Cliente {
   updatedAt: string;
   userId: string;
   user?: User;
+  remiseriaId?: string;
+  remiseria?: Remiseria;
 }
 
 export interface CreateCoordinadorData {
@@ -98,6 +100,8 @@ export interface UpdateCoordinadorData {
   password?: string;
   activo?: boolean;
 }
+
+export type MetodoPago = 'EFECTIVO' | 'TRANSFERENCIA';
 
 // Chofer
 export interface Chofer {
@@ -116,6 +120,7 @@ export interface Chofer {
   observaciones?: string;
   esPropietario?: boolean;
   comisionPorcentaje?: number;
+  fotoUrl?: string;
   createdAt: string;
   updatedAt: string;
   remiseriaId: string;
@@ -137,6 +142,7 @@ export interface CreateChoferData {
   categoriaLicencia: string;
   vtoLicencia: string;
   remiseriaId: string;
+  fotoUrl?: string;
   vehiculoId?: string;
   esPropietario?: boolean;
   comisionPorcentaje?: number;
@@ -158,6 +164,7 @@ export interface UpdateChoferData {
   vehiculoId?: string;
   esPropietario?: boolean;
   comisionPorcentaje?: number;
+  fotoUrl?: string;
 }
 
 // Vehículo
@@ -224,6 +231,9 @@ export interface Viaje {
   precio: number;
   fecha: string;
   estado: 'PENDIENTE' | 'ACEPTADO' | 'EN_CAMINO' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO';
+  metodoPago?: MetodoPago;
+  distanciaKmConPasajero?: number;
+  distanciaKmSinPasajero?: number;
   observaciones?: string;
   createdAt: string;
   updatedAt: string;
@@ -491,15 +501,18 @@ export interface ViajeCliente {
   precio: number;
   fecha: string;
   estado: 'PENDIENTE' | 'ACEPTADO' | 'EN_CAMINO' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO';
+  metodoPago?: MetodoPago;
   observaciones?: string;
   createdAt: string;
   chofer?: {
     nombre: string;
     telefono: string;
+    fotoUrl?: string;
     vehiculo?: {
       patente: string;
       marca: string;
       modelo: string;
+      color?: string;
     };
   };
   remiseria?: {
@@ -551,6 +564,8 @@ export interface LiquidacionPendienteResumen {
   viajes: Viaje[];
   resumen: {
     totalRecaudado: number;
+    totalEfectivo?: number;
+    totalTransferencia?: number;
     comisionChofer: number;
     comisionAgencia: number;
     combustible: number;

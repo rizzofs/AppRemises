@@ -17,6 +17,13 @@ import {
   Sparkles,
   X,
   TrendingUp,
+  Banknote,
+  CreditCard,
+  Check,
+  Coffee,
+  Play,
+  Pause,
+  Utensils,
 } from 'lucide-react';
 import { choferService } from '@/lib/api';
 import { io, Socket } from 'socket.io-client';
@@ -60,9 +67,19 @@ export default function ChoferApp() {
   const [kmSinPasajero, setKmSinPasajero] = useState(0);
   const [kmTotalConectado, setKmTotalConectado] = useState(0);
 
+  // Pausa temporal de turno (Almuerzo / Baño / Combustible)
+  const [enPausa, setEnPausa] = useState(false);
+  const [motivoPausa, setMotivoPausa] = useState('Descanso');
+  const [isPausaModalOpen, setIsPausaModalOpen] = useState(false);
+  const [pausandoTurno, setPausandoTurno] = useState(false);
+
   // Modal para iniciar/finalizar turno con odómetro de tablero opcional
   const [modalConexion, setModalConexion] = useState<'INICIAR' | 'FINALIZAR' | null>(null);
   const [odometroInput, setOdometroInput] = useState('');
+
+  // Modal y selección de método de pago al finalizar viaje
+  const [modalFinalizarViaje, setModalFinalizarViaje] = useState(false);
+  const [metodoPagoSeleccionado, setMetodoPagoSeleccionado] = useState<'EFECTIVO' | 'TRANSFERENCIA'>('EFECTIVO');
 
   const lastAlertedIdRef = useRef<string | null>(null);
   const previousViajeIdRef = useRef<string | null>(null);
@@ -157,6 +174,11 @@ export default function ChoferApp() {
         setKmConPasajero(Number((turno.kmConPasajero || 0).toFixed(1)));
         setKmSinPasajero(Number((turno.kmSinPasajero || 0).toFixed(1)));
         setKmTotalConectado(Number((turno.kmTotalConectado || 0).toFixed(1)));
+      }
+
+      if (res.data.enPausa !== undefined) {
+        setEnPausa(Boolean(res.data.enPausa));
+        if (res.data.motivoPausa) setMotivoPausa(res.data.motivoPausa);
       }
 
       // Si el chofer ya tenía un viaje en curso y desapareció
@@ -398,6 +420,40 @@ export default function ChoferApp() {
     }
   };
 
+  const handleTogglePausa = async (nuevoEstado: boolean, motivo?: string) => {
+    if (viajeActual && nuevoEstado) {
+      toast.error('No puedes pausar tu turno mientras tienes un viaje en curso.');
+      return;
+    }
+    setPausandoTurno(true);
+    try {
+      const res = await choferService.togglePausa(nuevoEstado, motivo, user?.chofer?.id);
+      if (res.success && res.data) {
+        setEnPausa(Boolean(res.data.enPausa));
+        if (res.data.motivoPausa) setMotivoPausa(res.data.motivoPausa);
+        setIsPausaModalOpen(false);
+        if (nuevoEstado) {
+          setAlertaViaje(null);
+          toast.success(`Turno en pausa (${motivo || 'Descanso'}). ¡Buen refrigerio!`);
+          if (lastCoordsRef.current) {
+            emitirUbicacionGps(lastCoordsRef.current[0], lastCoordsRef.current[1], 'en_pausa');
+          }
+        } else {
+          toast.success('¡Turno reanudado! Ya estás disponible para recibir viajes.');
+          if (lastCoordsRef.current) {
+            emitirUbicacionGps(lastCoordsRef.current[0], lastCoordsRef.current[1], 'disponible');
+          }
+        }
+      } else {
+        toast.error(res.message || 'Error al cambiar estado de pausa');
+      }
+    } catch {
+      toast.error('Error de red al cambiar pausa de turno');
+    } finally {
+      setPausandoTurno(false);
+    }
+  };
+
   const handleToggleClick = () => {
     if (!isActive) {
       setModalConexion('INICIAR');
@@ -466,6 +522,14 @@ export default function ChoferApp() {
       const res = await choferService.actualizarEstadoViaje(viajeActual.id, 'EN_CAMINO');
       if (res.success && res.data) {
         setViajeActual(res.data);
+        if (socketRef.current?.connected) {
+          socketRef.current.emit('viaje_estado_cambiado', {
+            remiseriaId: user?.chofer?.remiseriaId,
+            viajeId: viajeActual.id,
+            estado: 'EN_CAMINO',
+            mensaje: '¡El chofer está esperando afuera!'
+          });
+        }
         toast.success('Avisamos al cliente que estás esperando afuera');
       } else {
         toast.error(res.message || 'Error al actualizar el estado del viaje');
@@ -497,18 +561,20 @@ export default function ChoferApp() {
     }
   };
 
-  const finalizarViaje = async () => {
+  const abrirModalFinalizar = () => {
     if (!viajeActual || actionLoading) return;
-    const confirmacion = window.confirm(
-      '¿Estás seguro de que deseas finalizar el viaje ahora? Verifica que hayas llegado a destino.'
-    );
+    setMetodoPagoSeleccionado('EFECTIVO');
+    setModalFinalizarViaje(true);
+  };
 
-    if (!confirmacion) return;
+  const confirmarFinalizarViaje = async () => {
+    if (!viajeActual || actionLoading) return;
 
     if (String(viajeActual.id).startsWith('viaje-test')) {
       setViajeActual(null);
       tripDistanceRef.current = { con: 0, sin: 0 };
-      toast.success('Viaje completado. ¡Buen trabajo!');
+      setModalFinalizarViaje(false);
+      toast.success(`Viaje completado. Cobrado en ${metodoPagoSeleccionado === 'EFECTIVO' ? 'Efectivo 💵' : 'Transferencia 💳'}`);
       return;
     }
 
@@ -520,13 +586,15 @@ export default function ChoferApp() {
       const res = await choferService.actualizarEstadoViaje(viajeActual.id, 'COMPLETADO', {
         distanciaKmConPasajero: distCon,
         distanciaKmSinPasajero: distSin,
+        metodoPago: metodoPagoSeleccionado,
       });
 
       if (res.success) {
         previousViajeIdRef.current = null;
         tripDistanceRef.current = { con: 0, sin: 0 };
         setViajeActual(null);
-        toast.success('Viaje completado. ¡Buen trabajo!');
+        setModalFinalizarViaje(false);
+        toast.success(`¡Viaje completado! Cobro en ${metodoPagoSeleccionado === 'EFECTIVO' ? 'Efectivo 💵' : 'Transferencia 💳'}`);
         await sincronizarEstado(isActive);
       } else {
         toast.error(res.message || 'Error al finalizar el viaje');
@@ -606,33 +674,86 @@ export default function ChoferApp() {
         </div>
       ) : (
         <div className="space-y-3">
-          {/* Barra de Estado Conectado */}
-          <div className="bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl p-4 shadow-sm border border-emerald-100 dark:border-emerald-800/40 flex items-center justify-between transition-colors">
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <div className="w-3.5 h-3.5 bg-emerald-500 rounded-full animate-ping absolute"></div>
-                <div className="w-3.5 h-3.5 bg-emerald-500 rounded-full relative"></div>
+          {/* Barra de Estado: En Línea vs En Pausa */}
+          {enPausa ? (
+            <div className="bg-amber-50 dark:bg-amber-950/40 rounded-2xl p-4 shadow-sm border border-amber-200 dark:border-amber-800/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-sm">
+                  <Coffee className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-amber-900 dark:text-amber-200 leading-tight">TURNO EN PAUSA</p>
+                    <span className="text-[10px] bg-amber-200/80 dark:bg-amber-900 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded-full font-bold">
+                      {motivoPausa || 'Descanso'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                    No recibirás viajes mientras estés en descanso. Tu turno sigue abierto.
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="font-bold text-emerald-900 dark:text-emerald-200 leading-tight">EN LÍNEA</p>
-                <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                  {viajeActual
-                    ? viajeActual.estado === 'EN_CURSO'
-                      ? 'Con pasajero a bordo'
-                      : 'Yendo a buscar al pasajero'
-                    : 'Esperando solicitudes de viaje...'}
-                </p>
+
+              <div className="flex items-center gap-2 self-end sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => handleTogglePausa(false)}
+                  disabled={pausandoTurno}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <Play className="w-3.5 h-3.5 fill-current" />
+                  <span>Reanudar Turno</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleToggleClick}
+                  disabled={Boolean(viajeActual) || actionLoading}
+                  className="px-3 py-2 bg-white dark:bg-slate-800 text-gray-600 dark:text-slate-300 text-xs font-semibold rounded-xl border border-gray-200 dark:border-slate-700 hover:bg-gray-50 transition-colors"
+                >
+                  Finalizar Turno
+                </button>
               </div>
             </div>
+          ) : (
+            <div className="bg-emerald-50 dark:bg-emerald-950/40 rounded-2xl p-4 shadow-sm border border-emerald-100 dark:border-emerald-800/40 flex items-center justify-between transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="w-3.5 h-3.5 bg-emerald-500 rounded-full animate-ping absolute"></div>
+                  <div className="w-3.5 h-3.5 bg-emerald-500 rounded-full relative"></div>
+                </div>
+                <div>
+                  <p className="font-bold text-emerald-900 dark:text-emerald-200 leading-tight">EN LÍNEA</p>
+                  <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                    {viajeActual
+                      ? viajeActual.estado === 'EN_CURSO'
+                        ? 'Con pasajero a bordo'
+                        : 'Yendo a buscar al pasajero'
+                      : 'Esperando solicitudes de viaje...'}
+                  </p>
+                </div>
+              </div>
 
-            <button
-              onClick={handleToggleClick}
-              disabled={Boolean(viajeActual) || actionLoading}
-              className="px-3.5 py-1.5 bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 text-xs font-semibold rounded-xl shadow-xs border border-gray-200 dark:border-slate-700 active:bg-gray-50 dark:active:bg-slate-700 disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
-            >
-              Desconectarse
-            </button>
-          </div>
+              <div className="flex items-center gap-2">
+                {!viajeActual && (
+                  <button
+                    type="button"
+                    onClick={() => setIsPausaModalOpen(true)}
+                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold rounded-xl shadow-xs flex items-center gap-1 transition-all cursor-pointer"
+                  >
+                    <Coffee className="w-3.5 h-3.5" />
+                    <span>Pausar</span>
+                  </button>
+                )}
+                <button
+                  onClick={handleToggleClick}
+                  disabled={Boolean(viajeActual) || actionLoading}
+                  className="px-3.5 py-1.5 bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-200 text-xs font-semibold rounded-xl shadow-xs border border-gray-200 dark:border-slate-700 active:bg-gray-50 dark:active:bg-slate-700 disabled:opacity-50 hover:bg-gray-50 dark:hover:bg-slate-700 transition-colors"
+                >
+                  Desconectarse
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Widget de Odometría / Kilometraje del Turno en Tiempo Real */}
           <div className="bg-slate-900 text-white rounded-2xl p-4 shadow-md">
@@ -850,7 +971,7 @@ export default function ChoferApp() {
 
               {viajeActual.estado === 'EN_CURSO' && (
                 <button
-                  onClick={finalizarViaje}
+                  onClick={abrirModalFinalizar}
                   disabled={actionLoading}
                   className="w-full py-3.5 bg-emerald-600 text-white font-bold rounded-xl shadow-md shadow-emerald-500/20 disabled:opacity-50 text-sm"
                 >
@@ -929,6 +1050,174 @@ export default function ChoferApp() {
                 className="flex-1 py-2.5 bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold rounded-xl shadow-xs transition-colors"
               >
                 {modalConexion === 'INICIAR' ? 'Conectarse' : 'Desconectarse'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Modal para Pausar Turno (Almuerzo / Baño / Combustible) */}
+      {isPausaModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-sm rounded-2xl p-5 shadow-2xl border border-transparent dark:border-slate-800 space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <Coffee className="w-5 h-5 text-amber-500" />
+                <h3 className="font-bold text-gray-800 dark:text-white text-sm">Pausar Turno Temporalmente</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPausaModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-white p-1 rounded-full"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-600 dark:text-slate-300">
+              Seleccioná el motivo de tu descanso. Tu turno y odómetro seguirán activos, pero no te asignaremos viajes hasta que reanudes:
+            </p>
+
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { label: 'Almorzar / Comer', icon: '🍔', motivo: 'Almuerzo' },
+                { label: 'Baño / Refrigerio', icon: '🚻', motivo: 'Baño' },
+                { label: 'Cargar GNC / Nafta', icon: '⛽', motivo: 'Combustible' },
+                { label: 'Pausa Personal', icon: '☕', motivo: 'Descanso' },
+              ].map((item) => (
+                <button
+                  key={item.motivo}
+                  type="button"
+                  disabled={pausandoTurno}
+                  onClick={() => handleTogglePausa(true, item.motivo)}
+                  className="p-3 rounded-xl border border-gray-200 dark:border-slate-800 bg-gray-50 dark:bg-slate-800/60 hover:border-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30 text-left transition-all flex flex-col gap-1 cursor-pointer"
+                >
+                  <span className="text-2xl">{item.icon}</span>
+                  <span className="text-xs font-bold text-gray-800 dark:text-slate-200 leading-tight">
+                    {item.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setIsPausaModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-gray-500 hover:text-gray-700 dark:hover:text-slate-300 cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para Finalizar Viaje y Elegir Método de Pago */}
+      {modalFinalizarViaje && viajeActual && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-md shadow-2xl border border-gray-100 dark:border-slate-800 space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                  <CheckCircle className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-gray-900 dark:text-white">Finalizar Viaje</h3>
+                  <p className="text-xs text-gray-500 dark:text-slate-400">Seleccioná cómo abonó el pasajero</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setModalFinalizarViaje(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Resumen del viaje */}
+            <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-gray-500 dark:text-slate-400">Total a Cobrar</span>
+                <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">
+                  ${Number(viajeActual.precio || 0).toLocaleString('es-AR')}
+                </span>
+              </div>
+              <div className="text-xs text-gray-700 dark:text-slate-300 flex items-center gap-1.5 pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
+                <MapPin className="w-3.5 h-3.5 text-red-500 shrink-0" />
+                <span className="truncate">{viajeActual.destino}</span>
+              </div>
+            </div>
+
+            {/* Opciones de Método de Pago */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-gray-700 dark:text-slate-300 block">
+                Método de Pago:
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setMetodoPagoSeleccionado('EFECTIVO')}
+                  className={`p-3.5 rounded-2xl border text-left flex flex-col justify-between transition-all ${
+                    metodoPagoSeleccionado === 'EFECTIVO'
+                      ? 'border-emerald-500 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 ring-2 ring-emerald-500/20'
+                      : 'border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full mb-2">
+                    <div className="p-2 rounded-xl bg-emerald-100/80 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300">
+                      <Banknote className="w-5 h-5" />
+                    </div>
+                    {metodoPagoSeleccionado === 'EFECTIVO' && (
+                      <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-bold text-sm">Efectivo</p>
+                    <p className="text-[11px] text-gray-500 dark:text-slate-400">Dinero en mano</p>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setMetodoPagoSeleccionado('TRANSFERENCIA')}
+                  className={`p-3.5 rounded-2xl border text-left flex flex-col justify-between transition-all ${
+                    metodoPagoSeleccionado === 'TRANSFERENCIA'
+                      ? 'border-blue-500 bg-blue-50/70 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200 ring-2 ring-blue-500/20'
+                      : 'border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between w-full mb-2">
+                    <div className="p-2 rounded-xl bg-blue-100/80 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">
+                      <CreditCard className="w-5 h-5" />
+                    </div>
+                    {metodoPagoSeleccionado === 'TRANSFERENCIA' && (
+                      <Check className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-bold text-sm">Transferencia</p>
+                    <p className="text-[11px] text-gray-500 dark:text-slate-400">MP / Banco</p>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            {/* Botones de acción */}
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setModalFinalizarViaje(false)}
+                className="flex-1 py-3 text-xs font-semibold text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                onClick={confirmarFinalizarViaje}
+                disabled={actionLoading}
+                className="flex-2 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/20 disabled:opacity-50 transition-all flex items-center justify-center gap-1.5"
+              >
+                {actionLoading ? 'Finalizando...' : 'Confirmar y Finalizar'}
               </button>
             </div>
           </div>

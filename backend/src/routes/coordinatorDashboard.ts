@@ -47,6 +47,10 @@ router.get('/choferes/tiempo-real', coordinatorDashboardController.getChoferesTi
 // Obtener estadísticas del dashboard
 router.get('/stats', coordinatorDashboardController.getDashboardStats);
 
+// Despacho Óptimo por Lotes (Batch Matching tipo Uber)
+router.get('/despacho-optimo', coordinatorDashboardController.getDespachoOptimo);
+router.post('/despacho-optimo/aplicar', coordinatorDashboardController.aplicarDespachoOptimo);
+
 // Liquidaciones y Cierre de Caja
 router.get('/liquidaciones/resumen-coordinador', liquidacionController.getResumenCoordinador);
 router.get('/liquidaciones/duenio/historial', liquidacionController.getHistorialDuenio);

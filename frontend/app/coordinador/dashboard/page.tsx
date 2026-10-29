@@ -26,7 +26,10 @@ import {
   Loader2,
   CheckCircle2,
   X,
-  PanelRight
+  PanelRight,
+  Zap,
+  Sparkles,
+  ArrowRight
 } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -50,6 +53,57 @@ export default function CoordinadorDashboard() {
   const [selectedChoferId, setSelectedChoferId] = useState('');
   const [selectedVehiculoId, setSelectedVehiculoId] = useState('');
   const [asignandoViaje, setAsignandoViaje] = useState(false);
+
+  // Despacho Óptimo por Lotes (Batch Matching tipo Uber)
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
+  const [batchResult, setBatchResult] = useState<any>(null);
+  const [isLoadingBatch, setIsLoadingBatch] = useState(false);
+  const [isApplyingBatch, setIsApplyingBatch] = useState(false);
+
+  const abrirModalLoteOptimo = async () => {
+    setIsLoadingBatch(true);
+    setIsBatchModalOpen(true);
+    try {
+      const res = await coordinadorDashboardService.getDespachoOptimo();
+      if (res && res.success) {
+        setBatchResult(res);
+      } else {
+        toast.error(res?.message || 'Error al calcular lote de despacho');
+      }
+    } catch (error) {
+      console.error('Error calculando lote:', error);
+      toast.error('Error al conectar con el optimizador de despacho');
+    } finally {
+      setIsLoadingBatch(false);
+    }
+  };
+
+  const aplicarLoteOptimo = async () => {
+    if (!batchResult || !batchResult.matches || batchResult.matches.length === 0) return;
+    setIsApplyingBatch(true);
+    try {
+      const matchesPayload = batchResult.matches.map((m: any) => ({
+        viajeId: m.viajeId,
+        choferId: m.choferId,
+        vehiculoId: m.vehiculoId
+      }));
+
+      const res = await coordinadorDashboardService.aplicarDespachoOptimo(matchesPayload);
+      if (res && res.success) {
+        toast.success(res.message || '¡Lote de viajes despachado con éxito!');
+        setIsBatchModalOpen(false);
+        setBatchResult(null);
+        fetchData();
+      } else {
+        toast.error(res?.message || 'Error al aplicar las asignaciones');
+      }
+    } catch (error) {
+      console.error('Error aplicando lote:', error);
+      toast.error('Error de red al aplicar el lote');
+    } finally {
+      setIsApplyingBatch(false);
+    }
+  };
 
   // Real data state
   const [stats, setStats] = useState({
@@ -706,12 +760,21 @@ export default function CoordinadorDashboard() {
                 </p>
               </div>
             </div>
-            <button 
-              onClick={() => setActiveTab('sin-asignar')}
-              className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-red-700 transition-colors self-start sm:self-auto shrink-0"
-            >
-              Ver Viajes
-            </button>
+            <div className="flex items-center space-x-2 self-start sm:self-auto shrink-0">
+              <button 
+                onClick={abrirModalLoteOptimo}
+                className="bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center space-x-1.5 shadow transition-all hover:scale-105 cursor-pointer"
+              >
+                <Zap className="h-3.5 w-3.5 fill-current" />
+                <span>Despacho Óptimo (Lote)</span>
+              </button>
+              <button 
+                onClick={() => setActiveTab('sin-asignar')}
+                className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-red-700 transition-colors"
+              >
+                Ver Viajes
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -927,14 +990,24 @@ export default function CoordinadorDashboard() {
 
             {activeTab === 'sin-asignar' && (
               <div>
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-gray-900">Viajes Sin Asignar ({filteredSinAsignar.length})</h3>
-                  {hasAlerts && (
-                    <div className="flex items-center space-x-1.5 bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-medium">
-                      <AlertTriangle className="h-3.5 w-3.5" />
-                      <span>Requiere atención</span>
-                    </div>
-                  )}
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                  <div className="flex items-center space-x-3">
+                    <h3 className="text-lg font-semibold text-gray-900">Viajes Sin Asignar ({filteredSinAsignar.length})</h3>
+                    {hasAlerts && (
+                      <div className="flex items-center space-x-1.5 bg-red-100 text-red-800 px-3 py-1 rounded-full text-xs font-medium">
+                        <AlertTriangle className="h-3.5 w-3.5" />
+                        <span>Requiere atención</span>
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={abrirModalLoteOptimo}
+                    className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-700 text-white px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center space-x-2 shadow-md transition-all hover:scale-[1.02] cursor-pointer"
+                  >
+                    <Zap className="h-4 w-4 fill-current" />
+                    <span>Despacho Óptimo por Lotes (AI / Uber)</span>
+                  </button>
                 </div>
                 <div className="bg-white rounded-xl shadow-sm border-2 border-red-200 overflow-hidden">
                   <div className="overflow-x-auto">
@@ -1820,6 +1893,176 @@ export default function CoordinadorDashboard() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* Modal de Despacho Óptimo por Lotes (Batch Matching) */}
+      {isBatchModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl border border-gray-100 overflow-hidden my-8 animate-in fade-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 p-6 text-white flex justify-between items-center">
+              <div>
+                <h3 className="text-xl font-bold flex items-center gap-2">
+                  <Zap className="h-6 w-6 fill-current" />
+                  <span>Despacho Óptimo por Lotes</span>
+                </h3>
+                <p className="text-xs text-amber-100 mt-1">
+                  Algoritmo Global de Asignación Bipartita (Kuhn-Munkres / Uber-style)
+                </p>
+              </div>
+              <button
+                onClick={() => setIsBatchModalOpen(false)}
+                className="p-1 rounded-full hover:bg-white/20 transition-colors text-white"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 space-y-5">
+              {isLoadingBatch ? (
+                <div className="py-12 text-center space-y-4">
+                  <Loader2 className="h-10 w-10 animate-spin text-amber-500 mx-auto" />
+                  <p className="text-sm font-semibold text-gray-700">
+                    Calculando matriz de distancias y tiempos de llegada óptimos...
+                  </p>
+                  <p className="text-xs text-gray-400 max-w-md mx-auto">
+                    Evaluando todas las combinaciones posibles entre choferes libres y viajes pendientes para minimizar la espera global.
+                  </p>
+                </div>
+              ) : !batchResult || batchResult.matches?.length === 0 ? (
+                <div className="py-10 text-center space-y-3">
+                  <div className="w-12 h-12 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto">
+                    <Sparkles className="h-6 w-6" />
+                  </div>
+                  <h4 className="text-base font-bold text-gray-800">
+                    {batchResult?.mensaje || 'No hay suficientes viajes o choferes libres para formar un lote'}
+                  </h4>
+                  <p className="text-xs text-gray-500 max-w-sm mx-auto">
+                    Para ejecutar una asignación por lotes se requiere al menos 1 viaje pendiente y 1 chofer conectado y disponible.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  {/* Banner de Métricas del Lote */}
+                  <div className="grid grid-cols-3 gap-3 bg-gradient-to-br from-amber-50 to-orange-50 p-4 rounded-xl border border-amber-200">
+                    <div className="text-center">
+                      <span className="block text-2xl font-black text-amber-600">
+                        {batchResult.matches.length}
+                      </span>
+                      <span className="text-[11px] font-semibold text-gray-600 uppercase">
+                        Viajes Asignados
+                      </span>
+                    </div>
+                    <div className="text-center border-x border-amber-200">
+                      <span className="block text-2xl font-black text-emerald-600">
+                        {batchResult.ahorroTotalMinutos > 0 ? `-${batchResult.ahorroTotalMinutos} min` : 'Óptimo'}
+                      </span>
+                      <span className="text-[11px] font-semibold text-gray-600 uppercase">
+                        Ahorro de Espera
+                      </span>
+                    </div>
+                    <div className="text-center">
+                      <span className="block text-2xl font-black text-blue-600">
+                        {batchResult.porcentajeMejora > 0 ? `+${batchResult.porcentajeMejora}%` : '100%'}
+                      </span>
+                      <span className="text-[11px] font-semibold text-gray-600 uppercase">
+                        Eficiencia Flota
+                      </span>
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-gray-600 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                    💡 <strong>¿Cómo funciona?</strong> A diferencia de asignar choferes uno a uno al azar, el algoritmo evalúa a todos los pasajeros y autos simultáneamente, encontrando el reparto que minimiza el tiempo total que espera cada cliente y el gasto de nafta de los choferes.
+                  </p>
+
+                  {/* Lista de Asignaciones Sugeridas */}
+                  <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
+                    <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Asignaciones Sugeridas en este Lote:
+                    </h4>
+                    {batchResult.matches.map((m: any, idx: number) => (
+                      <div
+                        key={m.viajeId}
+                        className="p-3.5 rounded-xl border border-gray-200 bg-white hover:border-amber-400 hover:shadow-sm transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      >
+                        {/* Pasajero y Viaje */}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="w-5 h-5 bg-amber-100 text-amber-800 rounded-full flex items-center justify-center text-xs font-bold shrink-0">
+                              {idx + 1}
+                            </span>
+                            <span className="font-semibold text-sm text-gray-900 truncate">
+                              {m.viaje.clienteNombre}
+                            </span>
+                            {m.viaje.tiempoEsperaMinutos > 0 && (
+                              <span className="text-[10px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-medium shrink-0">
+                                Espera: {m.viaje.tiempoEsperaMinutos}m
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-gray-600 truncate mt-1 pl-7">
+                            📍 {m.viaje.origen} ➔ {m.viaje.destino}
+                          </p>
+                        </div>
+
+                        {/* Indicador de Distancia / ETA */}
+                        <div className="flex items-center justify-center px-2 py-1 bg-amber-50 rounded-lg text-amber-800 text-xs font-bold shrink-0">
+                          <span>{m.distanciaKm} km (~{m.etaMinutos} min)</span>
+                        </div>
+
+                        {/* Chofer Asignado */}
+                        <div className="flex-1 min-w-0 text-left sm:text-right pl-7 sm:pl-0">
+                          <p className="text-xs font-bold text-gray-900 truncate">
+                            🚗 {m.chofer.nombre} {m.chofer.apellido}
+                          </p>
+                          <p className="text-[11px] text-gray-500 truncate">
+                            {m.vehiculo ? `${m.vehiculo.patente} (${m.vehiculo.marca} ${m.vehiculo.modelo})` : 'Auto Vinculado'}
+                          </p>
+                          {(m.chofer.minutosEsperandoTurno !== undefined || m.chofer.recaudadoHoy !== undefined) && (
+                            <p className="text-[10px] text-emerald-700 font-medium truncate mt-0.5">
+                              ⏱️ En fila: {m.chofer.minutosEsperandoTurno ?? 0}m · 💰 Hoy: ${(m.chofer.recaudadoHoy ?? 0).toLocaleString()}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Botones de Acción */}
+              <div className="flex justify-end space-x-3 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setIsBatchModalOpen(false)}
+                  className="px-4 py-2.5 border border-gray-300 rounded-xl text-gray-700 hover:bg-gray-50 font-medium text-sm transition-colors"
+                >
+                  Cerrar
+                </button>
+                {batchResult && batchResult.matches?.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={aplicarLoteOptimo}
+                    disabled={isApplyingBatch}
+                    className="flex-1 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-600 hover:to-orange-700 text-white py-2.5 px-5 rounded-xl font-bold transition-all flex items-center justify-center space-x-2 disabled:opacity-50 text-sm shadow-lg hover:shadow-orange-200 cursor-pointer"
+                  >
+                    {isApplyingBatch ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <span>Despachando flota...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="h-4 w-4 fill-current" />
+                        <span>Confirmar y Despachar Lote ({batchResult.matches.length} Viajes)</span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       )}

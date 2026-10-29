@@ -185,6 +185,7 @@ model Chofer {
   esPropietario    Boolean  @default(false)
   comisionPorcentaje Float  @default(30.0)
   isOnline         Boolean  @default(false)
+  fotoUrl          String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -282,6 +283,7 @@ model Viaje {
   // Kilometraje del viaje
   distanciaKmConPasajero Float? @default(0.0)
   distanciaKmSinPasajero Float? @default(0.0)
+  metodoPago  MetodoPago? @default(EFECTIVO)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -396,6 +398,11 @@ enum Prioridad {
   NORMAL
   ALTA
   URGENTE
+}
+
+enum MetodoPago {
+  EFECTIVO
+  TRANSFERENCIA
 }
 
 enum TipoReserva {

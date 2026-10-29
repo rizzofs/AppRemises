@@ -39,6 +39,8 @@ export interface AuthenticatedRequest extends Request {
       nombre: string;
       apellido: string;
       remiseriaId: string;
+      vehiculoId?: string | null;
+      fotoUrl?: string | null;
       estado?: string;
       motivoRechazo?: string | null;
     };

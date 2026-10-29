@@ -314,6 +314,7 @@ export const getClienteViajes = async (req: AuthenticatedRequest, res: Response)
             nombre: true,
             apellido: true,
             telefono: true,
+            fotoUrl: true,
             vehiculo: {
               select: {
                 id: true,
@@ -504,7 +505,9 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
         clienteNombre,
         clienteTelefono: cliente?.telefono,
         clienteEmail: cliente?.email,
-        remiseriaId: remiseria.id
+        remiseriaId: remiseria.id,
+        origenDetallado: latitudOrigen && longitudOrigen ? `${latitudOrigen},${longitudOrigen}` : undefined,
+        destinoDetallado: latitudDestino && longitudDestino ? `${latitudDestino},${longitudDestino}` : undefined
       },
       include: {
         chofer: {
@@ -513,6 +516,7 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
             nombre: true,
             apellido: true,
             telefono: true,
+            fotoUrl: true,
             vehiculo: {
               select: {
                 id: true,
