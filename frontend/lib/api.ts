@@ -566,7 +566,12 @@ export const choferService = {
   actualizarEstadoViaje: async (
     viajeId: string,
     estado: 'ACEPTADO' | 'EN_CAMINO' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO',
-    distancias?: { distanciaKmConPasajero?: number; distanciaKmSinPasajero?: number; metodoPago?: 'EFECTIVO' | 'TRANSFERENCIA' }
+    distancias?: {
+      distanciaKmConPasajero?: number;
+      distanciaKmSinPasajero?: number;
+      metodoPago?: 'EFECTIVO' | 'TRANSFERENCIA';
+      precioFinal?: number;
+    }
   ): Promise<ApiResponse<any>> => {
     try {
       const response = await api.patch(`/choferes/viajes/${viajeId}/estado`, {
@@ -578,6 +583,57 @@ export const choferService = {
       return {
         success: false,
         message: error.response?.data?.message || error.response?.data?.error || 'Error al actualizar estado del viaje',
+      };
+    }
+  },
+
+  agregarParada: async (
+    viajeId: string,
+    parada: { direccion: string; lat?: number; lon?: number }
+  ): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post(`/choferes/viajes/${viajeId}/paradas`, parada);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al agregar parada',
+      };
+    }
+  },
+
+  avisarLlegando: async (viajeId: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post(`/choferes/viajes/${viajeId}/avisar-llegando`);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al avisar llegada',
+      };
+    }
+  },
+
+  controlarEspera: async (viajeId: string, accion: 'INICIAR' | 'PAUSAR'): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post(`/choferes/viajes/${viajeId}/espera`, { accion });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al controlar espera',
+      };
+    }
+  },
+
+  enviarMensajeChat: async (viajeId: string, texto: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post(`/choferes/viajes/${viajeId}/chat`, { texto });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al enviar mensaje',
       };
     }
   },
@@ -1390,7 +1446,8 @@ export const clienteService = {
     latitudOrigen?: number,
     longitudOrigen?: number,
     latitudDestino?: number,
-    longitudDestino?: number
+    longitudDestino?: number,
+    paradas?: Array<{ direccion: string; lat?: number; lon?: number }>
   ): Promise<ApiResponse<CalculoPrecioData>> => {
     try {
       const response = await api.post('/cliente/viajes/calcular-precio', {
@@ -1399,7 +1456,8 @@ export const clienteService = {
         latitudOrigen,
         longitudOrigen,
         latitudDestino,
-        longitudDestino
+        longitudDestino,
+        paradas
       });
       return handleApiResponse<CalculoPrecioData>(response);
     } catch (error: any) {
@@ -1449,15 +1507,86 @@ export const clienteService = {
     }
   },
 
-  // Cancelar viaje
-  cancelarViaje: async (viajeId: string): Promise<ApiResponse<void>> => {
+  // Cancelar viaje con motivo opcional
+  cancelarViaje: async (viajeId: string, motivo?: string): Promise<ApiResponse<any>> => {
     try {
-      const response = await api.patch(`/cliente/viajes/${viajeId}/cancelar`);
-      return handleApiResponse<void>(response);
+      const response = await api.patch(`/cliente/viajes/${viajeId}/cancelar`, { motivo });
+      return handleApiResponse<any>(response);
     } catch (error: any) {
       return {
         success: false,
         message: error.response?.data?.message || error.response?.data?.error || 'Error al cancelar viaje',
+      };
+    }
+  },
+
+  // Calificar viaje completado
+  calificarViaje: async (
+    viajeId: string,
+    data: { estrellasChofer: number; estrellasVehiculo: number; tags?: string[]; comentario?: string }
+  ): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post(`/cliente/viajes/${viajeId}/calificar`, data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al enviar calificación',
+      };
+    }
+  },
+
+  // Agregar parada intermedia dinámicamente
+  agregarParada: async (
+    viajeId: string,
+    data: { direccion: string; lat?: number; lon?: number }
+  ): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post(`/cliente/viajes/${viajeId}/paradas`, data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al agregar parada',
+      };
+    }
+  },
+
+  // Chat rápido / mensajería predefinida
+  enviarMensajeChat: async (viajeId: string, texto: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post(`/cliente/viajes/${viajeId}/chat`, { texto });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al enviar mensaje',
+      };
+    }
+  },
+
+  // Botón SOS de emergencia
+  enviarAlertaSOS: async (viajeId: string, coords?: { lat: number; lon: number }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post(`/cliente/viajes/${viajeId}/sos`, coords || {});
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al emitir alerta SOS',
+      };
+    }
+  },
+
+  // Obtener datos públicos de tracking en tiempo real
+  getViajeTracking: async (token: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get(`/cliente/tracking/${token}`);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al consultar tracking',
       };
     }
   },

@@ -137,9 +137,74 @@ export const initSocket = (server: HttpServer): Server => {
     });
 
     // Notificar cambio de estado de viaje (ej: chofer avisa que está esperando afuera)
-    socket.on('viaje_estado_cambiado', ({ remiseriaId, viajeId, estado, mensaje }: { remiseriaId: string; viajeId: string; estado: string; mensaje?: string }) => {
+    socket.on('viaje_estado_cambiado', ({ remiseriaId, viajeId, estado, mensaje, viaje }: { remiseriaId: string; viajeId: string; estado: string; mensaje?: string; viaje?: any }) => {
       if (remiseriaId) {
-        io?.to(remiseriaId).emit('viaje_estado_actualizado', { viajeId, estado, mensaje });
+        io?.to(remiseriaId).emit('viaje_estado_actualizado', { viajeId, estado, mensaje, viaje });
+      }
+    });
+
+    // Notificar que el chofer está llegando (a pocas cuadras)
+    socket.on('notificar_chofer_llegando', ({ remiseriaId, viajeId, choferNombre, autoStr, viaje }: any) => {
+      if (remiseriaId) {
+        io?.to(remiseriaId).emit('chofer_llegando', {
+          viajeId,
+          mensaje: `🚕 ¡${choferNombre || 'El chofer'}${autoStr || ''} está llegando a tu ubicación! Podés ir preparándote.`,
+          choferNombre,
+          viaje,
+        });
+      }
+    });
+
+    // Notificar cancelación inmediata con sonido y motivo
+    socket.on('viaje_cancelado_cliente', ({ remiseriaId, viajeId, motivo, debeAbonarMinimo, costoCancelacion, viaje }: any) => {
+      if (remiseriaId) {
+        io?.to(remiseriaId).emit('viaje_cancelado', {
+          viajeId,
+          motivo,
+          debeAbonarMinimo,
+          costoCancelacion,
+          canceladoPor: 'CLIENTE',
+          viaje
+        });
+      }
+    });
+
+    // Chat rápido entre cliente y chofer
+    socket.on('enviar_mensaje_chat', ({ remiseriaId, viajeId, remitente, remitenteNombre, texto, timestamp }: any) => {
+      if (remiseriaId && viajeId) {
+        io?.to(remiseriaId).emit('mensaje_chat_recibido', {
+          viajeId,
+          remitente,
+          remitenteNombre,
+          texto,
+          timestamp: timestamp || new Date().toISOString()
+        });
+      }
+    });
+
+    // Alerta SOS de emergencia
+    socket.on('emitir_alerta_sos', ({ remiseriaId, viajeId, pasajeroNombre, telefono, coords }: any) => {
+      if (remiseriaId) {
+        io?.to(remiseriaId).emit('alerta_sos_recibida', {
+          viajeId,
+          pasajeroNombre,
+          telefono,
+          coords,
+          timestamp: new Date().toISOString()
+        });
+      }
+    });
+
+    // Actualización de espera (botón de espera del chofer)
+    socket.on('notificar_espera', ({ remiseriaId, viajeId, enEspera, tiempoEsperaSegundos, costoEspera, nuevoPrecio }: any) => {
+      if (remiseriaId) {
+        io?.to(remiseriaId).emit('espera_actualizada', {
+          viajeId,
+          enEspera,
+          tiempoEsperaSegundos,
+          costoEspera,
+          nuevoPrecio
+        });
       }
     });
 

@@ -19,6 +19,10 @@ router.patch('/mi-perfil', choferController.updateMiPerfil);
 router.patch('/online-status', choferController.updateOnlineStatus);
 router.post('/viajes/:viajeId/aceptar', choferController.aceptarViaje);
 router.patch('/viajes/:viajeId/estado', choferController.actualizarEstadoViaje);
+router.post('/viajes/:viajeId/avisar-llegando', choferController.avisarLlegando);
+router.post('/viajes/:viajeId/paradas', choferController.agregarParada);
+router.post('/viajes/:viajeId/espera', choferController.controlarEspera);
+router.post('/viajes/:viajeId/chat', choferController.enviarMensajeChat);
 
 // Rutas de Turno y Tracking de Kilometraje
 router.get('/turno/activo', choferController.getTurnoActivo);

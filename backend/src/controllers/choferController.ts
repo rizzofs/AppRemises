@@ -1336,6 +1336,29 @@ export const choferController = {
         updateData.metodoPago = metodoPago;
       }
 
+      // Si el chofer recalcula la tarifa por desvío/km reales recorridos
+      if (req.body.precioFinal !== undefined && !isNaN(Number(req.body.precioFinal))) {
+        updateData.precio = Math.round(Number(req.body.precioFinal) / 100) * 100;
+      }
+
+      // Si el viaje se completa y estaba en espera, finalizar la espera y sumar al precio final redondeado a múltiplos de 100
+      if (estado === 'COMPLETADO' && viaje.enEspera && viaje.inicioEsperaActual) {
+        const remiseriaObj = await prisma.remiseria.findUnique({ where: { id: viaje.remiseriaId } });
+        const valorHora = remiseriaObj?.valorHoraEspera || 12000;
+        const delta = Math.max(0, Math.round((new Date().getTime() - new Date(viaje.inicioEsperaActual).getTime()) / 1000));
+        const totalSegundos = (viaje.tiempoEsperaSegundos || 0) + delta;
+        // Siempre redondear en múltiplos de 100
+        const costoEspera = Math.round(((totalSegundos / 3600) * valorHora) / 100) * 100;
+        const precioBase = updateData.precio !== undefined 
+          ? updateData.precio 
+          : Number(viaje.precio) - (Number(viaje.costoEspera) || 0);
+        updateData.enEspera = false;
+        updateData.inicioEsperaActual = null;
+        updateData.tiempoEsperaSegundos = totalSegundos;
+        updateData.costoEspera = costoEspera;
+        updateData.precio = precioBase + costoEspera;
+      }
+
       const viajeActualizado = await prisma.viaje.update({
         where: { id: viajeId },
         data: updateData,
@@ -1406,6 +1429,316 @@ export const choferController = {
         success: false,
         message: 'Error interno del servidor',
       });
+    }
+  },
+
+  // Avisar al cliente que el chofer está llegando (a pocas cuadras)
+  async avisarLlegando(req: AuthenticatedRequest, res: Response) {
+    try {
+      const viajeId = req.params.viajeId || req.params.id;
+      const viaje = await prisma.viaje.findUnique({
+        where: { id: viajeId },
+        include: {
+          chofer: true,
+          vehiculo: true,
+          cliente: true,
+        },
+      });
+
+      if (!viaje) {
+        return res.status(404).json({ success: false, message: 'Viaje no encontrado' });
+      }
+
+      const choferNombre = viaje.chofer?.nombre || 'El chofer';
+      const vehiculo = viaje.vehiculo;
+      const autoStr = vehiculo ? ` (${vehiculo.marca} ${vehiculo.modelo} - ${vehiculo.patente})` : '';
+
+      try {
+        const { getIO } = await import('../lib/socket');
+        const ioInstance = getIO();
+        ioInstance.to(viaje.remiseriaId).emit('chofer_llegando', {
+          viajeId: viaje.id,
+          mensaje: `🚕 ¡${choferNombre}${autoStr} está llegando a tu ubicación! Podés ir preparándote.`,
+          choferNombre,
+          vehiculo,
+          viaje,
+        });
+      } catch (errSocket) {}
+
+      res.json({
+        success: true,
+        message: 'Aviso de llegada enviado al cliente',
+      });
+    } catch (error) {
+      console.error('Error al avisar que el chofer está llegando:', error);
+      res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    }
+  },
+
+  // Agregar parada intermedia desde la app del chofer (a pedido del pasajero o desvío)
+  async agregarParada(req: AuthenticatedRequest, res: Response) {
+    try {
+      const viajeId = req.params.viajeId || req.params.id;
+      const { direccion, lat, lon } = req.body;
+
+      if (!direccion || !direccion.trim()) {
+        return res.status(400).json({ success: false, message: 'La dirección de la parada es requerida' });
+      }
+
+      const viaje = await prisma.viaje.findUnique({
+        where: { id: viajeId },
+        include: { remiseria: true, chofer: true, vehiculo: true, cliente: true },
+      });
+
+      if (!viaje) {
+        return res.status(404).json({ success: false, message: 'Viaje no encontrado' });
+      }
+
+      if (!['PENDIENTE', 'ACEPTADO', 'EN_CAMINO', 'EN_CURSO'].includes(viaje.estado)) {
+        return res.status(400).json({ success: false, message: 'No se pueden agregar paradas a un viaje finalizado o cancelado' });
+      }
+
+      let paradasActuales: any[] = [];
+      if (viaje.paradas) {
+        try {
+          paradasActuales = JSON.parse(viaje.paradas);
+          if (!Array.isArray(paradasActuales)) paradasActuales = [];
+        } catch {
+          paradasActuales = [];
+        }
+      }
+
+      const nuevaParada = {
+        id: `parada-${Date.now()}`,
+        direccion: direccion.trim(),
+        lat: lat ? parseFloat(lat) : undefined,
+        lon: lon ? parseFloat(lon) : undefined,
+        completada: false,
+        orden: paradasActuales.length + 1,
+      };
+
+      paradasActuales.push(nuevaParada);
+
+      let latO: number | undefined;
+      let lonO: number | undefined;
+      let latD: number | undefined;
+      let lonD: number | undefined;
+
+      if (viaje.origenDetallado && viaje.origenDetallado.includes(',')) {
+        const parts = viaje.origenDetallado.split(',');
+        latO = parseFloat(parts[0]);
+        lonO = parseFloat(parts[1]);
+      }
+      if (viaje.destinoDetallado && viaje.destinoDetallado.includes(',')) {
+        const parts = viaje.destinoDetallado.split(',');
+        latD = parseFloat(parts[0]);
+        lonD = parseFloat(parts[1]);
+      }
+
+      const { calcularPrecioViaje } = await import('./clienteController');
+      const remiseria = viaje.remiseria || (await prisma.remiseria.findFirst());
+      const valorKm = remiseria?.valorKm || 1200;
+      const precioBaseAnterior = Number(viaje.precio) - (Number(viaje.costoEspera) || 0);
+
+      const cotizacion = await calcularPrecioViaje(
+        viaje.origen,
+        viaje.destino,
+        latO,
+        lonO,
+        latD,
+        lonD,
+        paradasActuales
+      );
+
+      const costoParadaAdicional = Math.round((valorKm * 1.5) / 100) * 100;
+      const nuevoPrecioBase = Math.max(cotizacion.precio, precioBaseAnterior + costoParadaAdicional);
+      const precioFinal = Math.round((nuevoPrecioBase + (viaje.costoEspera || 0)) / 100) * 100;
+
+      const updatedViaje = await prisma.viaje.update({
+        where: { id: viajeId },
+        data: {
+          paradas: JSON.stringify(paradasActuales),
+          precio: precioFinal,
+        },
+        include: {
+          chofer: true,
+          vehiculo: true,
+          cliente: true,
+        },
+      });
+
+      try {
+        const { getIO } = await import('../lib/socket');
+        const io = getIO();
+        io.to(viaje.remiseriaId).emit('parada_agregada', {
+          viajeId,
+          nuevaParada,
+          paradas: paradasActuales,
+          nuevoPrecio: precioFinal,
+          viaje: updatedViaje,
+        });
+      } catch {}
+
+      res.json({
+        success: true,
+        data: updatedViaje,
+        message: 'Parada intermedia agregada exitosamente',
+      });
+    } catch (error) {
+      console.error('Error al agregar parada desde chofer:', error);
+      res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    }
+  },
+
+  // Control de Espera (Iniciar / Pausar espera con recargo dinámico)
+  async controlarEspera(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { viajeId } = req.params;
+      const { accion } = req.body; // 'INICIAR' | 'PAUSAR'
+
+      const viaje = await prisma.viaje.findUnique({
+        where: { id: viajeId },
+        include: { remiseria: true },
+      });
+
+      if (!viaje) {
+        return res.status(404).json({ success: false, message: 'Viaje no encontrado' });
+      }
+
+      const valorHoraEspera = viaje.remiseria?.valorHoraEspera || 12000;
+      let nuevoTiempoEspera = viaje.tiempoEsperaSegundos || 0;
+      let enEspera = viaje.enEspera;
+      let inicioEsperaActual = viaje.inicioEsperaActual;
+
+      if (accion === 'INICIAR') {
+        enEspera = true;
+        inicioEsperaActual = new Date();
+      } else if (accion === 'PAUSAR') {
+        if (enEspera && inicioEsperaActual) {
+          const deltaSegundos = Math.max(
+            0,
+            Math.round((new Date().getTime() - new Date(inicioEsperaActual).getTime()) / 1000)
+          );
+          nuevoTiempoEspera += deltaSegundos;
+        }
+        enEspera = false;
+        inicioEsperaActual = null;
+      }
+
+      // Redondear siempre en múltiplos de 100
+      const costoEspera = Math.round(((nuevoTiempoEspera / 3600) * valorHoraEspera) / 100) * 100;
+      const precioBase = Number(viaje.precio) - (Number(viaje.costoEspera) || 0);
+      const precioTotal = precioBase + costoEspera;
+
+      const updatedViaje = await prisma.viaje.update({
+        where: { id: viajeId },
+        data: {
+          enEspera,
+          inicioEsperaActual,
+          tiempoEsperaSegundos: nuevoTiempoEspera,
+          costoEspera,
+          precio: precioTotal,
+        },
+      });
+
+      try {
+        const { getIO } = await import('../lib/socket');
+        const ioInstance = getIO();
+        ioInstance.to(viaje.remiseriaId).emit('espera_actualizada', {
+          viajeId,
+          enEspera,
+          inicioEsperaActual,
+          tiempoEsperaSegundos: nuevoTiempoEspera,
+          costoEspera,
+          valorHoraEspera,
+          nuevoPrecio: precioTotal,
+          viaje: updatedViaje,
+        });
+      } catch (errSocket) {}
+
+      res.json({
+        success: true,
+        data: {
+          enEspera,
+          inicioEsperaActual,
+          tiempoEsperaSegundos: nuevoTiempoEspera,
+          costoEspera,
+          precioTotal,
+        },
+        message: accion === 'INICIAR' ? 'Espera iniciada' : 'Espera pausada',
+      });
+    } catch (error) {
+      console.error('Error al controlar espera del viaje:', error);
+      res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    }
+  },
+
+  // Enviar mensaje de chat desde la app del chofer
+  async enviarMensajeChat(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { viajeId } = req.params;
+      const { texto } = req.body;
+
+      if (!texto || !texto.trim()) {
+        return res.status(400).json({ success: false, message: 'El mensaje no puede estar vacío' });
+      }
+
+      const viaje = await prisma.viaje.findUnique({
+        where: { id: viajeId },
+        include: { chofer: true },
+      });
+
+      if (!viaje) {
+        return res.status(404).json({ success: false, message: 'Viaje no encontrado' });
+      }
+
+      let historial: any[] = [];
+      if (viaje.mensajesChat) {
+        try {
+          historial = JSON.parse(viaje.mensajesChat);
+          if (!Array.isArray(historial)) historial = [];
+        } catch {
+          historial = [];
+        }
+      }
+
+      const nombreChofer = viaje.chofer
+        ? `${viaje.chofer.nombre} ${viaje.chofer.apellido || ''}`.trim()
+        : 'Chofer';
+      const nuevoMensaje = {
+        id: `msg-${Date.now()}`,
+        remitente: 'CHOFER',
+        remitenteNombre: nombreChofer,
+        texto: texto.trim(),
+        timestamp: new Date().toISOString(),
+      };
+
+      historial.push(nuevoMensaje);
+
+      await prisma.viaje.update({
+        where: { id: viajeId },
+        data: {
+          mensajesChat: JSON.stringify(historial),
+        },
+      });
+
+      try {
+        const { getIO } = await import('../lib/socket');
+        const ioInstance = getIO();
+        ioInstance.to(viaje.remiseriaId).emit('mensaje_chat_recibido', {
+          viajeId,
+          mensaje: nuevoMensaje,
+        });
+      } catch (errSocket) {}
+
+      res.json({
+        success: true,
+        data: nuevoMensaje,
+        message: 'Mensaje enviado',
+      });
+    } catch (error) {
+      console.error('Error al enviar chat del chofer:', error);
+      res.status(500).json({ success: false, message: 'Error interno del servidor' });
     }
   },
 

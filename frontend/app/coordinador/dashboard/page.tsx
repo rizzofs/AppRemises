@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
+import { io, Socket } from 'socket.io-client';
 import { coordinadorDashboardService, clienteAuthService, choferService, vehiculoService } from '@/lib/api';
 import { useAppTracking } from '@/hooks/useAppTracking';
 import { 
@@ -265,6 +266,100 @@ export default function CoordinadorDashboard() {
       setIsLoading(false);
     }
   };
+
+  // Conexión WebSocket para notificaciones sonoras inmediatas (Cancelaciones de clientes y Alertas SOS)
+  useEffect(() => {
+    const remId = user?.coordinador?.remiseriaId || (user as any)?.remiseriaId;
+    if (!remId) return;
+
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+    const socket: Socket = io(socketUrl, {
+      transports: ['websocket'],
+      withCredentials: true,
+    });
+
+    socket.on('connect', () => {
+      socket.emit('join_room', { remiseriaId: remId });
+    });
+
+    // Alerta sonora inmediata de cancelación de viaje por cliente
+    socket.on('viaje_cancelado', (data: any) => {
+      try {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+          const ctx = new AudioContextClass();
+          const now = ctx.currentTime;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(450, now);
+          osc.frequency.setValueAtTime(280, now + 0.15);
+          gain.gain.setValueAtTime(0.35, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.45);
+        }
+      } catch {}
+
+      toast(
+        `🚨 ¡Viaje cancelado por cliente!\nMotivo: ${data.motivo || 'No especificado'}\n${
+          data.debeAbonarMinimo ? `⚠️ Auto a menos de 10 cuadras: Corresponde viaje mínimo ($${data.costoCancelacion})` : ''
+        }`,
+        {
+          duration: 9000,
+          style: { background: '#991b1b', color: '#fff', fontWeight: 'bold' }
+        }
+      );
+      fetchData();
+    });
+
+    // Alerta SOS de emergencia en vivo
+    socket.on('alerta_sos_recibida', (data: any) => {
+      try {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+          const ctx = new AudioContextClass();
+          const now = ctx.currentTime;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(800, now);
+          osc.frequency.linearRampToValueAtTime(1200, now + 0.3);
+          osc.frequency.linearRampToValueAtTime(800, now + 0.6);
+          gain.gain.setValueAtTime(0.4, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.9);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.9);
+        }
+      } catch {}
+
+      toast(
+        `🚨 ¡ALERTA SOS DE EMERGENCIA!\nPasajero: ${data.clienteNombre} (${data.clienteTelefono})\nViaje ID: #${data.viajeId}`,
+        {
+          duration: 15000,
+          icon: '🚨',
+          style: { background: '#7f1d1d', color: '#fff', fontWeight: 'black', fontSize: '14px' }
+        }
+      );
+      fetchData();
+    });
+
+    socket.on('nuevo_viaje_recibido', () => {
+      fetchData();
+    });
+
+    socket.on('viaje_estado_actualizado', () => {
+      fetchData();
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [user?.coordinador?.remiseriaId, (user as any)?.remiseriaId]);
 
   useEffect(() => {
     fetchData();

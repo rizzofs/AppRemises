@@ -24,8 +24,11 @@ import {
   Play,
   Pause,
   Utensils,
+  MessageSquare,
+  Send,
+  Plus,
 } from 'lucide-react';
-import { choferService } from '@/lib/api';
+import { choferService, coordinadorDashboardService } from '@/lib/api';
 import { io, Socket } from 'socket.io-client';
 
 const ChoferRouteMap = dynamic(() => import('@/components/ChoferRouteMap'), {
@@ -60,6 +63,11 @@ export default function ChoferApp() {
   const [alertaViaje, setAlertaViaje] = useState<any>(null);
   const [viajesRechazados, setViajesRechazados] = useState<string[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
+  const [avisoLlegandoEnviado, setAvisoLlegandoEnviado] = useState(false);
+
+  useEffect(() => {
+    setAvisoLlegandoEnviado(false);
+  }, [viajeActual?.id]);
 
   // Turno y Odometría
   const [turnoActivo, setTurnoActivo] = useState<any>(null);
@@ -80,6 +88,22 @@ export default function ChoferApp() {
   // Modal y selección de método de pago al finalizar viaje
   const [modalFinalizarViaje, setModalFinalizarViaje] = useState(false);
   const [metodoPagoSeleccionado, setMetodoPagoSeleccionado] = useState<'EFECTIVO' | 'TRANSFERENCIA'>('EFECTIVO');
+  const [montoFinalACobrar, setMontoFinalACobrar] = useState<number | null>(null);
+
+  // Modal para agregar parada intermedia solicitada por el cliente
+  const [isAddStopModalOpenChofer, setIsAddStopModalOpenChofer] = useState(false);
+  const [nuevaParadaDireccionChofer, setNuevaParadaDireccionChofer] = useState('');
+  const [isNuevaParadaSelectedChofer, setIsNuevaParadaSelectedChofer] = useState(false);
+  const [nuevaParadaSuggestionsChofer, setNuevaParadaSuggestionsChofer] = useState<any[]>([]);
+  const [nuevaParadaCoordsChofer, setNuevaParadaCoordsChofer] = useState<{ lat: number; lon: number } | null>(null);
+  const [isSearchingParadaChofer, setIsSearchingParadaChofer] = useState(false);
+  const [isAddingStopChofer, setIsAddingStopChofer] = useState(false);
+
+  // Chat con el Pasajero
+  const [isChatChoferOpen, setIsChatChoferOpen] = useState(false);
+  const [chatChoferInput, setChatChoferInput] = useState('');
+  const [chatMensajesChofer, setChatMensajesChofer] = useState<any[]>([]);
+  const [isSendingChatChofer, setIsSendingChatChofer] = useState(false);
 
   const lastAlertedIdRef = useRef<string | null>(null);
   const previousViajeIdRef = useRef<string | null>(null);
@@ -94,6 +118,14 @@ export default function ChoferApp() {
   // Mantener refs sincronizadas para el watcher de GPS
   useEffect(() => {
     viajeActualRef.current = viajeActual;
+    if (viajeActual?.mensajesChat) {
+      try {
+        const msgs = typeof viajeActual.mensajesChat === 'string'
+          ? JSON.parse(viajeActual.mensajesChat)
+          : viajeActual.mensajesChat;
+        if (Array.isArray(msgs)) setChatMensajesChofer(msgs);
+      } catch {}
+    }
   }, [viajeActual]);
 
   useEffect(() => {
@@ -118,6 +150,82 @@ export default function ChoferApp() {
     socket.on('connect', () => {
       console.log('⚡ Chofer conectado a Sockets. Sala:', remiseriaId);
       socket.emit('join_room', { remiseriaId });
+    });
+
+    // Alerta sonora y visual inmediata si el cliente cancela el viaje
+    socket.on('viaje_cancelado', (data: any) => {
+      try {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+          const ctx = new AudioContextClass();
+          const now = ctx.currentTime;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sawtooth';
+          osc.frequency.setValueAtTime(440, now);
+          osc.frequency.setValueAtTime(880, now + 0.15);
+          osc.frequency.setValueAtTime(440, now + 0.3);
+          gain.gain.setValueAtTime(0.5, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.5);
+        }
+      } catch {}
+
+      toast(
+        `🚨 ¡VIAJE CANCELADO POR EL CLIENTE!\nMotivo: ${data.motivo || 'No especificado'}.\n${
+          data.debeAbonarMinimo
+            ? `⚠️ Cliente a menos de 10 cuadras: Corresponde cobrar viaje mínimo de $${data.costoCancelacion}`
+            : ''
+        }`,
+        {
+          duration: 10000,
+          style: { background: '#991b1b', color: '#fff', fontWeight: 'bold' },
+        }
+      );
+      setViajeActual(null);
+      tripDistanceRef.current = { con: 0, sin: 0 };
+    });
+
+    // Mensajes de chat en vivo con el pasajero
+    socket.on('mensaje_chat_recibido', (data: any) => {
+      if (viajeActualRef.current && data.viajeId === viajeActualRef.current.id) {
+        setChatMensajesChofer((prev) => [...prev, data.mensaje]);
+        if (data.mensaje.remitente === 'CLIENTE') {
+          toast(`💬 Mensaje del Pasajero: "${data.mensaje.texto}"`, { duration: 6000 });
+        }
+      }
+    });
+
+    // Actualización de tiempo de espera y recálculo de precio
+    socket.on('espera_actualizada', (data: any) => {
+      if (viajeActualRef.current && data.viajeId === viajeActualRef.current.id) {
+        setViajeActual((prev: any) => ({
+          ...prev,
+          enEspera: data.enEspera,
+          inicioEsperaActual: data.inicioEsperaActual,
+          tiempoEsperaSegundos: data.tiempoEsperaSegundos,
+          costoEspera: data.costoEspera,
+          precio: data.nuevoPrecio || prev?.precio,
+        }));
+      }
+    });
+
+    // Notificación de nueva parada agregada dinámicamente
+    socket.on('parada_agregada', (data: any) => {
+      if (viajeActualRef.current && data.viajeId === viajeActualRef.current.id) {
+        setViajeActual((prev: any) => ({
+          ...prev,
+          paradas: data.paradas,
+          precio: data.nuevoPrecio || prev?.precio,
+        }));
+        toast(`📍 Parada intermedia añadida: ${data.nuevaParada?.direccion || ''}`, {
+          icon: '📍',
+          duration: 5000,
+        });
+      }
     });
 
     return () => {
@@ -509,7 +617,31 @@ export default function ChoferApp() {
     toast('Solicitud rechazada. Seguimos buscando viajes...');
   };
 
-  const avisarLlegada = async () => {
+  const avisarEstoyLlegando = async () => {
+    if (!viajeActual || actionLoading) return;
+    if (String(viajeActual.id).startsWith('viaje-test')) {
+      setAvisoLlegandoEnviado(true);
+      toast.success('Avisamos al cliente que estás llegando a su domicilio');
+      return;
+    }
+
+    setActionLoading(true);
+    try {
+      const res = await choferService.avisarLlegando(viajeActual.id);
+      if (res.success) {
+        setAvisoLlegandoEnviado(true);
+        toast.success('Avisamos al cliente que estás llegando a su domicilio');
+      } else {
+        toast.error(res.message || 'Error al enviar aviso de llegada');
+      }
+    } catch {
+      toast.error('Error al enviar aviso');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const avisarLlegadaEnPuerta = async () => {
     if (!viajeActual || actionLoading) return;
     if (String(viajeActual.id).startsWith('viaje-test')) {
       setViajeActual({ ...viajeActual, estado: 'EN_CAMINO' });
@@ -522,15 +654,7 @@ export default function ChoferApp() {
       const res = await choferService.actualizarEstadoViaje(viajeActual.id, 'EN_CAMINO');
       if (res.success && res.data) {
         setViajeActual(res.data);
-        if (socketRef.current?.connected) {
-          socketRef.current.emit('viaje_estado_cambiado', {
-            remiseriaId: user?.chofer?.remiseriaId,
-            viajeId: viajeActual.id,
-            estado: 'EN_CAMINO',
-            mensaje: '¡El chofer está esperando afuera!'
-          });
-        }
-        toast.success('Avisamos al cliente que estás esperando afuera');
+        toast.success('Avisamos al cliente que estás esperando afuera en la puerta');
       } else {
         toast.error(res.message || 'Error al actualizar el estado del viaje');
       }
@@ -564,6 +688,23 @@ export default function ChoferApp() {
   const abrirModalFinalizar = () => {
     if (!viajeActual || actionLoading) return;
     setMetodoPagoSeleccionado('EFECTIVO');
+
+    // Calcular si la distancia real por GPS supera la estimación original
+    const distGps = tripDistanceRef.current.con;
+    const distEstimada = Number(viajeActual.distanciaKm || viajeActual.distancia || 0);
+    const valorKm = viajeActual?.remiseria?.valorKm || 1200;
+    const bajadaBandera = viajeActual?.remiseria?.bajadaBandera || 3500;
+    const precioBase = Number(viajeActual.precio || 0) - (Number(viajeActual.costoEspera) || 0);
+
+    let precioSugerido = precioBase + costoEsperaChoferLive;
+    if (distGps > 1 && distGps > distEstimada + 0.3) {
+      const calculoGps = bajadaBandera + (distGps - 1) * valorKm;
+      const calculoGpsRedondeado = Math.round(calculoGps / 100) * 100;
+      if (calculoGpsRedondeado > precioBase) {
+        precioSugerido = calculoGpsRedondeado + costoEsperaChoferLive;
+      }
+    }
+    setMontoFinalACobrar(precioSugerido);
     setModalFinalizarViaje(true);
   };
 
@@ -587,6 +728,7 @@ export default function ChoferApp() {
         distanciaKmConPasajero: distCon,
         distanciaKmSinPasajero: distSin,
         metodoPago: metodoPagoSeleccionado,
+        precioFinal: montoFinalACobrar !== null ? montoFinalACobrar : undefined,
       });
 
       if (res.success) {
@@ -601,6 +743,74 @@ export default function ChoferApp() {
       }
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  // Autocompletado de dirección para parada intermedia agregada por el Chofer
+  useEffect(() => {
+    if (!isAddStopModalOpenChofer || isNuevaParadaSelectedChofer || !nuevaParadaDireccionChofer || nuevaParadaDireccionChofer.length < 3) {
+      setNuevaParadaSuggestionsChofer([]);
+      setIsSearchingParadaChofer(false);
+      return;
+    }
+
+    setIsSearchingParadaChofer(true);
+    const delayDebounceFn = setTimeout(async () => {
+      try {
+        const res = await coordinadorDashboardService.geocode(nuevaParadaDireccionChofer);
+        if (res.success && Array.isArray(res.data)) {
+          setNuevaParadaSuggestionsChofer(res.data);
+        } else {
+          setNuevaParadaSuggestionsChofer([]);
+        }
+      } catch (err) {
+        setNuevaParadaSuggestionsChofer([]);
+      } finally {
+        setIsSearchingParadaChofer(false);
+      }
+    }, 350);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [nuevaParadaDireccionChofer, isNuevaParadaSelectedChofer, isAddStopModalOpenChofer]);
+
+  const handleAgregarParadaChofer = async () => {
+    if (!nuevaParadaDireccionChofer.trim() || !viajeActual) return;
+    setIsAddingStopChofer(true);
+    try {
+      let coords = nuevaParadaCoordsChofer;
+      if (!coords) {
+        try {
+          const geoRes = await coordinadorDashboardService.geocode(nuevaParadaDireccionChofer.trim());
+          if (geoRes.success && Array.isArray(geoRes.data) && geoRes.data.length > 0) {
+            coords = {
+              lat: parseFloat(geoRes.data[0].lat),
+              lon: parseFloat(geoRes.data[0].lon),
+            };
+          }
+        } catch {}
+      }
+
+      const res = await choferService.agregarParada(viajeActual.id, {
+        direccion: nuevaParadaDireccionChofer.trim(),
+        lat: coords?.lat,
+        lon: coords?.lon,
+      });
+
+      if (res.success && res.data) {
+        setViajeActual(res.data);
+        toast.success(`Parada agregada. Tarifa actualizada: $${Number(res.data.precio).toLocaleString('es-AR')}`);
+        setIsAddStopModalOpenChofer(false);
+        setNuevaParadaDireccionChofer('');
+        setNuevaParadaCoordsChofer(null);
+        setIsNuevaParadaSelectedChofer(false);
+        setNuevaParadaSuggestionsChofer([]);
+      } else {
+        toast.error(res.message || 'Error al agregar parada');
+      }
+    } catch {
+      toast.error('Error al agregar parada');
+    } finally {
+      setIsAddingStopChofer(false);
     }
   };
 
@@ -636,6 +846,51 @@ export default function ChoferApp() {
     }
   };
 
+  const toggleEspera = async () => {
+    if (!viajeActual || actionLoading) return;
+    const accion = viajeActual.enEspera ? 'PAUSAR' : 'INICIAR';
+    setActionLoading(true);
+    try {
+      const res = await choferService.controlarEspera(viajeActual.id, accion);
+      if (res.success && res.data) {
+        setViajeActual((prev: any) => ({
+          ...prev,
+          enEspera: res.data.enEspera,
+          inicioEsperaActual: res.data.inicioEsperaActual,
+          tiempoEsperaSegundos: res.data.tiempoEsperaSegundos,
+          costoEspera: res.data.costoEspera,
+          precio: res.data.precioTotal || prev?.precio,
+        }));
+        toast.success(res.message || 'Espera actualizada');
+      } else {
+        toast.error(res.message || 'Error al modificar espera');
+      }
+    } catch {
+      toast.error('Error al controlar espera');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleEnviarChatChofer = async (textoAEnviar?: string) => {
+    const texto = textoAEnviar || chatChoferInput;
+    if (!texto.trim() || !viajeActual) return;
+    setIsSendingChatChofer(true);
+    try {
+      const res = await choferService.enviarMensajeChat(viajeActual.id, texto.trim());
+      if (res.success && res.data) {
+        setChatMensajesChofer((prev) => [...prev, res.data]);
+        setChatChoferInput('');
+      } else {
+        toast.error(res.message || 'Error al enviar mensaje');
+      }
+    } catch {
+      toast.error('Error de red al enviar mensaje');
+    } finally {
+      setIsSendingChatChofer(false);
+    }
+  };
+
   if (!user) return null;
 
   const precioAlerta = alertaViaje?.precio ?? alertaViaje?.precioEstimado ?? 0;
@@ -646,7 +901,45 @@ export default function ChoferApp() {
       ? `${alertaViaje.cliente.nombre} ${alertaViaje.cliente.apellido}`
       : 'Pasajero');
 
-  const precioActual = viajeActual?.precio ?? viajeActual?.precioEstimado ?? 0;
+  // Cronómetro en vivo de espera del viaje actual (sumando segundo a segundo en tiempo real)
+  const [segundosEsperaLive, setSegundosEsperaLive] = useState<number>(0);
+
+  useEffect(() => {
+    if (!viajeActual) {
+      setSegundosEsperaLive(0);
+      return;
+    }
+    const baseSegundos = Number(viajeActual.tiempoEsperaSegundos) || 0;
+    if (!viajeActual.enEspera || !viajeActual.inicioEsperaActual) {
+      setSegundosEsperaLive(baseSegundos);
+      return;
+    }
+    const updateTicker = () => {
+      const inicio = new Date(viajeActual.inicioEsperaActual).getTime();
+      const deltaSec = Math.max(0, Math.floor((Date.now() - inicio) / 1000));
+      setSegundosEsperaLive(baseSegundos + deltaSec);
+    };
+    updateTicker();
+    const timer = setInterval(updateTicker, 1000);
+    return () => clearInterval(timer);
+  }, [viajeActual?.enEspera, viajeActual?.inicioEsperaActual, viajeActual?.tiempoEsperaSegundos]);
+
+  const valorHoraEsperaChofer = viajeActual?.remiseria?.valorHoraEspera || 12000;
+  const minutosEsperaChofer = Math.floor(segundosEsperaLive / 60);
+  const segundosRestantesChofer = segundosEsperaLive % 60;
+  const costoEsperaChoferLive = Math.round(((segundosEsperaLive / 3600) * valorHoraEsperaChofer) / 100) * 100;
+  const precioBaseSinEspera = Number(viajeActual?.precio ?? viajeActual?.precioEstimado ?? 0) - (Number(viajeActual?.costoEspera) || 0);
+  const precioActual = Math.max(0, precioBaseSinEspera + costoEsperaChoferLive);
+
+  // Distancias y recálculo por GPS real (útil para desvíos no programados, calles cortadas, etc.)
+  const distGpsRealChofer = tripDistanceRef.current.con;
+  const distEstimadaChofer = Number(viajeActual?.distanciaKm || viajeActual?.distancia || 0);
+  const valorKmChofer = viajeActual?.remiseria?.valorKm || 1200;
+  const bajadaBanderaChofer = viajeActual?.remiseria?.bajadaBandera || 3500;
+  const precioGpsPuro = distGpsRealChofer > 1
+    ? bajadaBanderaChofer + (distGpsRealChofer - 1) * valorKmChofer
+    : bajadaBanderaChofer;
+  const precioRecalculadoGps = Math.round(precioGpsPuro / 100) * 100 + costoEsperaChoferLive;
   const clienteFotoActual = viajeActual?.clienteFoto || viajeActual?.cliente?.fotoUrl || null;
   const clienteNombreActual =
     viajeActual?.clienteNombre ||
@@ -960,12 +1253,141 @@ export default function ChoferApp() {
                   <p className="text-xs text-gray-400 dark:text-slate-400">ORIGEN</p>
                   <p className="text-sm font-semibold text-gray-900 dark:text-white">{viajeActual.origen}</p>
                 </div>
+
+                {/* Paradas intermedias */}
+                {viajeActual.paradas && (() => {
+                  let paradasList = [];
+                  try {
+                    paradasList = typeof viajeActual.paradas === 'string' ? JSON.parse(viajeActual.paradas) : viajeActual.paradas;
+                  } catch {}
+                  if (!Array.isArray(paradasList) || paradasList.length === 0) return null;
+                  return (
+                    <div className="space-y-1.5 py-1">
+                      {paradasList.map((p: any, idx: number) => (
+                        <div key={idx} className="flex items-center gap-2 text-xs bg-amber-50 dark:bg-amber-950/40 p-2 rounded-lg border border-amber-200/60 dark:border-amber-900/40">
+                          <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                          <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 uppercase">
+                            Parada #{idx + 1}:
+                          </span>
+                          <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">{p.direccion}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
                 <div>
                   <p className="text-xs text-gray-400 dark:text-slate-400">DESTINO</p>
                   <p className="text-sm font-semibold text-gray-900 dark:text-white">{viajeActual.destino}</p>
                 </div>
               </div>
             </div>
+
+            {/* DETALLES DE PAGO Y CAMBIO (EFECTIVO / TRANSFERENCIA) */}
+            <div className="p-3 bg-slate-50 dark:bg-slate-800/80 rounded-xl border border-gray-200 dark:border-slate-700 space-y-1">
+              <div className="flex items-center justify-between text-xs font-bold">
+                <span className="flex items-center gap-1.5 text-slate-700 dark:text-slate-300">
+                  <Banknote className="w-4 h-4 text-emerald-500" />
+                  Método de pago del cliente:
+                </span>
+                <span className="text-emerald-700 dark:text-emerald-300">
+                  {viajeActual.metodoPago === 'TRANSFERENCIA' ? 'Transferencia Bancaria 💳' : 'Efectivo 💵'}
+                </span>
+              </div>
+              {viajeActual.metodoPago !== 'TRANSFERENCIA' && (
+                <div className="text-xs text-slate-600 dark:text-slate-300 pt-0.5">
+                  {viajeActual.pagaCon ? (
+                    <div className="flex items-center justify-between">
+                      <span>Abona con billete de: <strong>${Number(viajeActual.pagaCon).toLocaleString('es-AR')}</strong></span>
+                      {Number(viajeActual.pagaCon) > Number(precioActual) && (
+                        <span className="font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                          Preparar vuelto: ${Number(viajeActual.pagaCon - precioActual).toLocaleString('es-AR')}
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <span className="text-[11px] text-slate-500">Abona con importe exacto / en mano</span>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* BOTÓN DE ESPERA DEL CHOFER (Espera por mandados del pasajero) */}
+            {['EN_CAMINO', 'EN_CURSO'].includes(viajeActual.estado) && (
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-800/80 rounded-xl flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Clock className={`w-5 h-5 text-amber-600 ${viajeActual.enEspera ? 'animate-spin' : ''}`} />
+                  <div>
+                    <p className="text-xs font-bold text-amber-950 dark:text-amber-200">
+                      {viajeActual.enEspera ? '⏱️ Espera ACTIVA (Sumando a tarifa)' : 'Modo Espera Pausado'}
+                    </p>
+                    <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                      {viajeActual.enEspera
+                        ? `${minutosEsperaChofer}m ${segundosRestantesChofer < 10 ? '0' : ''}${segundosRestantesChofer}s en curso (+${costoEsperaChoferLive.toLocaleString('es-AR')})`
+                        : `${minutosEsperaChofer} min acumulados (+${costoEsperaChoferLive.toLocaleString('es-AR')})`
+                      }
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={toggleEspera}
+                  disabled={actionLoading}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all shadow-xs ${
+                    viajeActual.enEspera
+                      ? 'bg-amber-600 hover:bg-amber-700 text-white animate-pulse'
+                      : 'bg-white dark:bg-slate-800 border border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 hover:bg-amber-100'
+                  }`}
+                >
+                  {viajeActual.enEspera ? 'Pausar Espera' : '⏱️ Iniciar Espera'}
+                </button>
+              </div>
+            )}
+
+            {/* Botón de Chat rápido con el cliente */}
+            <button
+              type="button"
+              onClick={() => setIsChatChoferOpen(true)}
+              className="w-full py-2.5 px-3 bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-800/60 rounded-xl text-blue-800 dark:text-blue-300 text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+            >
+              <MessageSquare className="w-4 h-4 text-blue-600" />
+              <span>Chat rápido con el pasajero {chatMensajesChofer.length > 0 ? `(${chatMensajesChofer.length})` : ''}</span>
+            </button>
+
+            {/* Botón para agregar parada intermedia solicitada verbalmente por el pasajero */}
+            {['EN_CAMINO', 'EN_CURSO'].includes(viajeActual.estado) && (
+              <button
+                type="button"
+                onClick={() => setIsAddStopModalOpenChofer(true)}
+                className="w-full py-2.5 px-3 bg-amber-50 dark:bg-amber-950/40 hover:bg-amber-100 dark:hover:bg-amber-900/50 border border-amber-300 dark:border-amber-800/60 rounded-xl text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center justify-center gap-2 transition-colors shadow-xs"
+              >
+                <Plus className="w-4 h-4 text-amber-600" />
+                <span>+ Agregar Parada (Pedido del Pasajero)</span>
+              </button>
+            )}
+
+            {/* Listado de paradas intermedias si las hay */}
+            {viajeActual.paradas && (() => {
+              try {
+                const list = typeof viajeActual.paradas === 'string' ? JSON.parse(viajeActual.paradas) : viajeActual.paradas;
+                if (Array.isArray(list) && list.length > 0) {
+                  return (
+                    <div className="p-2.5 bg-slate-50 dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700/60 space-y-1.5 text-xs">
+                      <span className="font-bold text-[10px] text-slate-500 uppercase tracking-wider block">Paradas intermedias:</span>
+                      {list.map((p: any, idx: number) => (
+                        <div key={idx} className="flex items-center gap-1.5 text-slate-700 dark:text-slate-200">
+                          <span className="w-4 h-4 rounded-full bg-amber-500 text-white text-[10px] font-black flex items-center justify-center shrink-0">
+                            {idx + 1}
+                          </span>
+                          <span className="truncate">{p.direccion}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+              } catch {}
+              return null;
+            })()}
 
             {/* Mapa interactivo en tiempo real con el camino trazado */}
             <ChoferRouteMap
@@ -976,14 +1398,31 @@ export default function ChoferApp() {
 
             <div className="pt-3 border-t border-gray-100 dark:border-slate-800 flex flex-col gap-2.5">
               {viajeActual.estado === 'ACEPTADO' && (
-                <button
-                  onClick={avisarLlegada}
-                  disabled={actionLoading}
-                  className="w-full py-3.5 bg-amber-500 text-white font-bold rounded-xl shadow-md shadow-amber-500/20 flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
-                >
-                  <CheckCircle className="w-5 h-5" />
-                  AVISAR &quot;ESTOY LLEGANDO&quot;
-                </button>
+                <div className="flex flex-col gap-2.5">
+                  {/* Botón secundario: Avisar que está a pocas cuadras */}
+                  <button
+                    onClick={avisarEstoyLlegando}
+                    disabled={actionLoading || avisoLlegandoEnviado}
+                    className={`w-full py-3 rounded-xl border flex items-center justify-center gap-2 font-bold text-xs transition-all shadow-xs ${
+                      avisoLlegandoEnviado
+                        ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-800 text-blue-700 dark:text-blue-300 cursor-default'
+                        : 'bg-white dark:bg-slate-900 border-blue-500 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30'
+                    }`}
+                  >
+                    <Navigation className="w-4 h-4" />
+                    {avisoLlegandoEnviado ? '✓ AVISO "ESTOY LLEGANDO" ENVIADO' : 'AVISAR "ESTOY LLEGANDO" (A POCAS CUADRAS)'}
+                  </button>
+
+                  {/* Botón principal: Ya llegó a la puerta / esperando afuera */}
+                  <button
+                    onClick={avisarLlegadaEnPuerta}
+                    disabled={actionLoading}
+                    className="w-full py-3.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl shadow-md shadow-amber-500/20 flex items-center justify-center gap-2 disabled:opacity-50 text-sm transition-colors"
+                  >
+                    <CheckCircle className="w-5 h-5" />
+                    ¡YA LLEGUÉ / ESTOY EN LA PUERTA!
+                  </button>
+                </div>
               )}
 
               {viajeActual.estado === 'EN_CAMINO' && (
@@ -1161,17 +1600,80 @@ export default function ChoferApp() {
               </button>
             </div>
 
-            {/* Resumen del viaje */}
-            <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-500 dark:text-slate-400">Total a Cobrar</span>
-                <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">
-                  ${Number(viajeActual.precio || 0).toLocaleString('es-AR')}
-                </span>
+            {/* Resumen del viaje con Comparativa de Kilómetros y Recálculo por GPS */}
+            <div className="bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-4 border border-slate-100 dark:border-slate-800 space-y-3">
+              {/* Kilómetros: Estimados vs GPS Real */}
+              <div className="grid grid-cols-2 gap-2 pb-2.5 border-b border-slate-200/60 dark:border-slate-700/60 text-xs">
+                <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-gray-150 dark:border-slate-800">
+                  <span className="text-gray-400 dark:text-slate-500 block text-[10px] uppercase font-bold">Km Estimados</span>
+                  <p className="font-extrabold text-sm text-slate-800 dark:text-slate-200 mt-0.5">
+                    {distEstimadaChofer > 0 ? `${distEstimadaChofer.toFixed(1)} km` : '—'}
+                  </p>
+                </div>
+                <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-gray-150 dark:border-slate-800">
+                  <span className="text-gray-400 dark:text-slate-500 block text-[10px] uppercase font-bold">Km Reales (GPS)</span>
+                  <p className={`font-extrabold text-sm mt-0.5 ${
+                    distGpsRealChofer > (distEstimadaChofer + 0.3)
+                      ? 'text-amber-600 dark:text-amber-400 font-black'
+                      : 'text-emerald-600 dark:text-emerald-400'
+                  }`}>
+                    {distGpsRealChofer.toFixed(1)} km
+                  </p>
+                </div>
               </div>
-              <div className="text-xs text-gray-700 dark:text-slate-300 flex items-center gap-1.5 pt-1 border-t border-slate-200/60 dark:border-slate-700/60">
-                <MapPin className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                <span className="truncate">{viajeActual.destino}</span>
+
+              {/* Aviso si se detectó desvío o mayor recorrido */}
+              {distGpsRealChofer > (distEstimadaChofer + 0.3) && (
+                <div className="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-xl text-xs text-amber-800 dark:text-amber-300 space-y-1">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                    <span>Mayor recorrido detectado (+{(distGpsRealChofer - distEstimadaChofer).toFixed(1)} km)</span>
+                  </p>
+                  <p className="text-[10px] text-amber-700 dark:text-amber-400 leading-tight">
+                    Por desvío, calles cortadas o paradas no programadas, podés optar por cobrar la tarifa calculada con el GPS real.
+                  </p>
+                </div>
+              )}
+
+              {/* Selector de tarifa final a cobrar */}
+              <div className="space-y-1.5">
+                <span className="text-[11px] font-bold text-gray-700 dark:text-slate-300 block">
+                  Tarifa a cobrar al pasajero:
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMontoFinalACobrar(Number(viajeActual.precio || 0))}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      (montoFinalACobrar === Number(viajeActual.precio || 0) || montoFinalACobrar === null)
+                        ? 'border-emerald-500 bg-emerald-50/80 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 ring-2 ring-emerald-500/20'
+                        : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300'
+                    }`}
+                  >
+                    <span className="block text-[10px] text-gray-500 dark:text-slate-400 font-medium">Pactada inicial</span>
+                    <span className="text-sm font-black">${Number(viajeActual.precio || 0).toLocaleString('es-AR')}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setMontoFinalACobrar(precioRecalculadoGps)}
+                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                      montoFinalACobrar === precioRecalculadoGps
+                        ? 'border-amber-500 bg-amber-50/80 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 ring-2 ring-amber-500/20'
+                        : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300'
+                    }`}
+                  >
+                    <span className="block text-[10px] text-amber-600 dark:text-amber-400 font-bold">Por GPS real</span>
+                    <span className="text-sm font-black">${precioRecalculadoGps.toLocaleString('es-AR')}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center pt-2 border-t border-slate-200/60 dark:border-slate-700/60">
+                <span className="text-xs font-bold text-gray-700 dark:text-slate-300">Total a cobrar:</span>
+                <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                  ${(montoFinalACobrar ?? Number(viajeActual.precio || 0)).toLocaleString('es-AR')}
+                </span>
               </div>
             </div>
 
@@ -1245,6 +1747,220 @@ export default function ChoferApp() {
                 className="flex-2 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/20 disabled:opacity-50 transition-all flex items-center justify-center gap-1.5"
               >
                 {actionLoading ? 'Finalizando...' : 'Confirmar y Finalizar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Chat Rápido con el Pasajero */}
+      {isChatChoferOpen && viajeActual && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full h-[32rem] flex flex-col border border-gray-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-scale-up">
+            
+            {/* Header del Chat */}
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/80 border-b border-gray-200 dark:border-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs">
+                  <User className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-xs text-slate-900 dark:text-white">
+                    {viajeActual.clienteNombre || (viajeActual.cliente ? `${viajeActual.cliente.nombre} ${viajeActual.cliente.apellido || ''}` : 'Pasajero')}
+                  </h4>
+                  <p className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    Chat directo del viaje
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsChatChoferOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Mensajes rápidos de 1 toque para el chofer */}
+            <div className="p-2 bg-gray-50 dark:bg-slate-800/40 border-b border-gray-100 dark:border-slate-800 flex gap-1.5 overflow-x-auto no-scrollbar">
+              {[
+                'Estoy en la puerta',
+                'Llegando en 2 minutos',
+                'Hay mucho tráfico, voy en camino',
+                'Estoy con balizas afuera'
+              ].map((msg) => (
+                <button
+                  key={msg}
+                  type="button"
+                  onClick={() => handleEnviarChatChofer(msg)}
+                  disabled={isSendingChatChofer}
+                  className="px-2.5 py-1 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-[11px] font-bold text-slate-700 dark:text-slate-200 shrink-0 hover:bg-gray-100 active:scale-95 transition-transform"
+                >
+                  {msg}
+                </button>
+              ))}
+            </div>
+
+            {/* Feed de Mensajes */}
+            <div className="flex-1 p-3 overflow-y-auto space-y-2">
+              {chatMensajesChofer.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center p-4">
+                  <MessageSquare className="w-8 h-8 opacity-40 mb-1" />
+                  <p className="text-xs">No hay mensajes previos</p>
+                  <p className="text-[10px] mt-0.5">Usa las respuestas rápidas o escribe al pasajero</p>
+                </div>
+              ) : (
+                chatMensajesChofer.map((m, idx) => {
+                  const isMe = m.remitente === 'CHOFER';
+                  return (
+                    <div
+                      key={idx}
+                      className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}
+                    >
+                      <span className="text-[9px] text-slate-400 mb-0.5 px-1">{m.remitenteNombre}</span>
+                      <div
+                        className={`max-w-[75%] px-3 py-2 rounded-2xl text-xs font-medium ${
+                          isMe
+                            ? 'bg-blue-600 text-white rounded-br-xs shadow-xs'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-bl-xs'
+                        }`}
+                      >
+                        {m.texto}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Input para mensaje personalizado */}
+            <div className="p-2.5 border-t border-gray-200 dark:border-slate-800 flex gap-1.5">
+              <input
+                type="text"
+                value={chatChoferInput}
+                onChange={(e) => setChatChoferInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleEnviarChatChofer();
+                }}
+                placeholder="Escribir al pasajero..."
+                className="flex-1 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white focus:ring-1 focus:ring-blue-500"
+              />
+              <button
+                type="button"
+                onClick={() => handleEnviarChatChofer()}
+                disabled={isSendingChatChofer || !chatChoferInput.trim()}
+                className="p-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl shadow-xs"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* Modal para Agregar Parada Intermedia desde App del Chofer */}
+      {isAddStopModalOpenChofer && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-5 border border-gray-200 dark:border-slate-800 shadow-2xl space-y-4 animate-scale-up">
+            <div className="flex items-center justify-between pb-2 border-b border-gray-100 dark:border-slate-800">
+              <div className="flex items-center gap-2 text-amber-600">
+                <Plus className="w-5 h-5" />
+                <h3 className="font-bold text-base text-slate-900 dark:text-white">Agregar Parada Intermedia</h3>
+              </div>
+              <button
+                onClick={() => setIsAddStopModalOpenChofer(false)}
+                className="text-slate-400 hover:text-slate-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+              Ingresá la dirección de la parada solicitada por el pasajero o desvío. La tarifa del viaje se recalculará automáticamente y se sincronizará con la app del cliente.
+            </p>
+
+            <div className="relative">
+              <div className="relative">
+                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-amber-500">
+                  <MapPin className="w-4 h-4" />
+                </div>
+                <input
+                  type="text"
+                  value={nuevaParadaDireccionChofer}
+                  onChange={(e) => {
+                    setNuevaParadaDireccionChofer(e.target.value);
+                    setIsNuevaParadaSelectedChofer(false);
+                    setNuevaParadaCoordsChofer(null);
+                  }}
+                  placeholder="Dirección de la parada (Ej: Av. Mitre 250)"
+                  className="w-full pl-10 pr-9 p-3 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl text-xs text-slate-900 dark:text-white focus:ring-2 focus:ring-amber-500 font-medium placeholder-gray-400"
+                  autoFocus
+                />
+                {isSearchingParadaChofer && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-amber-600"></div>
+                  </div>
+                )}
+              </div>
+
+              {/* Lista flotante de sugerencias encontradas desde Maps */}
+              {nuevaParadaSuggestionsChofer.length > 0 && (
+                <div className="absolute left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl shadow-2xl z-50 max-h-52 overflow-y-auto divide-y divide-gray-100 dark:divide-slate-800">
+                  {nuevaParadaSuggestionsChofer.map((sug, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        setNuevaParadaDireccionChofer(sug.display_name);
+                        setNuevaParadaCoordsChofer({ lat: parseFloat(sug.lat), lon: parseFloat(sug.lon) });
+                        setIsNuevaParadaSelectedChofer(true);
+                        setNuevaParadaSuggestionsChofer([]);
+                      }}
+                      className="w-full text-left p-3 text-xs hover:bg-amber-50/50 dark:hover:bg-slate-800 flex items-start gap-2.5 transition-colors group"
+                    >
+                      <MapPin className="w-3.5 h-3.5 text-amber-500 mt-0.5 shrink-0 group-hover:scale-110 transition-transform" />
+                      <div className="flex-1 min-w-0">
+                        <span className="font-semibold text-slate-800 dark:text-slate-100 block truncate">
+                          {sug.display_name.split(',')[0]}
+                        </span>
+                        <span className="text-[10px] text-slate-400 dark:text-slate-400 block truncate">
+                          {sug.display_name.split(',').slice(1).join(',').trim()}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {nuevaParadaCoordsChofer && (
+                <div className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800/60">
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Dirección validada en Maps</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsAddStopModalOpenChofer(false)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleAgregarParadaChofer}
+                disabled={isAddingStopChofer || !nuevaParadaDireccionChofer.trim()}
+                className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-md"
+              >
+                {isAddingStopChofer ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                ) : (
+                  <span>Confirmar Parada</span>
+                )}
               </button>
             </div>
           </div>

@@ -473,6 +473,30 @@ export interface ReporteData {
   }>;
 } 
 
+export interface ParadaIntermedia {
+  id?: string;
+  direccion: string;
+  lat?: number;
+  lon?: number;
+  completada?: boolean;
+  orden?: number;
+}
+
+export interface MensajeChatViaje {
+  id: string;
+  remitente: 'CLIENTE' | 'CHOFER';
+  remitenteNombre: string;
+  texto: string;
+  timestamp: string;
+}
+
+export interface CalificacionViajeData {
+  estrellasChofer: number;
+  estrellasVehiculo: number;
+  tags?: string[];
+  comentario?: string;
+}
+
 // Tipos para funcionalidad del cliente
 export interface SolicitudViajeData {
   origen: string;
@@ -484,6 +508,9 @@ export interface SolicitudViajeData {
   longitudOrigen?: number;
   latitudDestino?: number;
   longitudDestino?: number;
+  paradas?: ParadaIntermedia[];
+  metodoPago?: 'EFECTIVO' | 'TRANSFERENCIA';
+  pagaCon?: number;
 }
 
 export interface CalculoPrecioData {
@@ -521,20 +548,43 @@ export interface ViajeCliente {
   fecha: string;
   estado: 'PENDIENTE' | 'ACEPTADO' | 'EN_CAMINO' | 'EN_CURSO' | 'COMPLETADO' | 'CANCELADO';
   metodoPago?: MetodoPago;
+  pagaCon?: number;
+  vueltoEstimado?: number;
   observaciones?: string;
   createdAt: string;
+  trackingToken?: string;
+  paradas?: string | ParadaIntermedia[];
+  tiempoEsperaSegundos?: number;
+  costoEspera?: number;
+  enEspera?: boolean;
+  mensajesChat?: string | MensajeChatViaje[];
+  motivoCancelacion?: string;
+  debeAbonarMinimo?: boolean;
+  costoCancelacion?: number;
+  calificacion?: any;
   chofer?: {
+    id?: string;
     nombre: string;
+    apellido?: string;
     telefono: string;
     fotoUrl?: string;
     vehiculo?: {
+      id?: string;
       patente: string;
       marca: string;
       modelo: string;
       color?: string;
     };
   };
+  vehiculo?: {
+    id?: string;
+    patente: string;
+    marca: string;
+    modelo: string;
+    color?: string;
+  };
   remiseria?: {
+    id?: string;
     nombreFantasia: string;
     telefono: string;
   };
