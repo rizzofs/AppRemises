@@ -102,20 +102,37 @@
   background-color: #334155 !important;
 }
 
-/* Scrollbars discretos para modo oscuro */
-.dark .chofer-module::-webkit-scrollbar,
+/* Ocultar barra de scroll en la App del Chofer (scroll funcional pero invisible) */
+html:has(.chofer-module),
+body:has(.chofer-module),
+.chofer-module,
+.chofer-module *,
+.no-scrollbar {
+  -ms-overflow-style: none !important; /* IE y Edge */
+  scrollbar-width: none !important; /* Firefox */
+}
+
+html:has(.chofer-module)::-webkit-scrollbar,
+body:has(.chofer-module)::-webkit-scrollbar,
+.chofer-module::-webkit-scrollbar,
+.chofer-module *::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+/* Scrollbars discretos para modo oscuro en cliente */
 .dark .cliente-module::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-.dark .chofer-module::-webkit-scrollbar-thumb,
 .dark .cliente-module::-webkit-scrollbar-thumb {
   background: #334155;
   border-radius: 9999px;
 }
 
-.dark .chofer-module::-webkit-scrollbar-track,
 .dark .cliente-module::-webkit-scrollbar-track {
   background: transparent;
 }

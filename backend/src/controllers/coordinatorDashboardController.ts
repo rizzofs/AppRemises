@@ -4,6 +4,98 @@ import { AuthenticatedRequest } from '../types';
 import bcrypt from 'bcryptjs';
 import { batchDispatchService } from '../services/batchDispatchService';
 
+function haversineDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+const GEOCODE_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 horas en memoria
+const geocodeSearchCache = new Map<string, { data: any[]; expiresAt: number }>();
+const geocodeInFlightMap = new Map<string, Promise<any[]>>();
+const osrmDistanceCache = new Map<string, { distanceKm: number; expiresAt: number }>();
+
+async function searchNominatimCached(rawQuery: string, limit = 5): Promise<any[]> {
+  const queryString = (rawQuery || '').trim();
+  if (!queryString || queryString.length < 3) return [];
+
+  const cacheKey = `${limit}:${queryString.toLowerCase()}`;
+  const ahora = Date.now();
+  const cached = geocodeSearchCache.get(cacheKey);
+  if (cached && cached.expiresAt > ahora) {
+    return cached.data;
+  }
+
+  // Deduplicar peticiones simultáneas idénticas en hora pico
+  const inFlight = geocodeInFlightMap.get(cacheKey);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const fetchPromise = (async () => {
+    try {
+      const hasCityConstraint =
+        /,/g.test(queryString) ||
+        /chivilcoy|buenos\s+aires|caba|federal|ezeiza|retiro|lujan|mercedes/i.test(queryString);
+      const viewboxParam = 'viewbox=-60.15,-34.83,-59.88,-34.96';
+      let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryString)}&countrycodes=ar&limit=${limit}&addressdetails=1&${viewboxParam}&bounded=0`;
+      if (!hasCityConstraint) {
+        url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryString + ', Chivilcoy')}&countrycodes=ar&limit=${limit}&addressdetails=1&${viewboxParam}&bounded=0`;
+      }
+
+      const response = await fetch(url, {
+        headers: { 'User-Agent': 'AppRemises/1.0 (coordinacion@remises.com)' },
+        signal: AbortSignal.timeout(3500),
+      });
+      let data = (await response.json()) as any[];
+
+      if (!hasCityConstraint && (!Array.isArray(data) || data.length === 0)) {
+        const fallbackUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryString)}&countrycodes=ar&limit=${limit}&addressdetails=1&${viewboxParam}&bounded=0`;
+        const fallbackResponse = await fetch(fallbackUrl, {
+          headers: { 'User-Agent': 'AppRemises/1.0 (coordinacion@remises.com)' },
+          signal: AbortSignal.timeout(3500),
+        });
+        data = (await fallbackResponse.json()) as any[];
+      }
+
+      const finalData = Array.isArray(data) ? data : [];
+      if (geocodeSearchCache.size >= 1500) {
+        const oldestKey = geocodeSearchCache.keys().next().value;
+        if (oldestKey) geocodeSearchCache.delete(oldestKey);
+      }
+      geocodeSearchCache.set(cacheKey, {
+        data: finalData,
+        expiresAt: Date.now() + GEOCODE_CACHE_TTL_MS,
+      });
+      return finalData;
+    } finally {
+      geocodeInFlightMap.delete(cacheKey);
+    }
+  })();
+
+  geocodeInFlightMap.set(cacheKey, fetchPromise);
+  return fetchPromise;
+}
+
+async function geocodeAddressInternal(query: string): Promise<{ lat: number; lon: number } | null> {
+  try {
+    const data = await searchNominatimCached(query, 1);
+    if (data && data.length > 0 && data[0].lat && data[0].lon) {
+      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+    }
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
 
 export const coordinatorDashboardController = {
   // Obtener viajes en curso (incluye asignados/en camino/en curso)
@@ -91,6 +183,121 @@ export const coordinatorDashboardController = {
     }
   },
 
+  // Obtener viajes finalizados y anulados (historial)
+  async getViajesHistorial(req: AuthenticatedRequest, res: Response) {
+    try {
+      const coordinadorId = req.user?.id;
+      
+      if (!coordinadorId) {
+        return res.status(401).json({
+          success: false,
+          message: 'Usuario no autenticado'
+        });
+      }
+
+      let remiseriaId: string | null = null;
+      const coordinador = await prisma.coordinador.findFirst({
+        where: { userId: coordinadorId },
+        include: { remiseria: true }
+      });
+      if (coordinador) {
+        remiseriaId = coordinador.remiseriaId;
+      } else if ((req.user as any)?.remiseriaId) {
+        remiseriaId = (req.user as any).remiseriaId;
+      }
+
+      if (!remiseriaId) {
+        return res.status(404).json({
+          success: false,
+          message: 'Coordinador o remisería no encontrada'
+        });
+      }
+
+      const { estado, fechaDesde, fechaHasta, limit } = req.query;
+
+      const whereClause: any = {
+        remiseriaId,
+        estado: {
+          in: ['COMPLETADO', 'CANCELADO']
+        }
+      };
+
+      if (estado && typeof estado === 'string' && ['COMPLETADO', 'CANCELADO'].includes(estado.toUpperCase())) {
+        whereClause.estado = estado.toUpperCase();
+      }
+
+      if (fechaDesde || fechaHasta) {
+        whereClause.fecha = {};
+        if (fechaDesde && typeof fechaDesde === 'string') {
+          whereClause.fecha.gte = new Date(fechaDesde);
+        }
+        if (fechaHasta && typeof fechaHasta === 'string') {
+          const hasta = new Date(fechaHasta);
+          if (fechaHasta.length === 10) {
+            hasta.setHours(23, 59, 59, 999);
+          }
+          whereClause.fecha.lte = hasta;
+        }
+      }
+
+      const take = limit ? Math.min(Number(limit), 1000) : 300;
+
+      const viajes = await prisma.viaje.findMany({
+        where: whereClause,
+        include: {
+          cliente: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+              email: true
+            }
+          },
+          chofer: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+              vehiculo: {
+                select: {
+                  id: true,
+                  patente: true,
+                  marca: true,
+                  modelo: true
+                }
+              }
+            }
+          },
+          vehiculo: {
+            select: {
+              id: true,
+              patente: true,
+              marca: true,
+              modelo: true
+            }
+          }
+        },
+        orderBy: {
+          fecha: 'desc'
+        },
+        take
+      });
+
+      res.json({
+        success: true,
+        data: viajes
+      });
+    } catch (error) {
+      console.error('Error getting viajes historial:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error interno del servidor'
+      });
+    }
+  },
+
   // Obtener viajes sin asignar
   async getViajesSinAsignar(req: AuthenticatedRequest, res: Response) {
     try {
@@ -118,7 +325,6 @@ export const coordinatorDashboardController = {
       const viajes = await prisma.viaje.findMany({
         where: {
           estado: 'PENDIENTE',
-          choferId: null,
           OR: [
             { remiseriaId: coordinador.remiseriaId },
             { clienteId: { not: null } }
@@ -133,7 +339,17 @@ export const coordinatorDashboardController = {
               telefono: true,
               email: true
             }
-          }
+          },
+          chofer: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+              vehiculo: true
+            }
+          },
+          vehiculo: true
         },
         orderBy: {
           fecha: 'asc'
@@ -275,6 +491,32 @@ export const coordinatorDashboardController = {
           userAgent: req.get('User-Agent') || null
         }
       });
+
+      // Al asignarle viaje desde la central, sacarlo de la Tabla de espera
+      if (chofer.enParadaVirtual) {
+        await prisma.chofer.update({
+          where: { id: chofer.id },
+          data: { enParadaVirtual: false, paradaVirtualIngreso: null }
+        });
+      }
+
+      try {
+        const { getIO } = await import('../lib/socket');
+        const io = getIO();
+        if (io) {
+          io.to(coordinador.remiseriaId).emit('viaje_asignado_directo', {
+            choferId: chofer.id,
+            viaje: updatedViaje
+          });
+          io.to(coordinador.remiseriaId).emit('viaje_estado_actualizado', {
+            viajeId: updatedViaje.id,
+            estado: 'ACEPTADO',
+            viaje: updatedViaje
+          });
+        }
+      } catch (sErr) {
+        console.warn('Socket asignarViaje warning:', sErr);
+      }
 
       res.json({
         success: true,
@@ -615,39 +857,80 @@ export const coordinatorDashboardController = {
         });
       }
 
-      const { valorKm, bajadaBandera } = coordinador.remiseria;
+      const rawValorKm = coordinador.remiseria?.valorKm;
+      const rawBajadaBandera = coordinador.remiseria?.bajadaBandera;
+      const valorKm = rawValorKm && rawValorKm > 0 ? rawValorKm : 1200;
+      const bajadaBandera = rawBajadaBandera && rawBajadaBandera > 0 ? rawBajadaBandera : 3500;
 
       let distanciaKm = 0;
       let calculatedViaRoute = false;
 
-      // Intentar calcular distancia real usando OSRM si las coordenadas están presentes
-      if (latOrigen && lonOrigen && latDestino && lonDestino) {
-        try {
-          const url = `http://router.project-osrm.org/route/v1/driving/${lonOrigen},${latOrigen};${lonDestino},${latDestino}?overview=false`;
-          const response = await fetch(url);
-          const data = await response.json() as any;
-          if (data.routes && data.routes.length > 0) {
-            distanciaKm = data.routes[0].distance / 1000;
-            distanciaKm = Math.round(distanciaKm * 10) / 10;
-            calculatedViaRoute = true;
-          }
-        } catch (error) {
-          console.error('Error al consultar OSRM routing API:', error);
+      let finalLatOrigen = latOrigen ? parseFloat(latOrigen.toString()) : undefined;
+      let finalLonOrigen = lonOrigen ? parseFloat(lonOrigen.toString()) : undefined;
+      let finalLatDestino = latDestino ? parseFloat(latDestino.toString()) : undefined;
+      let finalLonDestino = lonDestino ? parseFloat(lonDestino.toString()) : undefined;
+
+      // Si faltan coordenadas pero tenemos los textos de las direcciones, geocodificamos automáticamente
+      if ((!finalLatOrigen || !finalLonOrigen) && origen) {
+        const geoO = await geocodeAddressInternal(origen);
+        if (geoO) {
+          finalLatOrigen = geoO.lat;
+          finalLonOrigen = geoO.lon;
         }
       }
 
-      // Si no hay coordenadas o falla el cálculo por ruta, usar la estimación determinista como fallback
-      if (!calculatedViaRoute) {
-        const str = (origen + destino).toLowerCase().replace(/\s/g, '');
-        let hash = 0;
-        for (let i = 0; i < str.length; i++) {
-          hash = str.charCodeAt(i) + ((hash << 5) - hash);
+      if ((!finalLatDestino || !finalLonDestino) && destino && destino.toLowerCase() !== 'a convenir') {
+        const geoD = await geocodeAddressInternal(destino);
+        if (geoD) {
+          finalLatDestino = geoD.lat;
+          finalLonDestino = geoD.lon;
         }
-        const absHash = Math.abs(hash);
-        const baseDistance = 1.5;
-        const maxDistanceRange = 11.0;
-        const estimatedDistance = baseDistance + (absHash % 100) / 100 * maxDistanceRange;
-        distanciaKm = Math.round(estimatedDistance * 10) / 10;
+      }
+
+      // Si tenemos las coordenadas de origen y destino, calculamos por OSRM (con caché en memoria) o Haversine
+      if (finalLatOrigen && finalLonOrigen && finalLatDestino && finalLonDestino) {
+        const routeKey = `${finalLatOrigen.toFixed(4)},${finalLonOrigen.toFixed(4)}->${finalLatDestino.toFixed(4)},${finalLonDestino.toFixed(4)}`;
+        const cachedRoute = osrmDistanceCache.get(routeKey);
+        if (cachedRoute && cachedRoute.expiresAt > Date.now()) {
+          distanciaKm = cachedRoute.distanceKm;
+          calculatedViaRoute = true;
+        } else {
+          try {
+            const url = `http://router.project-osrm.org/route/v1/driving/${finalLonOrigen},${finalLatOrigen};${finalLonDestino},${finalLatDestino}?overview=false`;
+            const response = await fetch(url, { signal: AbortSignal.timeout(3500) });
+            const data = (await response.json()) as any;
+            if (data.routes && data.routes.length > 0) {
+              distanciaKm = data.routes[0].distance / 1000;
+              distanciaKm = Math.round(distanciaKm * 10) / 10;
+              calculatedViaRoute = true;
+              if (osrmDistanceCache.size >= 1500) {
+                const oldestKey = osrmDistanceCache.keys().next().value;
+                if (oldestKey) osrmDistanceCache.delete(oldestKey);
+              }
+              osrmDistanceCache.set(routeKey, {
+                distanceKm: distanciaKm,
+                expiresAt: Date.now() + GEOCODE_CACHE_TTL_MS,
+              });
+            }
+          } catch (error) {
+            console.warn('OSRM no respondió a tiempo, recurriendo a Haversine:', error);
+          }
+        }
+
+        if (!calculatedViaRoute) {
+          const distLineal = haversineDistanceKm(finalLatOrigen, finalLonOrigen, finalLatDestino, finalLonDestino);
+          distanciaKm = Math.round(distLineal * 1.3 * 10) / 10;
+          calculatedViaRoute = true;
+        }
+      }
+
+      // Si el destino es "a convenir" o no se pudo geolocalizar, estimamos viaje urbano base
+      if (!calculatedViaRoute) {
+        if (!destino || destino.toLowerCase() === 'a convenir') {
+          distanciaKm = 1.0;
+        } else {
+          distanciaKm = 2.5; // Distancia urbana estándar promedio
+        }
       }
 
       // Fórmula solicitada por el usuario:
@@ -657,7 +940,8 @@ export const coordinatorDashboardController = {
       if (distanciaKm > 1) {
         precioEstimado += (distanciaKm - 1) * valorKm;
       }
-      precioEstimado = Math.round(precioEstimado);
+      // Redondear a múltiplos de 50 para cobro exacto y ágil
+      precioEstimado = Math.round(precioEstimado / 50) * 50;
 
       res.json({
         success: true,
@@ -665,10 +949,16 @@ export const coordinatorDashboardController = {
           origen,
           destino,
           distanciaKm,
+          precio: precioEstimado,
           precioEstimado,
+          precioSugerido: precioEstimado,
           bajadaBandera,
           valorKm,
-          calculatedViaRoute
+          calculatedViaRoute,
+          coords: {
+            origen: finalLatOrigen && finalLonOrigen ? { lat: finalLatOrigen, lon: finalLonOrigen } : null,
+            destino: finalLatDestino && finalLonDestino ? { lat: finalLatDestino, lon: finalLonDestino } : null
+          }
         }
       });
     } catch (error) {
@@ -680,7 +970,7 @@ export const coordinatorDashboardController = {
     }
   },
 
-  // Geocodificación de direcciones usando OpenStreetMap Nominatim
+  // Geocodificación de direcciones usando OpenStreetMap Nominatim (con caché en memoria y deduplicación para hora pico)
   async geocode(req: Request, res: Response) {
     try {
       const { q } = req.query;
@@ -691,36 +981,7 @@ export const coordinatorDashboardController = {
         });
       }
 
-      const queryString = q as string;
-      const hasCityConstraint = /,/g.test(queryString) || /chivilcoy|buenos\s+aires|caba|federal|ezeiza|retiro|lujan|mercedes/i.test(queryString);
-      
-      // Caja de límites aproximada para Chivilcoy para dar prioridad (viewbox bias)
-      const viewboxParam = 'viewbox=-60.15,-34.83,-59.88,-34.96';
-      
-      let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryString)}&countrycodes=ar&limit=5&addressdetails=1&${viewboxParam}&bounded=0`;
-      
-      if (!hasCityConstraint) {
-        url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryString + ', Chivilcoy')}&countrycodes=ar&limit=5&addressdetails=1&${viewboxParam}&bounded=0`;
-      }
-
-      let response = await fetch(url, {
-        headers: {
-          'User-Agent': 'AppRemises/1.0 (coordinacion@remises.com)'
-        }
-      });
-      let data = await response.json() as any[];
-
-      // Si no encontramos nada con la restricción local y el usuario no especificó una ciudad externa,
-      // reintentamos una búsqueda general en Argentina sin el sufijo de Chivilcoy.
-      if (!hasCityConstraint && (!data || data.length === 0)) {
-        const fallbackUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(queryString)}&countrycodes=ar&limit=5&addressdetails=1&${viewboxParam}&bounded=0`;
-        const fallbackResponse = await fetch(fallbackUrl, {
-          headers: {
-            'User-Agent': 'AppRemises/1.0 (coordinacion@remises.com)'
-          }
-        });
-        data = await fallbackResponse.json() as any[];
-      }
+      const data = await searchNominatimCached(q as string, 5);
 
       res.json({
         success: true,
@@ -871,34 +1132,59 @@ export const coordinatorDashboardController = {
         }
       });
 
-      const choferesMapeados = choferesSinVehiculo.map(c => ({
-        id: c.id,
-        patente: 'Auto Propio',
-        marca: 'Chofer',
-        modelo: 'Móvil',
-        anio: 2024,
-        color: 'Azul',
-        tipo: 'Auto',
-        capacidad: 4,
-        estado: 'ACTIVO' as const,
-        propietario: `${c.nombre} ${c.apellido}`,
-        latitud: null,
-        longitud: null,
-        ultimaUbicacion: null,
-        remiseriaId: coordinador.remiseriaId,
-        observaciones: 'Chofer conectado',
-        choferes: [{
+      const viajesActivosFlota = await prisma.viaje.findMany({
+        where: {
+          remiseriaId: coordinador.remiseriaId,
+          estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] }
+        },
+        select: { choferId: true, vehiculoId: true }
+      });
+      const choferesEnViajeSet = new Set(viajesActivosFlota.map(v => v.choferId).filter(Boolean));
+      const vehiculosEnViajeSet = new Set(viajesActivosFlota.map(v => v.vehiculoId).filter(Boolean));
+
+      const vehiculosConEstado = vehiculos.map(v => {
+        const choferAsig = v.choferes && v.choferes[0];
+        const estaEnViaje = vehiculosEnViajeSet.has(v.id) || (choferAsig && choferesEnViajeSet.has(choferAsig.id));
+        return {
+          ...v,
+          enViaje: Boolean(estaEnViaje),
+          estadoOperativo: estaEnViaje ? 'en_viaje' : (choferAsig?.isOnline ? 'disponible' : 'fuera_servicio')
+        };
+      });
+
+      const choferesMapeados = choferesSinVehiculo.map(c => {
+        const estaEnViaje = choferesEnViajeSet.has(c.id);
+        return {
           id: c.id,
-          nombre: c.nombre,
-          apellido: c.apellido,
-          telefono: c.telefono,
-          isOnline: c.isOnline
-        }]
-      }));
+          patente: 'Auto Propio',
+          marca: 'Chofer',
+          modelo: 'Móvil',
+          anio: 2024,
+          color: 'Azul',
+          tipo: 'Auto',
+          capacidad: 4,
+          estado: 'ACTIVO' as const,
+          enViaje: Boolean(estaEnViaje),
+          estadoOperativo: estaEnViaje ? 'en_viaje' : 'disponible',
+          propietario: `${c.nombre} ${c.apellido}`,
+          latitud: null,
+          longitud: null,
+          ultimaUbicacion: null,
+          remiseriaId: coordinador.remiseriaId,
+          observaciones: estaEnViaje ? 'En viaje activo' : 'Chofer conectado',
+          choferes: [{
+            id: c.id,
+            nombre: c.nombre,
+            apellido: c.apellido,
+            telefono: c.telefono,
+            isOnline: c.isOnline
+          }]
+        };
+      });
 
       res.json({
         success: true,
-        data: [...vehiculos, ...choferesMapeados],
+        data: [...vehiculosConEstado, ...choferesMapeados],
         remiseria: coordinador.remiseria ? {
           id: coordinador.remiseria.id,
           nombreFantasia: coordinador.remiseria.nombreFantasia,
@@ -979,27 +1265,57 @@ export const coordinatorDashboardController = {
         });
       }
 
-      const choferes = await prisma.chofer.findMany({
-        where: {
-          remiseriaId: coordinador.remiseriaId,
-          estado: 'ACTIVO',
-          isOnline: true
-        },
-        include: {
-          vehiculo: {
-            select: {
-              id: true,
-              patente: true,
-              marca: true,
-              modelo: true
+      const [choferes, viajesEnCurso] = await Promise.all([
+        prisma.chofer.findMany({
+          where: {
+            remiseriaId: coordinador.remiseriaId,
+            estado: 'ACTIVO',
+            isOnline: true
+          },
+          include: {
+            vehiculo: {
+              select: {
+                id: true,
+                patente: true,
+                marca: true,
+                modelo: true
+              }
             }
+          },
+          orderBy: [
+            { paradaVirtualIngreso: 'asc' },
+            { updatedAt: 'asc' }
+          ]
+        }),
+        prisma.viaje.findMany({
+          where: {
+            remiseriaId: coordinador.remiseriaId,
+            choferId: { not: null },
+            estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] }
+          },
+          select: { choferId: true }
+        })
+      ]);
+
+      const choferesOcupadosSet = new Set(viajesEnCurso.map(v => v.choferId));
+      const choferesEnriquecidos = choferes.map(c => {
+        const tieneViaje = choferesOcupadosSet.has(c.id);
+        let enPausa = false;
+        try {
+          if (c.observaciones && c.observaciones.startsWith('{')) {
+            enPausa = Boolean(JSON.parse(c.observaciones).enPausa);
           }
-        }
+        } catch {}
+        return {
+          ...c,
+          estado: tieneViaje ? 'en_viaje' : (enPausa ? 'en_pausa' : 'disponible'),
+          enParadaVirtual: tieneViaje ? false : c.enParadaVirtual
+        };
       });
 
       res.json({
         success: true,
-        data: choferes
+        data: choferesEnriquecidos
       });
     } catch (error) {
       console.error('Error getting choferes tiempo real:', error);
@@ -1039,7 +1355,9 @@ export const coordinatorDashboardController = {
         viajesSinAsignar,
         reservasActivas,
         totalVehiculos,
-        totalChoferes
+        totalChoferes,
+        viajesFinalizados,
+        viajesCancelados
       ] = await Promise.all([
         prisma.viaje.count({
           where: {
@@ -1052,7 +1370,6 @@ export const coordinatorDashboardController = {
         prisma.viaje.count({
           where: {
             estado: 'PENDIENTE',
-            choferId: null,
             OR: [
               { remiseriaId: coordinador.remiseriaId },
               { clienteId: { not: null } }
@@ -1076,6 +1393,18 @@ export const coordinatorDashboardController = {
             remiseriaId: coordinador.remiseriaId,
             estado: 'ACTIVO'
           }
+        }),
+        prisma.viaje.count({
+          where: {
+            remiseriaId: coordinador.remiseriaId,
+            estado: 'COMPLETADO'
+          }
+        }),
+        prisma.viaje.count({
+          where: {
+            remiseriaId: coordinador.remiseriaId,
+            estado: 'CANCELADO'
+          }
         })
       ]);
 
@@ -1086,7 +1415,10 @@ export const coordinatorDashboardController = {
           viajesSinAsignar,
           reservasActivas,
           totalVehiculos,
-          totalChoferes
+          totalChoferes,
+          viajesFinalizados,
+          viajesCancelados,
+          viajesHistorial: viajesFinalizados + viajesCancelados
         }
       });
     } catch (error) {
@@ -1174,6 +1506,602 @@ export const coordinatorDashboardController = {
         success: false,
         message: error.message || 'Error al aplicar asignaciones en lote'
       });
+    }
+  },
+
+  // 1. Búsqueda predictiva de pasajeros habituales por teléfono o nombre
+  async searchClientesPredictivo(req: AuthenticatedRequest, res: Response) {
+    try {
+      const coordinadorId = req.user?.id;
+      const { q } = req.query;
+
+      if (!coordinadorId) {
+        return res.status(401).json({ success: false, message: 'Usuario no autenticado' });
+      }
+
+      if (!q || typeof q !== 'string' || q.trim().length < 2) {
+        return res.json({ success: true, data: [] });
+      }
+
+      const coordinador = await prisma.coordinador.findFirst({
+        where: { userId: coordinadorId }
+      });
+
+      if (!coordinador) {
+        return res.status(404).json({ success: false, message: 'Coordinador no encontrado' });
+      }
+
+      const searchTerm = q.trim();
+
+      const clientes = await prisma.cliente.findMany({
+        where: {
+          OR: [
+            { telefono: { contains: searchTerm, mode: 'insensitive' } },
+            { nombre: { contains: searchTerm, mode: 'insensitive' } },
+            { apellido: { contains: searchTerm, mode: 'insensitive' } },
+            { dni: { contains: searchTerm } }
+          ]
+        },
+        select: {
+          id: true,
+          nombre: true,
+          apellido: true,
+          telefono: true,
+          email: true,
+          direccion: true,
+          observaciones: true,
+          direccionesFrecuentes: true
+        },
+        take: 6
+      });
+
+      const clientesConHistorial = await Promise.all(
+        clientes.map(async (c) => {
+          const ultimosViajes = await prisma.viaje.findMany({
+            where: {
+              OR: [
+                { clienteId: c.id },
+                { clienteTelefono: c.telefono }
+              ]
+            },
+            orderBy: { fecha: 'desc' },
+            take: 3,
+            select: {
+              origen: true,
+              destino: true,
+              precio: true,
+              fecha: true
+            }
+          });
+
+          const origenesHabituales = Array.from(new Set([
+            ...(c.direccion ? [c.direccion] : []),
+            ...ultimosViajes.map((v) => v.origen).filter(Boolean)
+          ]));
+          const destinosHabituales = Array.from(new Set(
+            ultimosViajes.map((v) => v.destino).filter(Boolean)
+          ));
+
+          return {
+            ...c,
+            nombreCompleto: `${c.nombre} ${c.apellido}`.trim(),
+            origenesHabituales,
+            destinosHabituales,
+            ultimoViaje: ultimosViajes[0] || null
+          };
+        })
+      );
+
+      res.json({
+        success: true,
+        data: clientesConHistorial
+      });
+    } catch (error) {
+      console.error('Error buscando clientes predictivo:', error);
+      res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    }
+  },
+
+  // 2. Carga ultrarrápida de viaje express telefónico (< 5s)
+  async crearViajeExpress(req: AuthenticatedRequest, res: Response) {
+    try {
+      const coordinadorId = req.user?.id;
+      if (!coordinadorId) {
+        return res.status(401).json({ success: false, message: 'Usuario no autenticado' });
+      }
+
+      const coordinador = await prisma.coordinador.findFirst({
+        where: { userId: coordinadorId },
+        include: { remiseria: true }
+      });
+
+      if (!coordinador) {
+        return res.status(404).json({ success: false, message: 'Coordinador no encontrado' });
+      }
+
+      const {
+        telefono,
+        nombre,
+        apellido,
+        origen,
+        destino,
+        precio,
+        choferId,
+        vehiculoId,
+        observaciones,
+        prioridad,
+        recargoTipo,
+        recargoMonto
+      } = req.body;
+
+      if (!telefono || !origen) {
+        return res.status(400).json({
+          success: false,
+          message: 'Teléfono y dirección de origen son obligatorios'
+        });
+      }
+
+      let clienteId: string | null = null;
+      const cleanPhone = telefono.trim();
+      let cliente = await prisma.cliente.findFirst({
+        where: { telefono: cleanPhone }
+      });
+
+      if (!cliente && nombre) {
+        try {
+          const dummyEmail = `cliente_${cleanPhone.replace(/\D/g, '') || Date.now()}@bruno.local`;
+          const dummyDni = `TEL_${cleanPhone.replace(/\D/g, '').slice(-8) || Date.now()}`;
+          const bcrypt = await import('bcryptjs');
+          const hashedPassword = await bcrypt.default.hash('123456', 10);
+
+          const nuevoUser = await prisma.user.create({
+            data: {
+              email: dummyEmail,
+              passwordHash: hashedPassword,
+              rol: 'CLIENTE'
+            }
+          });
+
+          cliente = await prisma.cliente.create({
+            data: {
+              userId: nuevoUser.id,
+              nombre: nombre.trim(),
+              apellido: (apellido || '').trim(),
+              dni: dummyDni,
+              telefono: cleanPhone,
+              email: dummyEmail,
+              direccion: origen,
+              fechaNacimiento: new Date('1990-01-01'),
+              remiseriaId: coordinador.remiseriaId
+            }
+          });
+          clienteId = cliente.id;
+        } catch (errCliente) {
+          console.warn('Aviso creación cliente rápido:', errCliente);
+        }
+      } else if (cliente) {
+        clienteId = cliente.id;
+      }
+
+      let precioFinal = parseFloat(precio) || 0;
+      if (precioFinal <= 0) {
+        precioFinal = coordinador.remiseria.bajadaBandera || 3500;
+      }
+
+      // El viaje siempre se crea como PENDIENTE para que el chofer lo acepte voluntariamente
+      const estadoInicial = 'PENDIENTE';
+
+      let choferVehiculoId = vehiculoId || null;
+      if (choferId && !choferVehiculoId) {
+        const choferEncontrado = await prisma.chofer.findUnique({
+          where: { id: choferId },
+          select: { vehiculoId: true }
+        });
+        choferVehiculoId = choferEncontrado?.vehiculoId || null;
+      }
+
+      const nuevoViaje = await prisma.viaje.create({
+        data: {
+          remiseriaId: coordinador.remiseriaId,
+          clienteId,
+          clienteNombre: nombre ? `${nombre} ${apellido || ''}`.trim() : (cliente ? `${cliente.nombre} ${cliente.apellido}` : 'Pasajero Telefónico'),
+          clienteTelefono: cleanPhone,
+          origen: origen.trim(),
+          destino: (destino || 'A convenir').trim(),
+          precio: precioFinal,
+          fecha: new Date(),
+          estado: estadoInicial,
+          observaciones: observaciones || null,
+          prioridad: prioridad || 'NORMAL',
+          choferId: choferId || null,
+          vehiculoId: choferVehiculoId,
+          recargoTipo: null,
+          recargoMonto: 0
+        },
+        include: {
+          cliente: true,
+          chofer: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+              vehiculo: true
+            }
+          },
+          vehiculo: true
+        }
+      });
+
+      await prisma.appUsage.create({
+        data: {
+          userId: coordinadorId,
+          userEmail: coordinador.email,
+          action: 'CREATE_VIAJE_EXPRESS',
+          details: JSON.stringify({ viajeId: nuevoViaje.id, choferId, precio: precioFinal }),
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent') || null
+        }
+      });
+
+      try {
+        const { getIO } = await import('../lib/socket');
+        const io = getIO();
+        if (io) {
+          io.to(coordinador.remiseriaId).emit('nuevo_viaje_recibido', nuevoViaje);
+          io.to(coordinador.remiseriaId).emit('viaje_disponible', nuevoViaje);
+          if (choferId) {
+            io.to(coordinador.remiseriaId).emit('viaje_asignado_directo', {
+              choferId,
+              viaje: nuevoViaje
+            });
+            io.to(coordinador.remiseriaId).emit('viaje_estado_actualizado', {
+              viajeId: nuevoViaje.id,
+              estado: 'PENDIENTE',
+              mensaje: 'Viaje ofrecido al chofer, pendiente de aceptación',
+              viaje: nuevoViaje
+            });
+          }
+        }
+      } catch (socketErr) {
+        console.warn('Aviso socket viaje express:', socketErr);
+      }
+
+      res.status(201).json({
+        success: true,
+        data: nuevoViaje,
+        message: choferId ? 'Viaje despachado al móvil (pendiente de aceptación por el chofer)' : 'Viaje ingresado a la cola sin asignar'
+      });
+    } catch (error) {
+      console.error('Error creando viaje express:', error);
+      res.status(500).json({ success: false, message: 'Error al registrar viaje express' });
+    }
+  },
+
+  // 3. Reasignación rápida de móvil en caliente (1 clic)
+  async reasignarViaje(req: AuthenticatedRequest, res: Response) {
+    try {
+      const coordinadorId = req.user?.id;
+      const { id } = req.params;
+      const { nuevoChoferId, nuevoVehiculoId, motivo } = req.body;
+
+      if (!coordinadorId) {
+        return res.status(401).json({ success: false, message: 'Usuario no autenticado' });
+      }
+
+      if (!nuevoChoferId) {
+        return res.status(400).json({ success: false, message: 'Debe seleccionar el nuevo chofer' });
+      }
+
+      const coordinador = await prisma.coordinador.findFirst({
+        where: { userId: coordinadorId },
+        include: { remiseria: true }
+      });
+
+      if (!coordinador) {
+        return res.status(404).json({ success: false, message: 'Coordinador no encontrado' });
+      }
+
+      const viaje = await prisma.viaje.findUnique({
+        where: { id },
+        include: { chofer: true, cliente: true }
+      });
+
+      if (!viaje) {
+        return res.status(404).json({ success: false, message: 'Viaje no encontrado' });
+      }
+
+      const choferAnteriorId = viaje.choferId;
+
+      const nuevoChofer = await prisma.chofer.findUnique({
+        where: { id: nuevoChoferId },
+        include: { vehiculo: true }
+      });
+
+      if (!nuevoChofer) {
+        return res.status(404).json({ success: false, message: 'Nuevo chofer no encontrado' });
+      }
+
+      const finalVehiculoId = nuevoVehiculoId || nuevoChofer.vehiculoId || null;
+
+      const viajeActualizado = await prisma.viaje.update({
+        where: { id },
+        data: {
+          choferId: nuevoChofer.id,
+          vehiculoId: finalVehiculoId,
+          choferAnteriorId: choferAnteriorId || undefined,
+          motivoReasignacion: motivo || 'Reasignación operativa por central',
+          estado: 'ACEPTADO'
+        },
+        include: {
+          cliente: true,
+          chofer: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+              vehiculo: true
+            }
+          },
+          vehiculo: true
+        }
+      });
+
+      await prisma.appUsage.create({
+        data: {
+          userId: coordinadorId,
+          userEmail: coordinador.email,
+          action: 'REASSIGN_VIAJE',
+          details: JSON.stringify({
+            viajeId: id,
+            choferAnteriorId,
+            nuevoChoferId,
+            motivo
+          }),
+          ipAddress: req.ip,
+          userAgent: req.get('User-Agent') || null
+        }
+      });
+
+      try {
+        const { getIO } = await import('../lib/socket');
+        const io = getIO();
+        if (io) {
+          if (choferAnteriorId) {
+            io.to(coordinador.remiseriaId).emit('viaje_retirado_chofer', {
+              choferId: choferAnteriorId,
+              viajeId: id,
+              motivo: motivo || 'Viaje reasignado a otro móvil por la central'
+            });
+          }
+
+          io.to(coordinador.remiseriaId).emit('viaje_asignado_directo', {
+            choferId: nuevoChofer.id,
+            viaje: viajeActualizado
+          });
+
+          io.to(coordinador.remiseriaId).emit('viaje_estado_actualizado', {
+            viajeId: id,
+            estado: 'ACEPTADO',
+            mensaje: `Viaje reasignado a ${nuevoChofer.nombre} ${nuevoChofer.apellido}`,
+            viaje: viajeActualizado
+          });
+
+          io.to(coordinador.remiseriaId).emit('chofer_reasignado', {
+            viajeId: id,
+            nuevoChofer: {
+              nombre: `${nuevoChofer.nombre} ${nuevoChofer.apellido}`,
+              telefono: nuevoChofer.telefono,
+              vehiculo: nuevoChofer.vehiculo ? `${nuevoChofer.vehiculo.marca} ${nuevoChofer.vehiculo.modelo} (${nuevoChofer.vehiculo.patente})` : 'Auto Asignado'
+            }
+          });
+        }
+      } catch (socketErr) {
+        console.warn('Aviso socket reasignar viaje:', socketErr);
+      }
+
+      res.json({
+        success: true,
+        data: viajeActualizado,
+        message: `Viaje reasignado con éxito a ${nuevoChofer.nombre} ${nuevoChofer.apellido}`
+      });
+    } catch (error) {
+      console.error('Error al reasignar viaje:', error);
+      res.status(500).json({ success: false, message: 'Error interno al reasignar el viaje' });
+    }
+  },
+
+  // 4. Auditoría de cancelaciones
+  async getAuditoriaCancelaciones(req: AuthenticatedRequest, res: Response) {
+    try {
+      const coordinadorId = req.user?.id;
+      if (!coordinadorId) {
+        return res.status(401).json({ success: false, message: 'Usuario no autenticado' });
+      }
+
+      const coordinador = await prisma.coordinador.findFirst({
+        where: { userId: coordinadorId }
+      });
+
+      if (!coordinador) {
+        return res.status(404).json({ success: false, message: 'Coordinador no encontrado' });
+      }
+
+      const { fechaDesde, fechaHasta, canceladoPor } = req.query;
+
+      const whereClause: any = {
+        remiseriaId: coordinador.remiseriaId,
+        estado: 'CANCELADO'
+      };
+
+      if (canceladoPor && typeof canceladoPor === 'string' && ['CLIENTE', 'CHOFER', 'COORDINADOR'].includes(canceladoPor.toUpperCase())) {
+        whereClause.canceladoPor = canceladoPor.toUpperCase();
+      }
+
+      if (fechaDesde || fechaHasta) {
+        whereClause.fecha = {};
+        if (fechaDesde && typeof fechaDesde === 'string') {
+          whereClause.fecha.gte = new Date(fechaDesde);
+        }
+        if (fechaHasta && typeof fechaHasta === 'string') {
+          const hasta = new Date(fechaHasta);
+          if (fechaHasta.length === 10) hasta.setHours(23, 59, 59, 999);
+          whereClause.fecha.lte = hasta;
+        }
+      }
+
+      const viajesCancelados = await prisma.viaje.findMany({
+        where: whereClause,
+        include: {
+          cliente: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true
+            }
+          },
+          chofer: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+              vehiculo: true
+            }
+          }
+        },
+        orderBy: {
+          fecha: 'desc'
+        },
+        take: 300
+      });
+
+      const totalCancelados = viajesCancelados.length;
+      const canceladosCliente = viajesCancelados.filter((v) => v.canceladoPor === 'CLIENTE').length;
+      const canceladosChofer = viajesCancelados.filter((v) => v.canceladoPor === 'CHOFER').length;
+      const canceladosCoordinador = viajesCancelados.filter((v) => v.canceladoPor === 'COORDINADOR' || !v.canceladoPor).length;
+      const conCostoMinimo = viajesCancelados.filter((v) => v.debeAbonarMinimo || (v.costoCancelacion && v.costoCancelacion > 0)).length;
+      const totalRecaudadoCancelaciones = viajesCancelados.reduce((acc, v) => acc + (v.costoCancelacion || 0), 0);
+
+      const motivosConteo: Record<string, number> = {};
+      viajesCancelados.forEach((v) => {
+        const motivoKey = (v.motivoCancelacion || 'Sin motivo especificado').trim();
+        motivosConteo[motivoKey] = (motivosConteo[motivoKey] || 0) + 1;
+      });
+
+      const rankingMotivos = Object.entries(motivosConteo)
+        .map(([motivo, cantidad]) => ({ motivo, cantidad }))
+        .sort((a, b) => b.cantidad - a.cantidad);
+
+      res.json({
+        success: true,
+        data: {
+          metricas: {
+            totalCancelados,
+            canceladosCliente,
+            canceladosChofer,
+            canceladosCoordinador,
+            conCostoMinimo,
+            totalRecaudadoCancelaciones,
+            rankingMotivos
+          },
+          viajes: viajesCancelados
+        }
+      });
+    } catch (error) {
+      console.error('Error obteniendo auditoría de cancelaciones:', error);
+      res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    }
+  },
+
+  // 5. Configuración de tarifas especiales (Lluvia, Nocturna, Feriado)
+  async getConfiguracionTarifas(req: AuthenticatedRequest, res: Response) {
+    try {
+      const coordinadorId = req.user?.id;
+      if (!coordinadorId) {
+        return res.status(401).json({ success: false, message: 'Usuario no autenticado' });
+      }
+
+      const coordinador = await prisma.coordinador.findFirst({
+        where: { userId: coordinadorId },
+        include: { remiseria: true }
+      });
+
+      if (!coordinador) {
+        return res.status(404).json({ success: false, message: 'Coordinador no encontrado' });
+      }
+
+      const rem = coordinador.remiseria;
+      res.json({
+        success: true,
+        data: {
+          tarifaEspecialActiva: rem.tarifaEspecialActiva || 'NORMAL',
+          porcentajeRecargoTarifa: rem.porcentajeRecargoTarifa || 0,
+          bajadaBandera: rem.bajadaBandera || 3500,
+          valorKm: rem.valorKm || 1200,
+          valorHoraEspera: rem.valorHoraEspera || 12000
+        }
+      });
+    } catch (error) {
+      console.error('Error al obtener configuración de tarifas:', error);
+      res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    }
+  },
+
+  async updateConfiguracionTarifas(req: AuthenticatedRequest, res: Response) {
+    try {
+      const coordinadorId = req.user?.id;
+      if (!coordinadorId) {
+        return res.status(401).json({ success: false, message: 'Usuario no autenticado' });
+      }
+
+      const coordinador = await prisma.coordinador.findFirst({
+        where: { userId: coordinadorId }
+      });
+
+      if (!coordinador) {
+        return res.status(404).json({ success: false, message: 'Coordinador no encontrado' });
+      }
+
+      const { tarifaEspecialActiva, porcentajeRecargoTarifa, bajadaBandera, valorKm, valorHoraEspera } = req.body;
+
+      const dataToUpdate: any = {};
+      if (tarifaEspecialActiva !== undefined) dataToUpdate.tarifaEspecialActiva = tarifaEspecialActiva;
+      if (porcentajeRecargoTarifa !== undefined) dataToUpdate.porcentajeRecargoTarifa = parseFloat(porcentajeRecargoTarifa);
+      if (bajadaBandera !== undefined) dataToUpdate.bajadaBandera = parseFloat(bajadaBandera);
+      if (valorKm !== undefined) dataToUpdate.valorKm = parseFloat(valorKm);
+      if (valorHoraEspera !== undefined) dataToUpdate.valorHoraEspera = parseFloat(valorHoraEspera);
+
+      const updatedRemiseria = await prisma.remiseria.update({
+        where: { id: coordinador.remiseriaId },
+        data: dataToUpdate
+      });
+
+      try {
+        const { getIO } = await import('../lib/socket');
+        const io = getIO();
+        if (io) {
+          io.to(coordinador.remiseriaId).emit('tarifa_configuracion_actualizada', {
+            tarifaEspecialActiva: updatedRemiseria.tarifaEspecialActiva,
+            porcentajeRecargoTarifa: updatedRemiseria.porcentajeRecargoTarifa,
+            bajadaBandera: updatedRemiseria.bajadaBandera,
+            valorKm: updatedRemiseria.valorKm
+          });
+        }
+      } catch (socketErr) {
+        console.warn('Aviso socket tarifas:', socketErr);
+      }
+
+      res.json({
+        success: true,
+        data: updatedRemiseria,
+        message: 'Configuración de tarifas actualizada exitosamente'
+      });
+    } catch (error) {
+      console.error('Error actualizando tarifas:', error);
+      res.status(500).json({ success: false, message: 'Error interno del servidor' });
     }
   }
 };

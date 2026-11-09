@@ -3,6 +3,116 @@ import { prisma } from '../lib/prisma';
 import { AuthenticatedRequest } from '../types';
 import bcrypt from 'bcryptjs';
 
+// ============================================================================
+// SISTEMA DE TABLAS (COLA FIFO) + DESPACHO POR PROXIMIDAD (A POCAS CUADRAS)
+// ============================================================================
+interface OfertaViajeState {
+  choferOfertadoId: string;
+  motivoOferta: 'CERCANIA' | 'TABLA';
+  puestoTabla: number;
+  distanciaMetros: number | null;
+  expiraEn: number;
+  rechazadosIds: Set<string>;
+}
+
+const OFERTA_TIMEOUT_MS = 15000; // 15 segundos para choferes con la app abierta en pantalla
+const OFERTA_TIMEOUT_SIN_APP_MS = 8000; // 8 segundos para choferes online en BD sin sesión activa abierta
+const HEARTBEAT_ACTIVO_MS = 20000; // 20 segundos máximo sin latido para detectar sesión activa en navegador
+const RADIO_CERCANIA_METROS = 600; // ~5 a 6 cuadras del pedido
+const VENTAJA_MINIMA_CERCANIA_METROS = 250; // Al menos 2.5 cuadras más cerca que el #1 de la tabla
+
+export const ofertasViajesMap = new Map<string, OfertaViajeState>();
+export const choferHeartbeatMap = new Map<string, number>();
+
+async function resolverChoferFallbackId(): Promise<string | undefined> {
+  // 1) Priorizar chofer que actualmente tenga un viaje activo en curso
+  const viajeActivo = await prisma.viaje.findFirst({
+    where: {
+      choferId: { not: null },
+      estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] },
+    },
+    orderBy: { updatedAt: 'desc' },
+    select: { choferId: true },
+  });
+  if (viajeActivo?.choferId) return viajeActivo.choferId;
+
+  // 2) Priorizar chofer con heartbeat activo en la app
+  const ahora = Date.now();
+  let mejorHeartbeatChoferId: string | undefined;
+  let mejorTs = 0;
+  for (const [id, ts] of choferHeartbeatMap.entries()) {
+    if (ahora - ts <= HEARTBEAT_ACTIVO_MS && ts > mejorTs) {
+      mejorTs = ts;
+      mejorHeartbeatChoferId = id;
+    }
+  }
+  if (mejorHeartbeatChoferId) return mejorHeartbeatChoferId;
+
+  // 3) Priorizar chofer en Parada Virtual / Tabla
+  const enTabla = await prisma.chofer.findFirst({
+    where: { estado: 'ACTIVO', isOnline: true, enParadaVirtual: true },
+    orderBy: { paradaVirtualIngreso: 'asc' },
+    select: { id: true },
+  });
+  if (enTabla?.id) return enTabla.id;
+
+  // 4) Fallback general
+  const fallback =
+    (await prisma.chofer.findFirst({
+      where: { estado: 'ACTIVO', isOnline: true },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    })) ||
+    (await prisma.chofer.findFirst({
+      where: { estado: 'ACTIVO' },
+      orderBy: { updatedAt: 'desc' },
+      select: { id: true },
+    }));
+  return fallback?.id;
+}
+
+function calcularDistanciaMetros(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000; // Radio de la Tierra en metros
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return Math.round(R * c);
+}
+
+function parsearCoordenadasOrigen(origenDetallado?: string | null): { lat: number; lng: number } | null {
+  if (!origenDetallado) return null;
+  try {
+    if (origenDetallado.startsWith('{')) {
+      const obj = JSON.parse(origenDetallado);
+      if (obj.lat && obj.lng) return { lat: parseFloat(obj.lat), lng: parseFloat(obj.lng) };
+    }
+    const parts = origenDetallado.split(',');
+    if (parts.length >= 2) {
+      const lat = parseFloat(parts[0].trim());
+      const lng = parseFloat(parts[1].trim());
+      if (!isNaN(lat) && !isNaN(lng)) return { lat, lng };
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+function estaChoferEnPausa(observaciones?: string | null): boolean {
+  if (!observaciones || !observaciones.startsWith('{')) return false;
+  try {
+    const obs = JSON.parse(observaciones);
+    return Boolean(obs.enPausa);
+  } catch {
+    return false;
+  }
+}
 
 export const choferController = {
   // Obtener todos los choferes
@@ -32,6 +142,9 @@ export const choferController = {
             select: {
               id: true,
               nombreFantasia: true,
+              direccion: true,
+              latitud: true,
+              longitud: true,
             },
           },
           vehiculo: {
@@ -101,6 +214,9 @@ export const choferController = {
             select: {
               id: true,
               nombreFantasia: true,
+              direccion: true,
+              latitud: true,
+              longitud: true,
             },
           },
           vehiculo: {
@@ -145,6 +261,9 @@ export const choferController = {
             select: {
               id: true,
               nombreFantasia: true,
+              direccion: true,
+              latitud: true,
+              longitud: true,
             },
           },
           vehiculo: {
@@ -545,6 +664,9 @@ export const choferController = {
             select: {
               id: true,
               nombreFantasia: true,
+              direccion: true,
+              latitud: true,
+              longitud: true,
             },
           },
           vehiculo: {
@@ -736,6 +858,9 @@ export const choferController = {
             select: {
               id: true,
               nombreFantasia: true,
+              direccion: true,
+              latitud: true,
+              longitud: true,
             },
           },
           vehiculo: {
@@ -830,7 +955,16 @@ export const choferController = {
 
       const updatedChofer = await prisma.chofer.update({
         where: { id: choferId },
-        data: { isOnline },
+        data: {
+          isOnline,
+          // Sistema de Tablas: al conectarse entra al final de la cola; al desconectarse sale de la cola
+          enParadaVirtual: isOnline ? true : false,
+          paradaVirtualIngreso: isOnline
+            ? (choferActual.enParadaVirtual && choferActual.paradaVirtualIngreso
+                ? choferActual.paradaVirtualIngreso
+                : new Date())
+            : null,
+        },
       });
 
       // Manejar automáticamente el turno activo según el estado online
@@ -890,14 +1024,7 @@ export const choferController = {
       let choferId = req.user?.chofer?.id || (req.query.choferId as string | undefined);
 
       if (!choferId) {
-        const fallbackChofer =
-          (await prisma.chofer.findFirst({
-            where: { estado: 'ACTIVO', isOnline: true },
-          })) ||
-          (await prisma.chofer.findFirst({
-            where: { estado: 'ACTIVO' },
-          }));
-        choferId = fallbackChofer?.id;
+        choferId = await resolverChoferFallbackId();
       }
 
       if (!choferId) {
@@ -909,7 +1036,25 @@ export const choferController = {
 
       const chofer = await prisma.chofer.findUnique({
         where: { id: choferId },
-        include: {
+        select: {
+          id: true,
+          numeroChofer: true,
+          nombre: true,
+          apellido: true,
+          dni: true,
+          telefono: true,
+          email: true,
+          estado: true,
+          motivoRechazo: true,
+          observaciones: true,
+          esPropietario: true,
+          comisionPorcentaje: true,
+          isOnline: true,
+          enParadaVirtual: true,
+          paradaVirtualIngreso: true,
+          remiseriaId: true,
+          vehiculoId: true,
+          updatedAt: true,
           vehiculo: {
             select: {
               id: true,
@@ -923,6 +1068,9 @@ export const choferController = {
             select: {
               id: true,
               nombreFantasia: true,
+              direccion: true,
+              latitud: true,
+              longitud: true,
             },
           },
         },
@@ -935,78 +1083,83 @@ export const choferController = {
         });
       }
 
-      // Buscar si el chofer ya tiene un viaje activo asignado
-      const viajeActual = await prisma.viaje.findFirst({
-        where: {
-          choferId: chofer.id,
-          estado: {
-            in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'],
-          },
-        },
-        include: {
-          cliente: {
+      // Ejecutar en paralelo las consultas de estado del chofer y de la flota
+      const [viajeActual, viajesEnCursoRemiseria, choferesOnlineRemiseria, turnoActivo] =
+        await Promise.all([
+          prisma.viaje.findFirst({
+            where: {
+              choferId: chofer.id,
+              estado: {
+                in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'],
+              },
+            },
+            include: {
+              cliente: {
+                select: {
+                  id: true,
+                  nombre: true,
+                  apellido: true,
+                  telefono: true,
+                  fotoUrl: true,
+                },
+              },
+              vehiculo: {
+                select: {
+                  id: true,
+                  patente: true,
+                  marca: true,
+                  modelo: true,
+                  color: true,
+                },
+              },
+            },
+            orderBy: {
+              createdAt: 'desc',
+            },
+          }),
+          prisma.viaje.findMany({
+            where: {
+              remiseriaId: chofer.remiseriaId,
+              choferId: { not: null },
+              estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] },
+            },
+            select: { choferId: true },
+          }),
+          prisma.chofer.findMany({
+            where: {
+              remiseriaId: chofer.remiseriaId,
+              estado: 'ACTIVO',
+              isOnline: true,
+            },
             select: {
               id: true,
               nombre: true,
               apellido: true,
-              telefono: true,
-              fotoUrl: true,
-            },
-          },
-          vehiculo: {
-            select: {
-              id: true,
-              patente: true,
-              marca: true,
-              modelo: true,
-              color: true,
-            },
-          },
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-      });
-
-      // Si no tiene viaje activo, buscar viajes pendientes sin chofer asignado
-      let viajesDisponibles: any[] = [];
-      if (!viajeActual) {
-        viajesDisponibles = await prisma.viaje.findMany({
-          where: {
-            estado: 'PENDIENTE',
-            choferId: null,
-            OR: [
-              { remiseriaId: chofer.remiseriaId },
-              { clienteId: { not: null } },
-            ],
-          },
-          include: {
-            cliente: {
-              select: {
-                id: true,
-                nombre: true,
-                apellido: true,
-                telefono: true,
-                fotoUrl: true,
+              isOnline: true,
+              enParadaVirtual: true,
+              paradaVirtualIngreso: true,
+              updatedAt: true,
+              observaciones: true,
+              vehiculo: {
+                select: {
+                  id: true,
+                  patente: true,
+                  latitud: true,
+                  longitud: true,
+                },
               },
             },
-          },
-          orderBy: {
-            createdAt: 'desc',
-          },
-        });
-      }
-
-      // Obtener el turno activo si está conectado
-      const turnoActivo = await prisma.turnoChofer.findFirst({
-        where: {
-          choferId: chofer.id,
-          activo: true,
-        },
-        orderBy: {
-          fechaInicio: 'desc',
-        },
-      });
+          }),
+          prisma.turnoChofer.findFirst({
+            where: {
+              choferId: chofer.id,
+              activo: true,
+            },
+            orderBy: {
+              fechaInicio: 'desc',
+            },
+          }),
+        ]);
 
       // Extraer datos de pausa de observaciones
       let enPausa = false;
@@ -1023,9 +1176,250 @@ export const choferController = {
         // no es JSON
       }
 
-      // Si está en pausa, no mostrar viajes disponibles
-      if (enPausa) {
-        viajesDisponibles = [];
+      // ======================================================================
+      // CALCULAR LA "TABLA" (COLA FIFO DE CHOFERES LIBRES CON APP ABIERTA)
+      // ======================================================================
+      const ahoraHeartbeatMs = Date.now();
+      if (chofer.isOnline) {
+        choferHeartbeatMap.set(chofer.id, ahoraHeartbeatMs);
+      } else {
+        choferHeartbeatMap.delete(chofer.id);
+      }
+
+      const choferesOcupadosSet = new Set(viajesEnCursoRemiseria.map((v) => v.choferId));
+
+      // Filtrar choferes realmente libres (online, sin viaje en curso y sin pausa)
+      // Prioridad en la Tabla:
+      // 1) Choferes anotados en la Tabla (enParadaVirtual: true), ordenados por paradaVirtualIngreso ASC
+      // 2) Choferes con sesión activa en la app (heartbeat reciente) antes que choferes de prueba inactivos de la BD
+      const libresCandidatos = choferesOnlineRemiseria.filter(
+        (c) => !choferesOcupadosSet.has(c.id) && !estaChoferEnPausa(c.observaciones)
+      );
+
+      const enTablaExplicitos = libresCandidatos.filter((c) => c.enParadaVirtual);
+      const baseTabla = enTablaExplicitos.length > 0 ? enTablaExplicitos : libresCandidatos;
+
+      const tablaChoferesLibres = baseTabla.sort((a, b) => {
+        const aActivo = ahoraHeartbeatMs - (choferHeartbeatMap.get(a.id) || 0) <= HEARTBEAT_ACTIVO_MS ? 1 : 0;
+        const bActivo = ahoraHeartbeatMs - (choferHeartbeatMap.get(b.id) || 0) <= HEARTBEAT_ACTIVO_MS ? 1 : 0;
+        if (aActivo !== bActivo) return bActivo - aActivo;
+
+        const timeA = a.paradaVirtualIngreso ? new Date(a.paradaVirtualIngreso).getTime() : new Date(a.updatedAt).getTime();
+        const timeB = b.paradaVirtualIngreso ? new Date(b.paradaVirtualIngreso).getTime() : new Date(b.updatedAt).getTime();
+        return timeA - timeB;
+      });
+
+      const miIndiceTabla = tablaChoferesLibres.findIndex((c) => c.id === chofer.id);
+      const puestoEnTabla = miIndiceTabla !== -1 ? miIndiceTabla + 1 : null;
+      const totalEnTabla = tablaChoferesLibres.length;
+
+      // Si no tiene viaje activo y no está en pausa, buscar viajes pendientes y aplicar:
+      // 1) Proximidad si algún chofer libre está a pocas cuadras (<= 600m) del pedido y más cerca que la base/#1
+      // 2) Si no, respetar estrictamente el orden de la Tabla (#1, luego #2 si rechaza/vence, etc.)
+      let viajesDisponibles: any[] = [];
+      let viajeEnColaTabla: {
+        viajeId: string;
+        puestoOfertado: number;
+        choferOfertadoNombre: string;
+        segundosRestantes: number;
+      } | null = null;
+      if (!viajeActual && !enPausa && chofer.isOnline) {
+        const candidatosViajes = await prisma.viaje.findMany({
+          where: {
+            estado: 'PENDIENTE',
+            OR: [
+              // 1. Asignado específicamente a este chofer
+              { choferId: chofer.id },
+              // 2. O pedido pendiente sin chofer asignado
+              {
+                choferId: null,
+                OR: [
+                  { remiseriaId: chofer.remiseriaId },
+                  { clienteId: { not: null } },
+                ],
+              },
+            ],
+          },
+          include: {
+            cliente: {
+              select: {
+                id: true,
+                nombre: true,
+                apellido: true,
+                telefono: true,
+                fotoUrl: true,
+              },
+            },
+          },
+          orderBy: [
+            { prioridad: 'desc' },
+            { createdAt: 'asc' },
+          ],
+        });
+
+        const ahoraMs = Date.now();
+        const baseLat = chofer.remiseria?.latitud ?? -34.901138;
+        const baseLng = chofer.remiseria?.longitud ?? -60.013778;
+
+        // Limpiar ofertas en memoria de viajes que ya no están en PENDIENTE
+        const idsPendientesSet = new Set(candidatosViajes.map((cv) => cv.id));
+        for (const key of ofertasViajesMap.keys()) {
+          if (!idsPendientesSet.has(key)) {
+            ofertasViajesMap.delete(key);
+          }
+        }
+
+        // Control para despacho paralelo (1 oferta simultánea por chofer libre de la Tabla)
+        // Así si entran 5 pedidos juntos y hay 5 autos en la Tabla, salen los 5 en paralelo (#1, #2, #3, #4, #5)
+        const choferesConOfertaActiva = new Set<string>();
+
+        for (const v of candidatosViajes) {
+          // Si fue asignado explícitamente a este chofer, mostrarlo directo
+          if (v.choferId === chofer.id) {
+            viajesDisponibles.push({
+              ...v,
+              motivoOferta: 'ASIGNADO_DIRECTO',
+              puestoTabla: puestoEnTabla || 1,
+            });
+            continue;
+          }
+
+          if (tablaChoferesLibres.length === 0) continue;
+
+          let state = ofertasViajesMap.get(v.id);
+          if (!state) {
+            state = {
+              choferOfertadoId: '',
+              motivoOferta: 'TABLA',
+              puestoTabla: 1,
+              distanciaMetros: null,
+              expiraEn: 0,
+              rechazadosIds: new Set<string>(),
+            };
+            ofertasViajesMap.set(v.id, state);
+          }
+
+          // Si la oferta actual venció por tiempo, pasar al siguiente chofer de la tabla
+          if (state.choferOfertadoId && ahoraMs >= state.expiraEn) {
+            state.rechazadosIds.add(state.choferOfertadoId);
+            state.choferOfertadoId = '';
+          }
+
+          // Si este chofer ya tiene otra oferta activa de mayor prioridad/antigüedad en este ciclo,
+          // reasignar este viaje al siguiente chofer libre para evitar embudo en el Puesto #1
+          if (state.choferOfertadoId && choferesConOfertaActiva.has(state.choferOfertadoId)) {
+            state.choferOfertadoId = '';
+          }
+
+          // Verificar si el chofer actualmente ofertado sigue libre
+          const ofertadoSigueLibre =
+            state.choferOfertadoId &&
+            !state.rechazadosIds.has(state.choferOfertadoId) &&
+            tablaChoferesLibres.some((c) => c.id === state!.choferOfertadoId);
+
+          if (ofertadoSigueLibre) {
+            choferesConOfertaActiva.add(state.choferOfertadoId);
+          } else {
+            // Filtrar choferes de la tabla que aún no rechazaron ni dejaron vencer este viaje
+            // y que NO tengan ya otro viaje ofreciéndose en simultáneo
+            let elegibles = tablaChoferesLibres.filter(
+              (c) => !state!.rechazadosIds.has(c.id) && !choferesConOfertaActiva.has(c.id)
+            );
+
+            if (elegibles.length === 0) {
+              // Si todos los que no tienen oferta activa ya habían rechazado este viaje,
+              // reiniciar historial de rechazos pero respetando a los que están ocupados con otra oferta
+              const libresSinOtraOferta = tablaChoferesLibres.filter(
+                (c) => !choferesConOfertaActiva.has(c.id)
+              );
+              if (libresSinOtraOferta.length > 0) {
+                state.rechazadosIds.clear();
+                elegibles = libresSinOtraOferta;
+              }
+            }
+
+            // Si hay más viajes que choferes libres y todos los choferes libres ya tienen 1 oferta activa en pantalla,
+            // este viaje aguarda en cola hasta que el próximo chofer se desocupe o responda
+            if (elegibles.length > 0) {
+              const primeroTabla = elegibles[0];
+              let ganador = primeroTabla;
+              let motivo: 'CERCANIA' | 'TABLA' = 'TABLA';
+              let distGanadorMetros: number | null = null;
+
+              const coordsPedido = parsearCoordenadasOrigen(v.origenDetallado);
+              if (coordsPedido) {
+                const latPrimero = primeroTabla.vehiculo?.latitud ?? baseLat;
+                const lngPrimero = primeroTabla.vehiculo?.longitud ?? baseLng;
+                const distPrimero = calcularDistanciaMetros(
+                  latPrimero,
+                  lngPrimero,
+                  coordsPedido.lat,
+                  coordsPedido.lng
+                );
+                distGanadorMetros = distPrimero;
+
+                // Buscar si hay algún chofer libre "a pocas cuadras" (<= 600m) del pedido
+                // y al menos 250m más cerca que el #1 elegible de la tabla
+                let mejorCercano: typeof primeroTabla | null = null;
+                let menorDistanciaCercano = Infinity;
+
+                for (const cand of elegibles) {
+                  const cLat = cand.vehiculo?.latitud ?? baseLat;
+                  const cLng = cand.vehiculo?.longitud ?? baseLng;
+                  const dMetros = calcularDistanciaMetros(cLat, cLng, coordsPedido.lat, coordsPedido.lng);
+
+                  if (
+                    dMetros <= RADIO_CERCANIA_METROS &&
+                    dMetros + VENTAJA_MINIMA_CERCANIA_METROS < distPrimero &&
+                    dMetros < menorDistanciaCercano
+                  ) {
+                    menorDistanciaCercano = dMetros;
+                    mejorCercano = cand;
+                  }
+                }
+
+                if (mejorCercano) {
+                  ganador = mejorCercano;
+                  motivo = 'CERCANIA';
+                  distGanadorMetros = menorDistanciaCercano;
+                }
+              }
+
+              const puestoGanador = tablaChoferesLibres.findIndex((c) => c.id === ganador.id) + 1;
+              const ganadorLatido = choferHeartbeatMap.get(ganador.id) || 0;
+              const tieneAppAbierta = ahoraMs - ganadorLatido <= HEARTBEAT_ACTIVO_MS;
+              const timeoutMs = tieneAppAbierta ? OFERTA_TIMEOUT_MS : OFERTA_TIMEOUT_SIN_APP_MS;
+
+              state.choferOfertadoId = ganador.id;
+              state.motivoOferta = motivo;
+              state.puestoTabla = puestoGanador > 0 ? puestoGanador : 1;
+              state.distanciaMetros = distGanadorMetros;
+              state.expiraEn = ahoraMs + timeoutMs;
+              choferesConOfertaActiva.add(ganador.id);
+            }
+          }
+
+          // Solo notificar si ESTE chofer es el destinatario actual según la Tabla o Cercanía
+          if (state.choferOfertadoId === chofer.id) {
+            viajesDisponibles.push({
+              ...v,
+              motivoOferta: state.motivoOferta,
+              puestoTabla: state.puestoTabla,
+              distanciaOfertaMetros: state.distanciaMetros,
+              segundosParaAceptar: Math.max(1, Math.ceil((state.expiraEn - ahoraMs) / 1000)),
+            });
+          } else if (!viajeEnColaTabla && state.choferOfertadoId) {
+            const choferOfertadoObj = tablaChoferesLibres.find((c) => c.id === state!.choferOfertadoId);
+            viajeEnColaTabla = {
+              viajeId: v.id,
+              puestoOfertado: state.puestoTabla,
+              choferOfertadoNombre: choferOfertadoObj
+                ? `${choferOfertadoObj.nombre} ${choferOfertadoObj.apellido || ''}`.trim()
+                : `Puesto #${state.puestoTabla}`,
+              segundosRestantes: Math.max(1, Math.ceil((state.expiraEn - ahoraMs) / 1000)),
+            };
+          }
+        }
       }
 
       res.json({
@@ -1035,14 +1429,19 @@ export const choferController = {
             ...chofer,
             enPausa,
             motivoPausa,
-            pausaInicio
+            pausaInicio,
+            puestoEnTabla,
+            totalEnTabla,
           },
           viajeActual,
           viajesDisponibles,
+          viajeEnColaTabla,
           turnoActivo,
           enPausa,
           motivoPausa,
           pausaInicio,
+          puestoEnTabla,
+          totalEnTabla,
         },
       });
     } catch (error) {
@@ -1124,7 +1523,10 @@ export const choferController = {
       const updatedChofer = await prisma.chofer.update({
         where: { id: choferId },
         data: {
-          observaciones: JSON.stringify(obsObj)
+          observaciones: JSON.stringify(obsObj),
+          // Sistema de Tablas: si se pausa sale de la tabla; al reanudar entra al final de la cola
+          enParadaVirtual: enPausa ? false : true,
+          paradaVirtualIngreso: enPausa ? null : new Date(),
         },
         include: { vehiculo: true }
       });
@@ -1184,14 +1586,7 @@ export const choferController = {
       let choferId = req.user?.chofer?.id || req.body?.choferId;
 
       if (!choferId) {
-        const fallbackChofer =
-          (await prisma.chofer.findFirst({
-            where: { estado: 'ACTIVO', isOnline: true },
-          })) ||
-          (await prisma.chofer.findFirst({
-            where: { estado: 'ACTIVO' },
-          }));
-        choferId = fallbackChofer?.id;
+        choferId = await resolverChoferFallbackId();
       }
 
       if (!choferId) {
@@ -1260,6 +1655,7 @@ export const choferController = {
               nombre: true,
               apellido: true,
               telefono: true,
+              fotoUrl: true,
               vehiculo: {
                 select: {
                   id: true,
@@ -1267,6 +1663,9 @@ export const choferController = {
                   marca: true,
                   modelo: true,
                   color: true,
+                  latitud: true,
+                  longitud: true,
+                  ultimaUbicacion: true,
                 },
               },
             },
@@ -1278,10 +1677,71 @@ export const choferController = {
               marca: true,
               modelo: true,
               color: true,
+              latitud: true,
+              longitud: true,
+              ultimaUbicacion: true,
+            },
+          },
+          remiseria: {
+            select: {
+              id: true,
+              nombreFantasia: true,
+              direccion: true,
+              latitud: true,
+              longitud: true,
+              valorHoraEspera: true,
             },
           },
         },
       });
+
+      // Al tomar el viaje, sale de la Tabla y limpiamos la oferta activa y cualquier otra oferta apuntando a este chofer
+      ofertasViajesMap.delete(viajeId);
+      for (const st of ofertasViajesMap.values()) {
+        if (st.choferOfertadoId === chofer.id) {
+          st.choferOfertadoId = '';
+          st.expiraEn = 0;
+        }
+      }
+      await prisma.chofer.update({
+        where: { id: chofer.id },
+        data: {
+          enParadaVirtual: false,
+          paradaVirtualIngreso: null,
+        },
+      });
+
+      try {
+        const { getIO } = await import('../lib/socket');
+        const io = getIO();
+        if (io && viaje.remiseriaId) {
+          io.to(viaje.remiseriaId).emit('parada_virtual_actualizada', {
+            choferId: chofer.id,
+            accion: 'SALIDA_VIAJE',
+          });
+          io.to(viaje.remiseriaId).emit('viaje_estado_actualizado', {
+            viajeId: viajeActualizado.id,
+            estado: 'ACEPTADO',
+            mensaje: '¡Un chofer aceptó tu viaje y está en camino!',
+            viaje: viajeActualizado,
+          });
+          const veh = viajeActualizado.vehiculo || viajeActualizado.chofer?.vehiculo;
+          const baseLat = viajeActualizado.remiseria?.latitud ?? -34.901138;
+          const baseLng = viajeActualizado.remiseria?.longitud ?? -60.013778;
+          io.to(viaje.remiseriaId).emit('vehiculo_movido', {
+            id: veh?.id || chofer.id,
+            choferId: chofer.id,
+            patente: veh?.patente || 'Auto Propio',
+            chofer: `${chofer.nombre} ${chofer.apellido}`.trim(),
+            estado: 'en_viaje',
+            ubicacion: {
+              lat: Number(veh?.latitud ?? baseLat),
+              lng: Number(veh?.longitud ?? baseLng),
+            },
+            ultimaActualizacion: new Date().toISOString(),
+          });
+        }
+      } catch {}
 
       res.json({
         success: true,
@@ -1294,6 +1754,83 @@ export const choferController = {
         success: false,
         message: 'Error interno del servidor',
       });
+    }
+  },
+
+  // Rechazar un viaje pendiente o asignado desde la app del chofer
+  async rechazarViaje(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { viajeId } = req.params;
+      const choferId = req.user?.chofer?.id || req.body?.choferId || (await resolverChoferFallbackId());
+
+      const viaje = await prisma.viaje.findUnique({
+        where: { id: viajeId },
+        include: { chofer: true }
+      });
+
+      if (!viaje) {
+        return res.status(404).json({ success: false, message: 'Viaje no encontrado' });
+      }
+
+      // Registrar el rechazo en el gestor de la Tabla para que pase inmediatamente al siguiente chofer
+      if (choferId) {
+        let state = ofertasViajesMap.get(viajeId);
+        if (!state) {
+          state = {
+            choferOfertadoId: '',
+            motivoOferta: 'TABLA',
+            puestoTabla: 1,
+            distanciaMetros: null,
+            expiraEn: 0,
+            rechazadosIds: new Set<string>(),
+          };
+          ofertasViajesMap.set(viajeId, state);
+        }
+        state.rechazadosIds.add(choferId);
+        if (state.choferOfertadoId === choferId) {
+          state.choferOfertadoId = '';
+          state.expiraEn = 0;
+        }
+      }
+
+      // Si el viaje estaba asignado a este chofer pero aún estaba PENDIENTE, liberarlo
+      if (viaje.estado === 'PENDIENTE') {
+        const viajeLiberado = await prisma.viaje.update({
+          where: { id: viajeId },
+          data: {
+            choferId: null,
+            vehiculoId: null
+          },
+          include: {
+            cliente: true,
+            chofer: true
+          }
+        });
+
+        try {
+          const { getIO } = await import('../lib/socket');
+          const io = getIO();
+          if (io && viaje.remiseriaId) {
+            io.to(viaje.remiseriaId).emit('viaje_rechazado_por_chofer', {
+              viajeId: viaje.id,
+              choferId,
+              mensaje: `El móvil asignado rechazó el viaje. Ha vuelto a la cola sin asignar.`
+            });
+            io.to(viaje.remiseriaId).emit('viaje_estado_actualizado', {
+              viajeId: viaje.id,
+              estado: 'PENDIENTE',
+              viaje: viajeLiberado
+            });
+          }
+        } catch (sErr) {
+          console.warn('Socket error rechazarViaje:', sErr);
+        }
+      }
+
+      res.json({ success: true, message: 'Viaje rechazado correctamente' });
+    } catch (error) {
+      console.error('Error al rechazar viaje:', error);
+      res.status(500).json({ success: false, message: 'Error interno del servidor' });
     }
   },
 
@@ -1372,6 +1909,27 @@ export const choferController = {
               fotoUrl: true,
             },
           },
+          chofer: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              telefono: true,
+              fotoUrl: true,
+              vehiculo: {
+                select: {
+                  id: true,
+                  patente: true,
+                  marca: true,
+                  modelo: true,
+                  color: true,
+                  latitud: true,
+                  longitud: true,
+                  ultimaUbicacion: true,
+                },
+              },
+            },
+          },
           vehiculo: {
             select: {
               id: true,
@@ -1379,6 +1937,19 @@ export const choferController = {
               marca: true,
               modelo: true,
               color: true,
+              latitud: true,
+              longitud: true,
+              ultimaUbicacion: true,
+            },
+          },
+          remiseria: {
+            select: {
+              id: true,
+              nombreFantasia: true,
+              direccion: true,
+              latitud: true,
+              longitud: true,
+              valorHoraEspera: true,
             },
           },
         },
@@ -1404,6 +1975,19 @@ export const choferController = {
         }
       }
 
+      // Sistema de Tablas: cuando el chofer finaliza el viaje y queda libre,
+      // se lo agrega automáticamente al FINAL de la cola (tabla)
+      if (choferId && estado === 'COMPLETADO') {
+        ofertasViajesMap.delete(viaje.id);
+        await prisma.chofer.update({
+          where: { id: choferId },
+          data: {
+            enParadaVirtual: true,
+            paradaVirtualIngreso: new Date(),
+          },
+        });
+      }
+
       // Emitir evento por socket para notificar al cliente y coordinador en tiempo real
       try {
         const { getIO } = await import('../lib/socket');
@@ -1414,6 +1998,12 @@ export const choferController = {
           mensaje: estado === 'EN_CAMINO' ? '¡El chofer está esperando afuera!' : undefined,
           viaje: viajeActualizado,
         });
+        if (estado === 'COMPLETADO') {
+          ioInstance.to(viaje.remiseriaId).emit('parada_virtual_actualizada', {
+            choferId,
+            accion: 'INGRESO_FIN_VIAJE',
+          });
+        }
       } catch (errSocket) {
         // Sockets opcional
       }
@@ -1690,6 +2280,13 @@ export const choferController = {
 
       if (!viaje) {
         return res.status(404).json({ success: false, message: 'Viaje no encontrado' });
+      }
+
+      if (!['PENDIENTE', 'ACEPTADO', 'EN_CAMINO'].includes(viaje.estado)) {
+        return res.status(400).json({
+          success: false,
+          message: 'El chat solo está disponible antes de iniciar el viaje.',
+        });
       }
 
       let historial: any[] = [];
@@ -2066,7 +2663,7 @@ export const choferController = {
     }
   },
 
-  // Finalizar el turno activo del chofer
+  // Finalizar el turno activo del chofer con cálculo de Arqueo de Caja
   async finalizarTurno(req: AuthenticatedRequest, res: Response) {
     try {
       let choferId = req.user?.chofer?.id || req.body?.choferId;
@@ -2091,7 +2688,10 @@ export const choferController = {
       });
 
       const odoVal = odometroFin !== undefined ? parseFloat(odometroFin) : null;
+      let ultimoTurnoId: string | undefined = undefined;
+
       for (const t of turnosActivos) {
+        ultimoTurnoId = t.id;
         await prisma.turnoChofer.update({
           where: { id: t.id },
           data: {
@@ -2103,15 +2703,25 @@ export const choferController = {
         });
       }
 
-      // Desconectar al chofer
+      // Desconectar al chofer y quitarlo de parada virtual
       await prisma.chofer.update({
         where: { id: choferId },
-        data: { isOnline: false },
+        data: {
+          isOnline: false,
+          enParadaVirtual: false,
+          paradaVirtualIngreso: null,
+        },
       });
+
+      // Calcular Arqueo de Cierre del Turno finalizado
+      const resumenCierre = await choferController.calcularArqueoInterno(choferId, ultimoTurnoId);
 
       res.json({
         success: true,
         message: 'Turno finalizado correctamente',
+        data: {
+          resumenCierre,
+        },
       });
     } catch (error) {
       console.error('Error al finalizar turno:', error);
@@ -3034,6 +3644,9 @@ export const choferController = {
             select: {
               id: true,
               nombreFantasia: true,
+              direccion: true,
+              latitud: true,
+              longitud: true,
             },
           },
         },
@@ -3067,6 +3680,547 @@ export const choferController = {
         success: false,
         message: 'Error interno del servidor',
       });
+    }
+  },
+
+  // Helper interno para cálculo de Arqueo y Cierre de Turno
+  async calcularArqueoInterno(choferId: string, turnoId?: string) {
+    const chofer = await prisma.chofer.findUnique({
+      where: { id: choferId },
+      include: { remiseria: true, vehiculo: true },
+    });
+    if (!chofer) return null;
+
+    let turno = null;
+    if (turnoId) {
+      turno = await prisma.turnoChofer.findUnique({
+        where: { id: turnoId },
+        include: { vehiculo: true },
+      });
+    }
+    if (!turno) {
+      turno = await prisma.turnoChofer.findFirst({
+        where: { choferId, activo: true },
+        orderBy: { fechaInicio: 'desc' },
+        include: { vehiculo: true },
+      });
+    }
+    if (!turno) {
+      turno = await prisma.turnoChofer.findFirst({
+        where: { choferId },
+        orderBy: { fechaInicio: 'desc' },
+        include: { vehiculo: true },
+      });
+    }
+
+    const inicioTurno = turno?.fechaInicio || new Date(new Date().setHours(0, 0, 0, 0));
+    const finTurno = turno?.fechaFin || new Date();
+
+    const viajes = await prisma.viaje.findMany({
+      where: {
+        choferId,
+        estado: 'COMPLETADO',
+        fecha: { gte: inicioTurno, lte: finTurno },
+      },
+      orderBy: { fecha: 'asc' },
+    });
+
+    let totalEfectivo = 0;
+    let totalTransferencia = 0;
+    let totalOtros = 0;
+
+    for (const v of viajes) {
+      const monto = Number(v.precio || 0);
+      if (v.metodoPago === 'EFECTIVO') {
+        totalEfectivo += monto;
+      } else if (v.metodoPago === 'TRANSFERENCIA') {
+        totalTransferencia += monto;
+      } else {
+        totalOtros += monto;
+      }
+    }
+
+    const totalBruto = totalEfectivo + totalTransferencia + totalOtros;
+
+    const gastos = await prisma.gastoChofer.findMany({
+      where: {
+        choferId,
+        fecha: { gte: inicioTurno, lte: finTurno },
+      },
+      orderBy: { fecha: 'desc' },
+    });
+
+    const totalGastos = gastos.reduce((sum, g) => sum + Number(g.monto || 0), 0);
+    const comisionPorcentaje = Number(chofer.comisionPorcentaje || chofer.remiseria?.comisionPorcentaje || 20);
+    const comisionRemiseria = (totalBruto * comisionPorcentaje) / 100;
+    const gananciaNetaChofer = totalBruto - comisionRemiseria - totalGastos;
+    const saldoEfectivoEnMano = totalEfectivo - totalGastos;
+    const aRendirCentral = comisionRemiseria;
+
+    return {
+      turno: {
+        id: turno?.id || 'sin-turno',
+        activo: turno?.activo ?? false,
+        fechaInicio: inicioTurno,
+        fechaFin: turno?.fechaFin || null,
+        kmTotalConectado: Number((turno?.kmTotalConectado || 0).toFixed(1)),
+        kmConPasajero: Number((turno?.kmConPasajero || 0).toFixed(1)),
+        kmSinPasajero: Number((turno?.kmSinPasajero || 0).toFixed(1)),
+        odometroInicio: turno?.odometroInicio || null,
+        odometroFin: turno?.odometroFin || null,
+      },
+      viajes: {
+        total: viajes.length,
+        totalEfectivo,
+        totalTransferencia,
+        totalOtros,
+        totalBruto,
+        lista: viajes.map((v) => ({
+          id: v.id,
+          origen: v.origen,
+          destino: v.destino,
+          precio: Number(v.precio),
+          metodoPago: v.metodoPago,
+          fecha: v.fecha,
+          esViajeCalle: v.esViajeCalle,
+        })),
+      },
+      gastos: {
+        total: totalGastos,
+        items: gastos.map((g) => ({
+          id: g.id,
+          tipo: g.tipo,
+          monto: Number(g.monto),
+          descripcion: g.descripcion,
+          fecha: g.fecha,
+        })),
+      },
+      liquidacion: {
+        comisionPorcentaje,
+        comisionRemiseria,
+        gananciaNetaChofer,
+        saldoEfectivoEnMano,
+        aRendirCentral,
+      },
+    };
+  },
+
+  // Obtener Resumen de Arqueo y Cierre de Turno del Chofer
+  async getResumenCierreTurno(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId: string | undefined = req.user?.chofer?.id || (req.query?.choferId as string | undefined);
+      if (!choferId) {
+        const fallbackChofer = await prisma.chofer.findFirst({
+          where: { userId: req.user?.id },
+        });
+        choferId = fallbackChofer?.id;
+      }
+      if (!choferId) {
+        return res.status(401).json({ success: false, message: 'No se pudo identificar al chofer' });
+      }
+
+      const turnoId = req.query?.turnoId as string | undefined;
+      const resumen = await choferController.calcularArqueoInterno(choferId, turnoId);
+
+      if (!resumen) {
+        return res.status(404).json({ success: false, message: 'No se encontraron datos para el arqueo' });
+      }
+
+      return res.json({ success: true, data: resumen });
+    } catch (error) {
+      console.error('Error al obtener resumen de cierre de turno:', error);
+      return res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    }
+  },
+
+  // Calificar al Pasajero desde la app del chofer
+  async calificarPasajero(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { viajeId } = req.params;
+      const { estrellas, tags, comentario, pasajeroConflictivo } = req.body;
+      let choferId = req.user?.chofer?.id;
+
+      if (!choferId) {
+        const chofer = await prisma.chofer.findFirst({ where: { userId: req.user?.id } });
+        choferId = chofer?.id;
+      }
+
+      const viaje = await prisma.viaje.findUnique({
+        where: { id: viajeId },
+        include: { cliente: true },
+      });
+
+      if (!viaje) {
+        return res.status(404).json({ success: false, message: 'Viaje no encontrado' });
+      }
+
+      if (viaje.choferId && choferId && viaje.choferId !== choferId) {
+        return res.status(403).json({ success: false, message: 'No tienes permiso para calificar este viaje' });
+      }
+
+      const viajeActualizado = await prisma.viaje.update({
+        where: { id: viajeId },
+        data: {
+          calificacionClienteEstrellas: estrellas ? Number(estrellas) : 5,
+          calificacionClienteTags: tags ? JSON.stringify(tags) : null,
+          calificacionClienteComentario: comentario || null,
+          pasajeroConflictivo: Boolean(pasajeroConflictivo),
+        },
+      });
+
+      // Si tiene cliente registrado y fue marcado conflictivo, actualizar registro del cliente
+      if (viaje.clienteId && pasajeroConflictivo) {
+        const cliente = await prisma.cliente.findUnique({ where: { id: viaje.clienteId } });
+        if (cliente) {
+          let obsObj: any = {};
+          try {
+            if (cliente.observaciones && cliente.observaciones.startsWith('{')) {
+              obsObj = JSON.parse(cliente.observaciones);
+            }
+          } catch {}
+          obsObj.conflictivo = true;
+          obsObj.motivoConflictivo = comentario || 'Marcado como conflictivo por chofer';
+          obsObj.fechaConflictivo = new Date().toISOString();
+          await prisma.cliente.update({
+            where: { id: viaje.clienteId },
+            data: { observaciones: JSON.stringify(obsObj) },
+          });
+        }
+      }
+
+      return res.json({
+        success: true,
+        message: 'Calificación del pasajero registrada correctamente',
+        data: viajeActualizado,
+      });
+    } catch (error) {
+      console.error('Error al calificar pasajero:', error);
+      return res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    }
+  },
+
+  // Anotarse en Parada Virtual de Base (Turnero)
+  async anotarseParadaVirtual(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id || req.body?.choferId;
+      if (!choferId) {
+        const chofer = await prisma.chofer.findFirst({ where: { userId: req.user?.id } });
+        choferId = chofer?.id || (await resolverChoferFallbackId());
+      }
+      if (!choferId) return res.status(401).json({ success: false, message: 'Chofer no autenticado' });
+
+      const chofer = await prisma.chofer.findUnique({
+        where: { id: choferId },
+        include: { vehiculo: true, remiseria: true },
+      });
+      if (!chofer) return res.status(404).json({ success: false, message: 'Chofer no encontrado' });
+
+      // Si el chofer ya tiene un viaje activo asignado, no debe anotarse en la Tabla
+      const viajeEnCurso = await prisma.viaje.findFirst({
+        where: {
+          choferId,
+          estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] },
+        },
+        select: { id: true },
+      });
+      if (viajeEnCurso) {
+        return res.json({
+          success: true,
+          message: 'Chofer en viaje activo',
+          data: {
+            enParadaVirtual: false,
+            puesto: null,
+            totalEnCola: 0,
+            cola: [],
+          },
+        });
+      }
+
+      await prisma.chofer.update({
+        where: { id: choferId },
+        data: {
+          enParadaVirtual: true,
+          paradaVirtualIngreso: new Date(),
+        },
+      });
+
+      // Notificar a la sala de la remisería
+      try {
+        const { getIO } = await import('../lib/socket');
+        const io = getIO();
+        if (io && chofer.remiseriaId) {
+          io.to(chofer.remiseriaId).emit('parada_virtual_actualizada', {
+            choferId,
+            accion: 'INGRESO',
+            chofer: {
+              id: chofer.id,
+              nombre: `${chofer.nombre} ${chofer.apellido}`,
+              numeroChofer: chofer.numeroChofer,
+              vehiculo: chofer.vehiculo?.patente || 'Auto Propio',
+            },
+          });
+        }
+      } catch {}
+
+      const cola = await prisma.chofer.findMany({
+        where: {
+          remiseriaId: chofer.remiseriaId,
+          enParadaVirtual: true,
+          isOnline: true,
+          estado: 'ACTIVO',
+        },
+        orderBy: { paradaVirtualIngreso: 'asc' },
+        include: { vehiculo: true },
+      });
+
+      const puesto = cola.findIndex((c) => c.id === choferId) + 1;
+
+      return res.json({
+        success: true,
+        message: `¡Anotado en Parada Central! Puesto #${puesto} en la cola.`,
+        data: {
+          enParadaVirtual: true,
+          puesto,
+          totalEnCola: cola.length,
+          cola: cola.map((c, i) => ({
+            puesto: i + 1,
+            id: c.id,
+            nombre: `${c.nombre} ${c.apellido}`,
+            numeroChofer: c.numeroChofer,
+            patente: c.vehiculo?.patente || 'S/D',
+            ingreso: c.paradaVirtualIngreso,
+          })),
+        },
+      });
+    } catch (error) {
+      console.error('Error al anotarse en parada virtual:', error);
+      return res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    }
+  },
+
+  // Salir de Parada Virtual de Base
+  async salirParadaVirtual(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id;
+      if (!choferId) {
+        const chofer = await prisma.chofer.findFirst({ where: { userId: req.user?.id } });
+        choferId = chofer?.id;
+      }
+      if (!choferId) return res.status(401).json({ success: false, message: 'Chofer no autenticado' });
+
+      const chofer = await prisma.chofer.findUnique({ where: { id: choferId } });
+      if (!chofer) return res.status(404).json({ success: false, message: 'Chofer no encontrado' });
+
+      await prisma.chofer.update({
+        where: { id: choferId },
+        data: {
+          enParadaVirtual: false,
+          paradaVirtualIngreso: null,
+        },
+      });
+
+      // Notificar por WebSocket
+      try {
+        const { getIO } = await import('../lib/socket');
+        const io = getIO();
+        if (io && chofer.remiseriaId) {
+          io.to(chofer.remiseriaId).emit('parada_virtual_actualizada', {
+            choferId,
+            accion: 'SALIDA',
+          });
+        }
+      } catch {}
+
+      return res.json({
+        success: true,
+        message: 'Has salido de la parada virtual.',
+        data: { enParadaVirtual: false },
+      });
+    } catch (error) {
+      console.error('Error al salir de parada virtual:', error);
+      return res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    }
+  },
+
+  // Obtener estado y posición en la Parada Virtual
+  async getEstadoParadaVirtual(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id;
+      if (!choferId) {
+        const chofer = await prisma.chofer.findFirst({ where: { userId: req.user?.id } });
+        choferId = chofer?.id;
+      }
+      if (!choferId) return res.status(401).json({ success: false, message: 'Chofer no autenticado' });
+
+      const chofer = await prisma.chofer.findUnique({ where: { id: choferId } });
+      if (!chofer) return res.status(404).json({ success: false, message: 'Chofer no encontrado' });
+
+      const cola = await prisma.chofer.findMany({
+        where: {
+          remiseriaId: chofer.remiseriaId,
+          enParadaVirtual: true,
+          isOnline: true,
+          estado: 'ACTIVO',
+        },
+        orderBy: { paradaVirtualIngreso: 'asc' },
+        include: { vehiculo: true },
+      });
+
+      const puestoIndex = cola.findIndex((c) => c.id === choferId);
+      const puesto = puestoIndex !== -1 ? puestoIndex + 1 : null;
+
+      return res.json({
+        success: true,
+        data: {
+          enParadaVirtual: Boolean(chofer.enParadaVirtual),
+          puesto,
+          totalEnCola: cola.length,
+          ingreso: chofer.paradaVirtualIngreso,
+          cola: cola.map((c, i) => ({
+            puesto: i + 1,
+            id: c.id,
+            nombre: `${c.nombre} ${c.apellido}`,
+            numeroChofer: c.numeroChofer,
+            patente: c.vehiculo?.patente || 'S/D',
+            ingreso: c.paradaVirtualIngreso,
+          })),
+        },
+      });
+    } catch (error) {
+      console.error('Error al obtener estado de parada virtual:', error);
+      return res.status(500).json({ success: false, message: 'Error interno del servidor' });
+    }
+  },
+
+  // Iniciar Viaje Espontáneo de Calle / Encadenado con Taxímetro Digital
+  async crearViajeCalle(req: AuthenticatedRequest, res: Response) {
+    try {
+      let choferId = req.user?.chofer?.id;
+      if (!choferId) {
+        const chofer = await prisma.chofer.findFirst({ where: { userId: req.user?.id } });
+        choferId = chofer?.id;
+      }
+      if (!choferId) return res.status(401).json({ success: false, message: 'Chofer no autenticado' });
+
+      const chofer = await prisma.chofer.findUnique({
+        where: { id: choferId },
+        include: { vehiculo: true, remiseria: true },
+      });
+      if (!chofer) return res.status(404).json({ success: false, message: 'Chofer no encontrado' });
+
+      // Verificar si ya tiene viaje en curso
+      const viajeExistente = await prisma.viaje.findFirst({
+        where: {
+          choferId,
+          estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] },
+        },
+      });
+      if (viajeExistente) {
+        return res.status(400).json({
+          success: false,
+          message: 'Ya tienes un viaje activo. Finalízalo antes de tomar otro pasajero.',
+        });
+      }
+
+      const {
+        origen,
+        destino,
+        origenDetallado,
+        destinoDetallado,
+        clienteNombre,
+        clienteTelefono,
+        pinPasajero,
+        precioInicial,
+      } = req.body;
+
+      const bajadaBandera = Number(chofer.remiseria?.bajadaBandera || 3500);
+      const precioBase = precioInicial !== undefined ? Number(precioInicial) : bajadaBandera;
+
+      // Buscar si el cliente ingresó un PIN o teléfono registrado
+      let clienteId: string | null = null;
+      let nombreFinal = clienteNombre || 'Pasajero de Calle';
+      let telFinal = clienteTelefono || null;
+
+      if (pinPasajero) {
+        const clienteEncontrado = await prisma.cliente.findFirst({
+          where: {
+            remiseriaId: chofer.remiseriaId,
+            OR: [
+              { telefono: { contains: pinPasajero.trim() } },
+              { dni: pinPasajero.trim() },
+            ],
+          },
+        });
+        if (clienteEncontrado) {
+          clienteId = clienteEncontrado.id;
+          nombreFinal = `${clienteEncontrado.nombre} ${clienteEncontrado.apellido}`;
+          telFinal = clienteEncontrado.telefono;
+        }
+      }
+
+      // Crear el viaje directamente EN_CURSO
+      const nuevoViaje = await prisma.viaje.create({
+        data: {
+          remiseriaId: chofer.remiseriaId,
+          choferId: chofer.id,
+          vehiculoId: chofer.vehiculoId || null,
+          clienteId,
+          clienteNombre: nombreFinal,
+          clienteTelefono: telFinal,
+          origen: origen || 'Tomado en la calle / Parada',
+          destino: destino || 'Destino a indicar por el pasajero (Taxímetro)',
+          origenDetallado: origenDetallado || null,
+          destinoDetallado: destinoDetallado || null,
+          fecha: new Date(),
+          estado: 'EN_CURSO',
+          precio: precioBase,
+          metodoPago: 'EFECTIVO',
+          esViajeCalle: true,
+          distanciaKmConPasajero: 0.0,
+          distanciaKmSinPasajero: 0.0,
+        },
+        include: {
+          chofer: true,
+          vehiculo: true,
+          remiseria: true,
+          cliente: true,
+        },
+      });
+
+      // Si estaba en parada virtual, liberarlo
+      if (chofer.enParadaVirtual) {
+        await prisma.chofer.update({
+          where: { id: chofer.id },
+          data: { enParadaVirtual: false, paradaVirtualIngreso: null },
+        });
+      }
+
+      // Notificar por WebSocket al coordinador y a la remisería
+      try {
+        const { getIO } = await import('../lib/socket');
+        const io = getIO();
+        if (io && chofer.remiseriaId) {
+          io.to(chofer.remiseriaId).emit('nuevo_viaje', nuevoViaje);
+          io.to(chofer.remiseriaId).emit('vehiculo_movido', {
+            id: chofer.vehiculoId || chofer.id,
+            choferId: chofer.id,
+            vehiculoId: chofer.vehiculoId,
+            patente: chofer.vehiculo?.patente || 'Auto Propio',
+            estado: 'en_viaje',
+            choferNombre: `${chofer.nombre} ${chofer.apellido}`,
+            viajeId: nuevoViaje.id,
+          });
+        }
+      } catch {}
+
+      return res.status(201).json({
+        success: true,
+        message: '¡Viaje de calle iniciado con éxito! Modo Taxímetro activo.',
+        data: nuevoViaje,
+      });
+    } catch (error) {
+      console.error('Error al crear viaje de calle:', error);
+      return res.status(500).json({ success: false, message: 'Error interno del servidor' });
     }
   },
 }; 

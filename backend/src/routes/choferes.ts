@@ -18,19 +18,28 @@ router.get('/vehiculos-disponibles', choferController.getVehiculosDisponibles);
 router.patch('/mi-perfil', choferController.updateMiPerfil);
 router.patch('/online-status', choferController.updateOnlineStatus);
 router.post('/viajes/:viajeId/aceptar', choferController.aceptarViaje);
+router.post('/viajes/:viajeId/rechazar', choferController.rechazarViaje);
 router.patch('/viajes/:viajeId/estado', choferController.actualizarEstadoViaje);
+router.post('/viajes/:viajeId/calificar-pasajero', choferController.calificarPasajero);
 router.post('/viajes/:viajeId/avisar-llegando', choferController.avisarLlegando);
 router.post('/viajes/:viajeId/paradas', choferController.agregarParada);
 router.post('/viajes/:viajeId/espera', choferController.controlarEspera);
 router.post('/viajes/:viajeId/chat', choferController.enviarMensajeChat);
+router.post('/viaje-calle', choferController.crearViajeCalle);
 
 // Rutas de Turno y Tracking de Kilometraje
 router.get('/turno/activo', choferController.getTurnoActivo);
+router.get('/turno/resumen-cierre', choferController.getResumenCierreTurno);
 router.get('/turnos', choferController.getMisTurnos);
 router.post('/turno/iniciar', choferController.iniciarTurno);
 router.post('/turno/finalizar', choferController.finalizarTurno);
 router.patch('/turno/actualizar-km', choferController.actualizarKmTurno);
 router.post('/turno/pausa', choferController.togglePausa);
+
+// Parada Virtual de Base (Turnero)
+router.post('/parada-virtual/anotarse', choferController.anotarseParadaVirtual);
+router.post('/parada-virtual/salir', choferController.salirParadaVirtual);
+router.get('/parada-virtual/estado', choferController.getEstadoParadaVirtual);
 
 // Rutas de Gastos y Finanzas del Chofer
 router.get('/gastos', choferController.getMisGastos);

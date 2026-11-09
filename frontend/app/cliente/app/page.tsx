@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'next/navigation';
 import { toast } from 'react-hot-toast';
@@ -44,6 +45,15 @@ import {
 import { DireccionFrecuente, ParadaIntermedia } from '@/types';
 import { clienteService, coordinadorDashboardService } from '@/lib/api';
 import Link from 'next/link';
+
+const ClienteTrackingMap = dynamic(() => import('@/components/ClienteTrackingMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-44 bg-slate-100 dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700 flex flex-col items-center justify-center text-xs text-gray-500 animate-pulse">
+      Cargando mapa de seguimiento en vivo...
+    </div>
+  ),
+});
 
 // Generador de tono de campana / timbre de llegada
 function reproducirAlertaLlegada() {
@@ -209,6 +219,7 @@ export default function ClienteApp() {
   // Viaje Activo y Polling
   const [activeViaje, setActiveViaje] = useState<any | null>(null);
   const [estadoViaje, setEstadoViaje] = useState<'IDLE' | 'BUSCANDO' | 'ACEPTADO' | 'EN_CAMINO' | 'EN_CURSO'>('IDLE');
+  const [choferLiveCoords, setChoferLiveCoords] = useState<[number, number] | null>(null);
   const [isRequesting, setIsRequesting] = useState(false);
   const [isCanceling, setIsCanceling] = useState(false);
 
@@ -473,7 +484,19 @@ export default function ClienteApp() {
 
     socket.on('viaje_estado_actualizado', (data: { viajeId: string; estado: string; mensaje?: string; viaje?: any }) => {
       if (activeViajeRef.current && data.viajeId === activeViajeRef.current.id) {
-        if (data.estado === 'EN_CAMINO') {
+        if (data.estado === 'ACEPTADO') {
+          previousEstadoRef.current = 'ACEPTADO';
+          setEstadoViaje('ACEPTADO');
+          const updatedViaje = { ...(activeViajeRef.current || {}), estado: 'ACEPTADO', ...(data.viaje || {}) };
+          activeViajeRef.current = updatedViaje;
+          setActiveViaje(updatedViaje);
+          const vLat = updatedViaje.vehiculo?.latitud ?? updatedViaje.chofer?.vehiculo?.latitud;
+          const vLon = updatedViaje.vehiculo?.longitud ?? updatedViaje.chofer?.vehiculo?.longitud;
+          if (typeof vLat === 'number' && typeof vLon === 'number') {
+            setChoferLiveCoords([vLat, vLon]);
+          }
+          toast.success(data.mensaje || '¡Tu viaje fue aceptado! El auto ya está en camino a buscarte.');
+        } else if (data.estado === 'EN_CAMINO') {
           previousEstadoRef.current = 'EN_CAMINO';
           notificarLlegadaChofer(data.viaje || activeViajeRef.current);
           setEstadoViaje('EN_CAMINO');
@@ -492,6 +515,20 @@ export default function ClienteApp() {
           setEstadoViaje('EN_CURSO');
           setActiveViaje((prev: any) => ({ ...(prev || {}), estado: 'EN_CURSO', ...(data.viaje || {}) }));
         }
+      }
+    });
+
+    // Escucha movimiento GPS en tiempo real del móvil asignado al viaje del cliente
+    socket.on('vehiculo_movido', (data: any) => {
+      const currentViaje = activeViajeRef.current;
+      if (!currentViaje) return;
+      const assignedChoferId = currentViaje.choferId || currentViaje.chofer?.id;
+      const assignedVehiculoId = currentViaje.vehiculoId || currentViaje.vehiculo?.id || currentViaje.chofer?.vehiculo?.id;
+      const matchesDriver = assignedChoferId && (data.choferId === assignedChoferId || data.id === assignedChoferId);
+      const matchesVehicle = assignedVehiculoId && (data.vehiculoId === assignedVehiculoId || data.id === assignedVehiculoId);
+
+      if ((matchesDriver || matchesVehicle) && data.ubicacion && typeof data.ubicacion.lat === 'number' && typeof data.ubicacion.lng === 'number') {
+        setChoferLiveCoords([data.ubicacion.lat, data.ubicacion.lng]);
       }
     });
 
@@ -610,6 +647,12 @@ export default function ClienteApp() {
     activeViajeRef.current = viaje;
     setActiveViaje(viaje);
 
+    const vLat = viaje.vehiculo?.latitud ?? viaje.chofer?.vehiculo?.latitud;
+    const vLon = viaje.vehiculo?.longitud ?? viaje.chofer?.vehiculo?.longitud;
+    if (typeof vLat === 'number' && typeof vLon === 'number') {
+      setChoferLiveCoords((prev) => prev || [vLat, vLon]);
+    }
+
     if (viaje.estado === 'PENDIENTE') {
       setEstadoViaje('BUSCANDO');
     } else if (viaje.estado === 'ACEPTADO') {
@@ -662,6 +705,7 @@ export default function ClienteApp() {
   const resetRequestState = () => {
     setActiveViaje(null);
     setEstadoViaje('IDLE');
+    setChoferLiveCoords(null);
     setPresupuesto(null);
     setOrigen('');
     setDestino('');
@@ -1560,6 +1604,27 @@ export default function ClienteApp() {
               <h3 className="font-bold text-lg text-gray-900 dark:text-white">Buscando conductor...</h3>
               <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">Tu solicitud ha sido enviada al coordinador de la remisería</p>
             </div>
+
+            {(activeViaje?.posicionEnCola > 1 || disponibilidad?.todosOcupados) && (
+              <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 rounded-xl p-3 text-left space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 shrink-0" />
+                    {disponibilidad?.todosOcupados ? 'Alta demanda en este momento' : 'Solicitudes simultáneas en cola'}
+                  </span>
+                  {activeViaje?.posicionEnCola > 0 && (
+                    <span className="bg-amber-200/80 dark:bg-amber-900/60 text-amber-900 dark:text-amber-200 text-[10px] font-black px-2 py-0.5 rounded-full">
+                      Turno #{activeViaje.posicionEnCola} en fila
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-snug">
+                  {disponibilidad?.todosOcupados
+                    ? `Todos los móviles están en viaje. Demora estimada: ${disponibilidad.demoraMin}-${disponibilidad.demoraMax} min. Te asignaremos el primer auto que se libere.`
+                    : `Tu pedido está en el puesto #${activeViaje?.posicionEnCola} de prioridad y se está ofreciendo automáticamente a la flota disponible.`}
+                </p>
+              </div>
+            )}
             
             <div className="h-1.5 w-full bg-gray-150 dark:bg-slate-800 rounded-full overflow-hidden mt-6">
               <div className="h-full bg-primary-600 w-1/3 rounded-full animate-pulse-loader"></div>
@@ -1653,6 +1718,41 @@ export default function ClienteApp() {
                 </div>
               </div>
 
+              {/* Mapa en vivo con el auto yendo a buscar al cliente y recorrido */}
+              <ClienteTrackingMap
+                origen={activeViaje.origen}
+                destino={activeViaje.destino}
+                origenDetallado={activeViaje.origenDetallado}
+                destinoDetallado={activeViaje.destinoDetallado}
+                estado={estadoViaje}
+                choferCoords={
+                  choferLiveCoords ||
+                  (typeof (activeViaje.vehiculo?.latitud ?? activeViaje.chofer?.vehiculo?.latitud) === 'number' &&
+                  typeof (activeViaje.vehiculo?.longitud ?? activeViaje.chofer?.vehiculo?.longitud) === 'number'
+                    ? [
+                        activeViaje.vehiculo?.latitud ?? activeViaje.chofer?.vehiculo?.latitud,
+                        activeViaje.vehiculo?.longitud ?? activeViaje.chofer?.vehiculo?.longitud,
+                      ]
+                    : null)
+                }
+                baseCoords={
+                  typeof activeViaje.remiseria?.latitud === 'number' &&
+                  typeof activeViaje.remiseria?.longitud === 'number'
+                    ? [activeViaje.remiseria.latitud, activeViaje.remiseria.longitud]
+                    : null
+                }
+                choferNombre={
+                  activeViaje.chofer
+                    ? `${activeViaje.chofer.nombre} ${activeViaje.chofer.apellido || ''}`.trim()
+                    : 'Tu remís'
+                }
+                vehiculoInfo={
+                  activeViaje.vehiculo || activeViaje.chofer?.vehiculo
+                    ? `${(activeViaje.vehiculo || activeViaje.chofer?.vehiculo).patente} • ${(activeViaje.vehiculo || activeViaje.chofer?.vehiculo).marca} ${(activeViaje.vehiculo || activeViaje.chofer?.vehiculo).modelo}`
+                    : undefined
+                }
+              />
+
               {/* Indicador de Espera del Chofer (actualizándose en vivo segundo a segundo) */}
               {(activeViaje.enEspera || segundosEsperaLive > 0 || (activeViaje.costoEspera && activeViaje.costoEspera > 0)) && (
                 <div className="p-2.5 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800/60 rounded-xl flex items-center justify-between text-xs animate-pulse-subtle">
@@ -1689,7 +1789,7 @@ export default function ClienteApp() {
               )}
 
               {/* Botones de acción y comunicación */}
-              <div className="grid grid-cols-4 gap-2">
+              <div className={`grid ${estadoViaje !== 'EN_CURSO' ? 'grid-cols-4' : 'grid-cols-3'} gap-2`}>
                 {/* 1. Llamar al chofer */}
                 {activeViaje.chofer?.telefono ? (
                   <a 
@@ -1707,21 +1807,23 @@ export default function ClienteApp() {
                   </div>
                 )}
 
-                {/* 2. Chat rápido con el chofer */}
-                <button
-                  type="button"
-                  onClick={() => setIsChatOpen(true)}
-                  className="relative py-2.5 bg-gray-50 dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700 font-bold text-gray-700 dark:text-slate-200 text-xs rounded-xl flex flex-col items-center justify-center gap-1 transition-colors"
-                  title="Mensajería rápida"
-                >
-                  <MessageCircle className="w-4 h-4 text-blue-600" />
-                  <span className="text-[10px]">Chat</span>
-                  {mensajesChat.length > 0 && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-blue-600 text-white rounded-full text-[9px] font-black flex items-center justify-center">
-                      {mensajesChat.length}
-                    </span>
-                  )}
-                </button>
+                {/* 2. Chat rápido con el chofer (solo disponible hasta que se inicia el viaje) */}
+                {estadoViaje !== 'EN_CURSO' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsChatOpen(true)}
+                    className="relative py-2.5 bg-gray-50 dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700 font-bold text-gray-700 dark:text-slate-200 text-xs rounded-xl flex flex-col items-center justify-center gap-1 transition-colors"
+                    title="Mensajería rápida"
+                  >
+                    <MessageCircle className="w-4 h-4 text-blue-600" />
+                    <span className="text-[10px]">Chat</span>
+                    {mensajesChat.length > 0 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-blue-600 text-white rounded-full text-[9px] font-black flex items-center justify-center">
+                        {mensajesChat.length}
+                      </span>
+                    )}
+                  </button>
+                )}
 
                 {/* 3. Compartir viaje en tiempo real */}
                 <button
@@ -2112,9 +2214,9 @@ export default function ClienteApp() {
       )}
 
       {/* ======================================================== */}
-      {/* MODAL 5: CHAT RÁPIDO CON EL CHOFER */}
+      {/* MODAL 5: CHAT RÁPIDO CON EL CHOFER (solo disponible hasta que se inicia el viaje) */}
       {/* ======================================================== */}
-      {isChatOpen && activeViaje && (
+      {isChatOpen && activeViaje && estadoViaje !== 'EN_CURSO' && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full h-[32rem] flex flex-col border border-gray-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-scale-up">
             

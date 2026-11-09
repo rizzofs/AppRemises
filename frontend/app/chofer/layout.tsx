@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { usePathname } from 'next/navigation';
 import LogoutButton from '@/components/LogoutButton';
 import ChoferBottomNav from '@/components/ChoferBottomNav';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -27,6 +28,7 @@ export default function ChoferLayout({
   children: React.ReactNode;
 }) {
   const { user } = useAuth();
+  const pathname = usePathname();
   const [choferData, setChoferData] = useState<any>(null);
   const [loadingEstado, setLoadingEstado] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -69,23 +71,32 @@ export default function ChoferLayout({
   return (
     <ProtectedRoute allowedRoles={['CHOFER']}>
       <ThemeModuleProvider>
-        <div className="chofer-module min-h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 flex flex-col transition-colors duration-200">
-          <header className="bg-primary-600 dark:bg-slate-900 text-white p-4 shadow-md sticky top-0 z-30 flex justify-between items-center border-b border-primary-700 dark:border-slate-800 transition-colors">
-            <div className="flex items-center gap-2">
-              <Car className="w-6 h-6 text-white dark:text-primary-400" />
-              <h1 className="text-xl font-bold tracking-tight">{remiseriaNombre || 'Remises Bruno'} Chofer</h1>
+        <div className="chofer-module min-h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 flex flex-col overflow-x-hidden transition-colors duration-200">
+          <header className="fixed top-0 inset-x-0 z-40 bg-primary-600 dark:bg-slate-900 text-white px-3 py-2.5 shadow-md flex justify-between items-center gap-2 border-b border-primary-700 dark:border-slate-800 transition-colors">
+            {/* Contenedor dinámico para el estado EN LÍNEA / PAUSAR / DESCONECTARSE en el navbar */}
+            <div id="chofer-navbar-status" className="flex-1 min-w-0">
+              {pathname !== '/chofer/app' && (
+                <div className="flex items-center gap-2">
+                  <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${choferData?.isOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-400'}`} />
+                  <div className="min-w-0">
+                    <p className="text-xs font-extrabold leading-tight truncate">
+                      {choferData?.isOnline ? 'EN LÍNEA' : 'FUERA DE LÍNEA'}
+                    </p>
+                    <p className="text-[10px] text-white/80 dark:text-slate-400 leading-tight truncate">
+                      {choferData?.isOnline ? 'Esperando solicitudes de viaje...' : 'Sin turno activo'}
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-1.5 shrink-0">
               {/* Selector de Modo Oscuro / Claro / Sistema */}
               <ThemeToggle className="text-white hover:text-white" />
-              <div className="w-8 h-8 rounded-full bg-white/20 dark:bg-slate-800 flex items-center justify-center font-bold text-xs text-white">
-                {user?.email?.slice(0, 2).toUpperCase() || 'CH'}
-              </div>
               <LogoutButton className="text-white hover:text-red-200" />
             </div>
           </header>
 
-          <main className="flex-1 overflow-y-auto">
+          <main className={`flex-1 overflow-y-auto overflow-x-hidden no-scrollbar pt-14 ${estadoChofer === 'ACTIVO' ? 'pb-20' : ''}`}>
             {loadingEstado ? (
               <div className="flex flex-col items-center justify-center min-h-[60vh] p-6 text-center">
                 <div className="w-10 h-10 border-4 border-primary-200 dark:border-primary-900 border-t-primary-600 dark:border-t-primary-400 rounded-full animate-spin mb-4" />

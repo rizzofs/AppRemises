@@ -370,8 +370,15 @@ export const batchDispatchService = {
         maxRecaudacionTurno > 0 ? (maxRecaudacionTurno - statChofer.recaudadoTurno) / maxRecaudacionTurno : 0.5;
       const bonusEquidadRecaudacion = ratioRecaudacion * 1.5;
 
-      // Bonus combinado de desempate por conexión (máximo ~3.0 minutos)
-      const bonusDesempateChofer = bonusEsperaTurno + bonusEquidadRecaudacion;
+      // Criterio C: Turnero / Parada Virtual de Base (prioridad FIFO a choferes en cola de base)
+      let bonusParadaVirtual = 0;
+      if (chofer.enParadaVirtual && chofer.paradaVirtualIngreso) {
+        const minutosEnParada = Math.max(1, Math.floor((ahora.getTime() - new Date(chofer.paradaVirtualIngreso).getTime()) / (1000 * 60)));
+        bonusParadaVirtual = 4.0 + Math.min(8.0, minutosEnParada * 0.2);
+      }
+
+      // Bonus combinado de desempate por conexión (máximo ~3.0 minutos + base)
+      const bonusDesempateChofer = bonusEsperaTurno + bonusEquidadRecaudacion + bonusParadaVirtual;
 
       for (let j = 0; j < numViajes; j++) {
         const viaje = viajesPendientes[j];
@@ -399,8 +406,8 @@ export const batchDispatchService = {
           Math.floor((ahora.getTime() - new Date(viaje.createdAt).getTime()) / (1000 * 60))
         );
 
-        // Costo = ETA - (bonus espera pasajero) - (bonus desempate chofer: Criterio A fila + Criterio B recaudación)
-        const costo = Math.max(0.1, etaMinutos - minutosEsperandoCliente * 0.4 - bonusDesempateChofer);
+        // Costo = ETA - (bonus espera pasajero) - (bonus desempate chofer: Criterio A fila + Criterio B recaudación + Criterio C parada)
+        const costo = Math.max(0.01, etaMinutos - minutosEsperandoCliente * 0.4 - bonusDesempateChofer);
 
         costMatrix[i][j] = costo;
         etaMatrix[i][j] = etaMinutos;
@@ -601,6 +608,14 @@ export const batchDispatchService = {
           }
         }
       });
+
+      // Liberar de parada virtual si estaba en cola de base
+      if (chofer.enParadaVirtual) {
+        await prisma.chofer.update({
+          where: { id: chofer.id },
+          data: { enParadaVirtual: false, paradaVirtualIngreso: null }
+        });
+      }
 
       // Registrar auditoría de uso si fue hecho por un coordinador
       if (coordinadorUserId) {

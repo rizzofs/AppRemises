@@ -60,6 +60,8 @@ Este documento detalla el diagnóstico exhaustivo de funcionalidades pendientes,
    - Posibilidad de agregar una parada previa al destino final con recálculo dinámico de tarifa.
 7. **Selección de Método de Pago y Detalle de Cambio:**
    - Elegir entre Efectivo o Transferencia. Si es efectivo: *"¿Con cuánto abona?"* para que el chofer prepare cambio.
+8. **Subir a un Móvil en la Calle (Escanear QR Remis / Vincular Viaje Espontáneo):**
+   - Si el pasajero toma un remis en la calle o parada que ya tiene disponible, puede abrir su app y escanear el QR del móvil (o ingresar el número de móvil) para vincular el viaje a su cuenta, manteniendo su historial, puntos y método de pago.
 
 ---
 
@@ -67,54 +69,47 @@ Este documento detalla el diagnóstico exhaustivo de funcionalidades pendientes,
 
 *Subdominio: `choferes.brunoremises.com.ar` | Rutas: `/chofer/app`, `/chofer/gastos`, `/chofer/historial`, `/chofer/perfil`*
 
-### ✅ Estado Actual
+### ✅ Estado Actual y Funcionalidades Completadas
 - Conexión / Desconexión y sistema de pausas (Almuerzo, Combustible, Baño).
 - Recepción de viajes en tiempo real con alerta sonora y cuenta regresiva de aceptación/rechazo.
 - Máquina de estados: *"En camino a buscar pasajero"*, *"Llegué a la puerta"*, *"Iniciar viaje"*, *"Finalizar viaje"*.
 - Medición de kilometraje en tiempo real con y sin pasajero (Haversine + odometría).
 - Carga de gastos operativos (Nafta/Gasoil o GNC, lavado, peaje, reparaciones) con odómetro y fotos de tickets.
-- Historial filtrado por turnos y fechas.
+- Historial filtrado por turnos y fechas con cierres y liquidaciones.
+- **Lanzador Directo a GPS Externo (Google Maps / Waze):** Botones de 1 toque para abrir Google Maps o Waze con las coordenadas y dirección exactas del pasajero o del destino con navegación guiada turn-by-turn.
+- **Mantener Pantalla Encendida (Wake Lock API):** Implementado con `navigator.wakeLock.request('screen')`, re-adquisición automática ante `visibilitychange` y badge con toggle manual.
+- **Resiliencia de GPS en Segundo Plano y Offline:** Detección de pérdida de conectividad (`online`/`offline`), banner de aviso y búfer de odometría que sincroniza deltas al restablecer conexión.
+- **Arqueo y Cierre de Turno del Chofer:** Modal completo al finalizar jornada con total cobrado en efectivo, transferencias, gastos descontados, comisión debida a la agencia y ganancia neta de bolsillo.
+- **Calificación del Pasajero por parte del Chofer:** Modal post-viaje con calificación de 1 a 5 estrellas, tags rápidos (*"Puntual"*, *"Amable"*, *"Esperó en puerta"*, *"Propina"*, *"Pasajero conflictivo"*), comentario y actualización automática en base de datos.
+- **Turnero / Parada Virtual de Base:** Cola virtual de base (FIFO) para choferes en la agencia con prioridad automática en el algoritmo de despacho óptimo (`batchDispatchService`) y sincronización en tiempo real vía WebSockets.
+- **Viaje Espontáneo de Calle / Encadenado con Taxímetro Digital:**
+  - *Rotación inmediata en destino:* Botón *"Nuevo Pasajero Aquí Mismo"* que toma el destino anterior como origen instantáneo.
+  - *Viaje de calle:* Botón de acción rápida con soporte de pasajero sin app o con app (PIN de 4 dígitos).
+  - *Taxímetro digital en vivo:* Panel en tiempo real con bajada de bandera, tarifa dinámica por km recorrido, costo por espera y sincronización con central y liquidación.
 
 ### 🔴 Funcionalidades Faltantes
-1. **Lanzador Directo a GPS Externo (Google Maps / Waze):**
-   - Botón de 1 toque para abrir Google Maps o Waze con las coordenadas exactas del pasajero o del destino (`intent://` / `google.navigation:q=lat,lng` / `waze://`). El chofer no puede mirar el navegador web mientras conduce a alta velocidad.
-2. **Mantener Pantalla Encendida (Wake Lock API):**
-   - Implementación de `navigator.wakeLock.request('screen')` para evitar que el celular bloquee la pantalla mientras está conectado o en viaje, lo cual corta los sockets en muchos teléfonos.
-3. **Resiliencia de GPS en Segundo Plano:**
-   - Detección de pérdida de señal o suspensión del navegador; envío de cola de coordenadas (*buffer*) al reconectar.
-4. **Arqueo y Cierre de Turno del Chofer en la App:**
-   - Resumen visual al terminar la jornada: Total cobrado en mano (Efectivo), transferencias recibidas, gastos descontados (combustible/peaje), comisión debida a la remisería y ganancia neta de bolsillo.
-5. **Calificación del Pasajero por parte del Chofer:**
-   - Posibilidad de marcar pasajeros conflictivos o calificar su puntualidad.
-6. **Turnero / Parada Virtual de Base:**
-   - Sistema de cola para choferes que están físicamente en la parada/central, asignando prioridad según orden de llegada.
+*Todas las funcionalidades críticas y secundarias del Módulo Chofer han sido completadas con éxito.*
 
 ---
 
 ## 3. Módulo Coordinación / Despacho (Central)
 *Subdominio: `coordinacion.brunoremises.com.ar` | Rutas: `/coordinador/dashboard`, `/coordinador/mapa`, `/coordinador/cierre`, `/coordinador/reportes`*
 
-### ✅ Estado Actual
+### ✅ Estado Actual y Funcionalidades Completadas
 - Dashboard de viajes en tiempo real agrupados por estados (En curso, Pendientes, Completados).
 - Asignación manual de chofer y móvil.
 - Algoritmo de despacho óptimo por lotes (*Batch Matching* tipo Uber/Cabify).
 - Mapa en vivo de flota con estado de cada chofer (libre, en camino, ocupado, en pausa).
 - Cierres de turno y liquidación operativa.
+- **Carga Ultrarrápida de Viaje Telefónico (Modo Despacho Express - F2):** Formulario modal `< 5s` con autofocus, atajos de teclado (`F2`, `Alt+N`, `Enter` para avanzar y despachar, `Escape` para cerrar) y búsqueda predictiva instantánea de pasajeros habituales por número de teléfono o apellido (`GET /api/coordinador/clientes/predictivo`) con autocompletado de direcciones habituales.
+- **Reasignación Rápida de Móvil en Caliente (1 clic):** Botón `🔄 Reasignar` en viajes en curso para transferir de inmediato el viaje a otro móvil disponible ante avería mecánica, pinchadura o demora sin cancelar el pedido ni molestar al cliente. Sincronización instantánea vía WebSockets al móvil saliente, entrante y a la central.
+- **Alarma Acústica y Visual en Central para Nuevos Pedidos:** Generador de timbre polifónico armónico tipo campana de recepción central (Web Audio API) con toggle persistente en cabecera (`🔊/🔇`) y banner parpadeante destacado con botón de asignación directa ante pedidos web o WhatsApp entrantes.
+- **Tarifa Plana Estándar (Sin Recargos Dinámicos):** Conforme al modelo comercial de Remises Bruno, se mantiene siempre tarifa plana estándar sin incrementos por lluvia ni horario nocturno, garantizando previsibilidad y transparencia al pasajero.
+- **Auditoría de Cancelaciones:** Panel analítico dedicado con métricas KPI (total cancelados, por cliente, por chofer, por operador, con viaje mínimo cobrado y recaudación), gráfico de ranking de cuellos de botella por motivo y tabla detallada con filtros rápidos por responsable.
+- **Exportación de Reportes a Excel y PDF (Planilla Imprimible):** Descarga de planilla completa de viajes en formato CSV/Excel (UTF-8 BOM) e impresión formal de la planilla de turno con encabezado de Remises Bruno para archivo físico y digital.
 
 ### 🔴 Funcionalidades Faltantes
-1. **Carga Ultrarrápida de Viaje Telefónico (Modo Despacho Express):**
-   - Formulario optimizado para operadores telefónicos: carga en menos de 5 segundos con atajos de teclado (Enter para avanzar, escape para cerrar).
-   - Búsqueda predictiva de pasajeros habituales por número de teléfono o apellido.
-2. **Reasignación Rápida de Móvil en Caliente:**
-   - Si un chofer asignado sufre un desperfecto mecánico o pincha un neumático, botón de 1 clic para transferir el viaje a otro chofer disponible sin cancelarlo ni pedirle al cliente que lo vuelva a solicitar.
-3. **Alarma Acústica y Visual en Central para Nuevos Pedidos:**
-   - Timbre sonoro en el panel del despachador cuando ingresa un pedido web o de WhatsApp que requiere asignación manual.
-4. **Tarifas Especiales y Recargos Dinámicos desde Central:**
-   - Switch rápido en cabecera: *"Tarifa Lluvia (+20%)"*, *"Tarifa Nocturna / Feriado"*, o agregado de cargos extra por bulto/espera prolongada.
-5. **Auditoría de Cancelaciones:**
-   - Panel dedicado para revisar viajes cancelados: qué chofer rechazó, cuánto tardó en atenderse, o si el cliente desistió, identificando cuellos de botella de la flota.
-6. **Exportación de Reportes a Excel y PDF:**
-   - Botón para descargar la planilla del turno con lista de viajes, móviles intervinientes, montos y comisiones para el archivo diario de la agencia.
+*Todas las funcionalidades críticas y operativas del Módulo Coordinación / Despacho han sido completadas con éxito.*
 
 ---
 

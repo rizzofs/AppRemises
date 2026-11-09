@@ -527,10 +527,10 @@ export const choferService = {
     }
   },
 
-  getMiEstado: async (choferId?: string): Promise<ApiResponse<{ chofer: any; viajeActual: any; viajesDisponibles: any[]; turnoActivo?: any; enPausa?: boolean; motivoPausa?: string | null; pausaInicio?: string | null }>> => {
+  getMiEstado: async (choferId?: string): Promise<ApiResponse<{ chofer: any; viajeActual: any; viajesDisponibles: any[]; viajeEnColaTabla?: any; turnoActivo?: any; enPausa?: boolean; motivoPausa?: string | null; pausaInicio?: string | null; puestoEnTabla?: number | null; totalEnTabla?: number }>> => {
     try {
       const response = await api.get('/choferes/mi-estado', { params: choferId ? { choferId } : undefined });
-      return handleApiResponse<{ chofer: any; viajeActual: any; viajesDisponibles: any[]; turnoActivo?: any; enPausa?: boolean; motivoPausa?: string | null; pausaInicio?: string | null }>(response);
+      return handleApiResponse<{ chofer: any; viajeActual: any; viajesDisponibles: any[]; viajeEnColaTabla?: any; turnoActivo?: any; enPausa?: boolean; motivoPausa?: string | null; pausaInicio?: string | null; puestoEnTabla?: number | null; totalEnTabla?: number }>(response);
     } catch (error: any) {
       return {
         success: false,
@@ -559,6 +559,18 @@ export const choferService = {
       return {
         success: false,
         message: error.response?.data?.message || error.response?.data?.error || 'Error al aceptar viaje',
+      };
+    }
+  },
+
+  rechazarViaje: async (viajeId: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post(`/choferes/viajes/${viajeId}/rechazar`);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al rechazar viaje',
       };
     }
   },
@@ -737,6 +749,90 @@ export const choferService = {
       return {
         success: false,
         message: error.response?.data?.message || 'Error al finalizar turno',
+      };
+    }
+  },
+
+  getResumenCierreTurno: async (params?: { choferId?: string; turnoId?: string }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/choferes/turno/resumen-cierre', { params });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al obtener resumen de arqueo de turno',
+      };
+    }
+  },
+
+  calificarPasajero: async (
+    viajeId: string,
+    data: { estrellas: number; tags?: string[]; comentario?: string; pasajeroConflictivo?: boolean }
+  ): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post(`/choferes/viajes/${viajeId}/calificar-pasajero`, data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al calificar pasajero',
+      };
+    }
+  },
+
+  anotarseParadaVirtual: async (choferId?: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/choferes/parada-virtual/anotarse', { choferId });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al anotarse en la parada virtual',
+      };
+    }
+  },
+
+  salirParadaVirtual: async (choferId?: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/choferes/parada-virtual/salir', { choferId });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al salir de la parada virtual',
+      };
+    }
+  },
+
+  getEstadoParadaVirtual: async (choferId?: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/choferes/parada-virtual/estado', { params: choferId ? { choferId } : undefined });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al obtener estado de parada virtual',
+      };
+    }
+  },
+
+  crearViajeCalle: async (data: {
+    origen?: string;
+    destino?: string;
+    origenDetallado?: string;
+    destinoDetallado?: string;
+    clienteNombre?: string;
+    clienteTelefono?: string;
+    pinPasajero?: string;
+    precioInicial?: number;
+  }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/choferes/viaje-calle', data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al iniciar viaje de calle',
       };
     }
   },
@@ -1112,6 +1208,30 @@ export const coordinadorDashboardService = {
     }
   },
 
+  getViajesHistorial: async (params?: {
+    estado?: string;
+    fechaDesde?: string;
+    fechaHasta?: string;
+    limit?: number;
+  }): Promise<ApiResponse<any[]>> => {
+    try {
+      const queryParams = new URLSearchParams();
+      if (params?.estado) queryParams.append('estado', params.estado);
+      if (params?.fechaDesde) queryParams.append('fechaDesde', params.fechaDesde);
+      if (params?.fechaHasta) queryParams.append('fechaHasta', params.fechaHasta);
+      if (params?.limit) queryParams.append('limit', params.limit.toString());
+      const query = queryParams.toString() ? `?${queryParams.toString()}` : '';
+
+      const response = await api.get(`/coordinator-dashboard/viajes/historial${query}`);
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al cargar historial de viajes',
+      };
+    }
+  },
+
   createViaje: async (data: any): Promise<ApiResponse<any>> => {
     try {
       const response = await api.post('/coordinator-dashboard/viajes', data);
@@ -1354,6 +1474,84 @@ export const coordinadorDashboardService = {
       return {
         success: false,
         message: error.response?.data?.message || 'Error al aplicar asignaciones en lote',
+      };
+    }
+  },
+
+  // 1. Búsqueda predictiva de pasajeros habituales por teléfono o nombre
+  searchClientesPredictivo: async (q: string): Promise<ApiResponse<any[]>> => {
+    try {
+      const response = await api.get(`/coordinator-dashboard/clientes/predictivo?q=${encodeURIComponent(q)}`);
+      return response.data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al buscar clientes',
+      };
+    }
+  },
+
+  // 2. Carga ultrarrápida de viaje telefónico (< 5s)
+  crearViajeExpress: async (data: any): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/coordinator-dashboard/viajes/express', data);
+      return response.data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al crear viaje express',
+      };
+    }
+  },
+
+  // 3. Reasignación rápida de móvil en caliente (1 clic)
+  reasignarViaje: async (id: string, data: { nuevoChoferId: string; nuevoVehiculoId?: string; motivo?: string }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch(`/coordinator-dashboard/viajes/${id}/reasignar`, data);
+      return response.data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al reasignar el viaje',
+      };
+    }
+  },
+
+  // 4. Auditoría de cancelaciones
+  getAuditoriaCancelaciones: async (params?: { fechaDesde?: string; fechaHasta?: string; canceladoPor?: string }): Promise<ApiResponse<any>> => {
+    try {
+      const query = new URLSearchParams(params as any).toString();
+      const response = await api.get(`/coordinator-dashboard/auditoria/cancelaciones${query ? `?${query}` : ''}`);
+      return response.data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al obtener auditoría de cancelaciones',
+      };
+    }
+  },
+
+  // 5. Configuración de tarifas especiales (Lluvia, Nocturna, Feriado)
+  getConfiguracionTarifas: async (): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get('/coordinator-dashboard/tarifas');
+      return response.data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al obtener tarifas',
+      };
+    }
+  },
+
+  updateConfiguracionTarifas: async (data: any): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch('/coordinator-dashboard/tarifas', data);
+      return response.data;
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al actualizar tarifas',
       };
     }
   },

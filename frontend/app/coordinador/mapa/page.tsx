@@ -197,7 +197,14 @@ export default function MapaTiempoReal() {
         const mapped: Vehiculo[] = response.data.map(v => {
           const chofer = v.choferes && v.choferes[0];
           const isOnline = chofer?.isOnline;
-          const estado = isOnline ? 'disponible' : (v.estado?.toLowerCase() === 'activo' ? 'disponible' : 'fuera_servicio');
+          const estadoOperativo = (v as any).estadoOperativo;
+          const estado = estadoOperativo
+            ? estadoOperativo
+            : (v as any).enViaje
+            ? 'en_viaje'
+            : isOnline
+            ? 'disponible'
+            : (v.estado?.toLowerCase() === 'activo' ? 'disponible' : 'fuera_servicio');
           return {
             id: v.id,
             patente: v.patente || 'Móvil',

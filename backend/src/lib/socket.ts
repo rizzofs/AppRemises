@@ -4,6 +4,21 @@ import { prisma } from './prisma';
 
 let io: Server | null = null;
 
+// Fórmula de Haversine para distancia en metros entre dos coordenadas GPS
+function calcularDistanciaMetros(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000; // Radio de la Tierra en metros
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
 export const initSocket = (server: HttpServer): Server => {
   io = new Server(server, {
     cors: {
@@ -70,7 +85,7 @@ export const initSocket = (server: HttpServer): Server => {
           try {
             const choferActual = await prisma.chofer.findUnique({
               where: { id: choferId },
-              include: { vehiculo: true }
+              include: { vehiculo: true, remiseria: true }
             });
 
             if (choferActual) {
@@ -82,6 +97,42 @@ export const initSocket = (server: HttpServer): Server => {
               }
               if (choferActual.vehiculo) {
                 patente = choferActual.vehiculo.patente;
+              }
+
+              // Verificar si el chofer tiene un viaje activo en curso (ACEPTADO, EN_CAMINO, EN_CURSO)
+              const viajeActivo = await prisma.viaje.findFirst({
+                where: {
+                  choferId,
+                  estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] }
+                },
+                select: { id: true }
+              });
+
+              if (viajeActivo) {
+                estadoVehiculo = 'en_viaje';
+                if (choferActual.enParadaVirtual) {
+                  await prisma.chofer.update({
+                    where: { id: choferId },
+                    data: { enParadaVirtual: false, paradaVirtualIngreso: null }
+                  });
+                }
+              } else if (choferActual.isOnline && estadoVehiculo === 'disponible') {
+                // Sistema de Tablas: todo chofer online y realmente libre se mantiene en la cola FIFO
+                const baseLat = choferActual.remiseria?.latitud ?? -34.901138;
+                const baseLng = choferActual.remiseria?.longitud ?? -60.013778;
+                const distMetros = calcularDistanciaMetros(lat, lng, baseLat, baseLng);
+
+                if (!choferActual.enParadaVirtual) {
+                  await prisma.chofer.update({
+                    where: { id: choferId },
+                    data: { enParadaVirtual: true, paradaVirtualIngreso: new Date() }
+                  });
+                  io?.to(remiseriaId).emit('parada_virtual_actualizada', {
+                    choferId,
+                    accion: 'INGRESO_AUTOMATICO',
+                    distanciaMetros: Math.round(distMetros)
+                  });
+                }
               }
             }
           } catch (errChofer) {

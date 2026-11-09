@@ -73,6 +73,8 @@ model Remiseria {
   valorKm       Float    @default(1200)
   bajadaBandera Float    @default(3500)
   valorHoraEspera Float  @default(12000)
+  tarifaEspecialActiva String?   @default("NORMAL")
+  porcentajeRecargoTarifa Float  @default(0.0)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -149,6 +151,7 @@ model Cliente {
   genero    String?  // M, F, O
   fotoUrl   String?
   direccionesFrecuentes String? // JSON array de direcciones frecuentes/favoritas
+  observaciones String? // Notas del cliente (conflictivo, VIP, etc.)
   activo    Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -192,6 +195,9 @@ model Chofer {
   comisionPorcentaje Float  @default(30.0)
   isOnline         Boolean  @default(false)
   fotoUrl          String?
+  // Parada Virtual de Base
+  enParadaVirtual       Boolean   @default(false)
+  paradaVirtualIngreso  DateTime?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
@@ -301,6 +307,11 @@ model Viaje {
   canceladoPor         String? // 'CLIENTE' | 'CHOFER' | 'COORDINADOR'
   costoCancelacion     Float?
   debeAbonarMinimo     Boolean @default(false)
+  canceladoEn          DateTime?
+  motivoReasignacion   String?
+  choferAnteriorId     String?
+  recargoTipo          String?
+  recargoMonto         Float?  @default(0.0)
 
   // Tracking en tiempo real público
   trackingToken        String? @unique
@@ -314,6 +325,15 @@ model Viaje {
 
   // Chat rápido del viaje
   mensajesChat         String? // JSON array: [{ id, remitente, remitenteNombre, texto, timestamp }]
+
+  // Calificación del Pasajero por parte del Chofer
+  calificacionClienteEstrellas  Int?
+  calificacionClienteTags        String? // JSON array
+  calificacionClienteComentario  String?
+  pasajeroConflictivo           Boolean   @default(false)
+
+  // Viaje espontáneo de calle y taxímetro
+  esViajeCalle                  Boolean   @default(false)
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

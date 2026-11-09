@@ -341,7 +341,10 @@ export const getClienteViajes = async (req: AuthenticatedRequest, res: Response)
                 patente: true,
                 marca: true,
                 modelo: true,
-                color: true
+                color: true,
+                latitud: true,
+                longitud: true,
+                ultimaUbicacion: true
               }
             }
           }
@@ -352,18 +355,49 @@ export const getClienteViajes = async (req: AuthenticatedRequest, res: Response)
             patente: true,
             marca: true,
             modelo: true,
-            color: true
+            color: true,
+            latitud: true,
+            longitud: true,
+            ultimaUbicacion: true
+          }
+        },
+        remiseria: {
+          select: {
+            id: true,
+            nombreFantasia: true,
+            direccion: true,
+            latitud: true,
+            longitud: true,
+            valorHoraEspera: true
           }
         }
       },
       orderBy: {
         fecha: 'desc'
-      }
+      },
+      take: 25
     });
+
+    // Si el cliente tiene un viaje PENDIENTE, calcular su posición en la cola de espera para hora pico
+    const viajePendiente = viajes.find((v) => v.estado === 'PENDIENTE');
+    let posicionEnCola: number | null = null;
+    if (viajePendiente) {
+      const colaPendientes = await prisma.viaje.findMany({
+        where: { estado: 'PENDIENTE' },
+        select: { id: true },
+        orderBy: [{ prioridad: 'desc' }, { createdAt: 'asc' }],
+      });
+      const idx = colaPendientes.findIndex((p) => p.id === viajePendiente.id);
+      posicionEnCola = idx !== -1 ? idx + 1 : 1;
+    }
+
+    const viajesConCola = viajes.map((v) =>
+      v.estado === 'PENDIENTE' ? { ...v, posicionEnCola } : v
+    );
 
     res.json({
       success: true,
-      data: viajes
+      data: viajesConCola
     });
   } catch (error) {
     console.error('Error obteniendo viajes del cliente:', error);
@@ -585,7 +619,10 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
                 patente: true,
                 marca: true,
                 modelo: true,
-                color: true
+                color: true,
+                latitud: true,
+                longitud: true,
+                ultimaUbicacion: true
               }
             }
           }
@@ -596,13 +633,21 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
             patente: true,
             marca: true,
             modelo: true,
-            color: true
+            color: true,
+            latitud: true,
+            longitud: true,
+            ultimaUbicacion: true
           }
         },
         remiseria: {
           select: {
+            id: true,
             nombreFantasia: true,
-            telefono: true
+            telefono: true,
+            direccion: true,
+            latitud: true,
+            longitud: true,
+            valorHoraEspera: true
           }
         }
       }
@@ -1151,6 +1196,13 @@ export const enviarMensajeChat = async (req: AuthenticatedRequest, res: Response
       return res.status(404).json({
         success: false,
         error: 'Viaje no encontrado'
+      });
+    }
+
+    if (!['PENDIENTE', 'ACEPTADO', 'EN_CAMINO'].includes(viaje.estado)) {
+      return res.status(400).json({
+        success: false,
+        error: 'El chat solo está disponible hasta que se inicia el viaje.'
       });
     }
 

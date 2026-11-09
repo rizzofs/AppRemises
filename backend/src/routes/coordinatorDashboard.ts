@@ -14,6 +14,9 @@ router.get('/viajes/en-curso', coordinatorDashboardController.getViajesEnCurso);
 // Obtener viajes sin asignar
 router.get('/viajes/sin-asignar', coordinatorDashboardController.getViajesSinAsignar);
 
+// Obtener historial de viajes (finalizados, anulados)
+router.get('/viajes/historial', coordinatorDashboardController.getViajesHistorial);
+
 // Asignar chofer y vehículo a un viaje
 router.patch('/viajes/:id/asignar', coordinatorDashboardController.asignarViaje);
 
@@ -53,6 +56,22 @@ router.get('/stats', coordinatorDashboardController.getDashboardStats);
 // Despacho Óptimo por Lotes (Batch Matching tipo Uber)
 router.get('/despacho-optimo', coordinatorDashboardController.getDespachoOptimo);
 router.post('/despacho-optimo/aplicar', coordinatorDashboardController.aplicarDespachoOptimo);
+
+// Búsqueda predictiva de clientes por teléfono o nombre
+router.get('/clientes/predictivo', coordinatorDashboardController.searchClientesPredictivo);
+
+// Carga ultrarrápida express de viaje telefónico (< 5s)
+router.post('/viajes/express', coordinatorDashboardController.crearViajeExpress);
+
+// Reasignación rápida de móvil en caliente (1 clic)
+router.patch('/viajes/:id/reasignar', coordinatorDashboardController.reasignarViaje);
+
+// Auditoría completa de cancelaciones
+router.get('/auditoria/cancelaciones', coordinatorDashboardController.getAuditoriaCancelaciones);
+
+// Tarifas dinámicas especiales (Lluvia, Nocturna, Feriado)
+router.get('/tarifas', coordinatorDashboardController.getConfiguracionTarifas);
+router.patch('/tarifas', coordinatorDashboardController.updateConfiguracionTarifas);
 
 // Liquidaciones y Cierre de Caja
 router.get('/liquidaciones/resumen-coordinador', liquidacionController.getResumenCoordinador);
