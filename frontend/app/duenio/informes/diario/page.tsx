@@ -195,20 +195,12 @@ export default function InformeDiarioPage() {
           <div className="flex items-center space-x-3">
             <Building className="w-5 h-5 text-gray-400" />
             <div>
-              <label htmlFor="remiseria" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                Filtrar por Agencia
-              </label>
-              <select
-                id="remiseria"
-                value={selectedRemiseria}
-                onChange={handleRemiseriaChange}
-                className="mt-1 block w-64 pl-3 pr-10 py-1.5 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 rounded-lg sm:text-sm shadow-sm"
-              >
-                <option value="todas">Todas las Agencias (Consolidado)</option>
-                {remiserias.map(r => (
-                  <option key={r.id} value={r.id}>{r.nombre}</option>
-                ))}
-              </select>
+              <span className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                Agencia
+              </span>
+              <span className="text-sm font-bold text-slate-800">
+                {remiserias[0]?.nombre || 'Remises Bruno'}
+              </span>
             </div>
           </div>
 
@@ -314,8 +306,50 @@ export default function InformeDiarioPage() {
                   <p className="text-xs mt-1">Intente cambiar el filtro de agencia o realizar otra búsqueda</p>
                 </div>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200 text-left">
+                <>
+                  {/* VISTA MÓVIL (CARDS TÁCTILES) */}
+                  <div className="block md:hidden divide-y divide-gray-100 print:hidden">
+                    {filteredViajes.map((viaje) => (
+                      <div key={viaje.id} className="p-4 space-y-2.5 bg-white hover:bg-slate-50/50 transition-colors">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-lg">
+                              {new Date(viaje.fecha).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs
+                            </span>
+                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              viaje.estado === 'COMPLETADO' ? 'bg-green-50 text-green-700 border border-green-200' :
+                              viaje.estado === 'CANCELADO' ? 'bg-red-50 text-red-700 border border-red-200' :
+                              viaje.estado === 'EN_CURSO' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                              'bg-yellow-50 text-yellow-700 border border-yellow-200'
+                            }`}>
+                              {viaje.estado}
+                            </span>
+                          </div>
+                          <span className="text-sm font-extrabold text-gray-900">
+                            ${viaje.precio.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+
+                        <div className="text-xs text-gray-700">
+                          <p className="font-semibold text-gray-900">{viaje.cliente || 'Cliente sin nombre'}</p>
+                          <p className="text-gray-500 truncate mt-0.5">
+                            {viaje.origen} → {viaje.destino}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center justify-between text-[11px] text-gray-500 pt-1 border-t border-gray-100">
+                          <span>Chofer: <strong className="text-gray-800">{viaje.chofer}</strong></span>
+                          <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-[10px] border">
+                            {viaje.patente}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* VISTA ESCRITORIO (TABLA) */}
+                  <div className="hidden md:block overflow-x-auto print:block">
+                    <table className="min-w-full divide-y divide-gray-200 text-left">
                     <thead className="bg-gray-50">
                       <tr>
                         <th className="px-6 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Hora</th>
@@ -370,7 +404,8 @@ export default function InformeDiarioPage() {
                     </tbody>
                   </table>
                 </div>
-              )}
+              </>
+            )}
             </div>
           </>
         )}

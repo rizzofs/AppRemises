@@ -4,6 +4,22 @@ import { prisma } from './prisma';
 
 let io: Server | null = null;
 
+// Caché en memoria para evitar saturar PostgreSQL con pings GPS cada 3 segundos
+interface ChoferMetaCache {
+  nombre: string;
+  vId?: string;
+  patente: string;
+  enParadaVirtual: boolean;
+  baseLat: number;
+  baseLng: number;
+  isOnline: boolean;
+  viajeActivo: boolean;
+  updatedAt: number;
+}
+
+const choferMetaCache = new Map<string, ChoferMetaCache>();
+const lastDbUpdateByVehiculo = new Map<string, number>();
+
 // Fórmula de Haversine para distancia en metros entre dos coordenadas GPS
 function calcularDistanciaMetros(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371000; // Radio de la Tierra en metros
@@ -25,9 +41,10 @@ export const initSocket = (server: HttpServer): Server => {
       origin: (origin, callback) => {
         if (!origin) return callback(null, true);
         if (
+          process.env.NODE_ENV !== 'production' ||
           /^https:\/\/([a-z0-9-]+\.)?brunoremises\.com\.ar$/i.test(origin) ||
           /^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(origin) ||
-          /^http:\/\/localhost:[0-9]+$/i.test(origin) ||
+          /^http:\/\/(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:[0-9]+)?$/i.test(origin) ||
           (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL)
         ) {
           return callback(null, true);
@@ -52,7 +69,7 @@ export const initSocket = (server: HttpServer): Server => {
       }
     });
 
-    // Actualización de GPS del Chofer / Vehículo en tiempo real
+    // Actualización de GPS del Chofer / Vehículo en tiempo real (Optimizado con RAM Cache)
     socket.on('actualizar_gps', async ({
       vehiculoId,
       choferId,
@@ -75,58 +92,69 @@ export const initSocket = (server: HttpServer): Server => {
           return;
         }
 
+        const ahora = Date.now();
         let vId = vehiculoId;
         let nombre = choferNombre;
         let patente = 'Auto Propio';
         let estadoVehiculo = estado || 'disponible';
 
-        // Si tenemos choferId pero no vehiculoId, buscar si tiene un vehículo asignado
+        // 1. Obtener metadata del chofer (con caché en memoria de 25 segundos para no saturar DB)
         if (choferId) {
           try {
-            const choferActual = await prisma.chofer.findUnique({
-              where: { id: choferId },
-              include: { vehiculo: true, remiseria: true }
-            });
-
-            if (choferActual) {
-              if (!nombre) {
-                nombre = `${choferActual.nombre} ${choferActual.apellido}`.trim();
-              }
-              if (!vId && choferActual.vehiculoId) {
-                vId = choferActual.vehiculoId;
-              }
-              if (choferActual.vehiculo) {
-                patente = choferActual.vehiculo.patente;
-              }
-
-              // Verificar si el chofer tiene un viaje activo en curso (ACEPTADO, EN_CAMINO, EN_CURSO)
-              const viajeActivo = await prisma.viaje.findFirst({
-                where: {
-                  choferId,
-                  estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] }
-                },
-                select: { id: true }
+            let cached = choferMetaCache.get(choferId);
+            if (!cached || ahora - cached.updatedAt > 25000) {
+              const choferActual = await prisma.chofer.findUnique({
+                where: { id: choferId },
+                include: { vehiculo: true, remiseria: true }
               });
 
-              if (viajeActivo) {
+              if (choferActual) {
+                const viajeActivo = await prisma.viaje.findFirst({
+                  where: {
+                    choferId,
+                    estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] }
+                  },
+                  select: { id: true }
+                });
+
+                cached = {
+                  nombre: `${choferActual.nombre} ${choferActual.apellido}`.trim(),
+                  vId: choferActual.vehiculoId || undefined,
+                  patente: choferActual.vehiculo?.patente || 'Auto Propio',
+                  enParadaVirtual: Boolean(choferActual.enParadaVirtual),
+                  baseLat: choferActual.remiseria?.latitud ?? -34.901138,
+                  baseLng: choferActual.remiseria?.longitud ?? -60.013778,
+                  isOnline: Boolean(choferActual.isOnline),
+                  viajeActivo: Boolean(viajeActivo),
+                  updatedAt: ahora
+                };
+                choferMetaCache.set(choferId, cached);
+              }
+            }
+
+            if (cached) {
+              if (!nombre) nombre = cached.nombre;
+              if (!vId && cached.vId) vId = cached.vId;
+              if (cached.patente) patente = cached.patente;
+
+              if (cached.viajeActivo) {
                 estadoVehiculo = 'en_viaje';
-                if (choferActual.enParadaVirtual) {
-                  await prisma.chofer.update({
+                if (cached.enParadaVirtual) {
+                  cached.enParadaVirtual = false;
+                  // Desacoplado: actualizar en segundo plano
+                  prisma.chofer.update({
                     where: { id: choferId },
                     data: { enParadaVirtual: false, paradaVirtualIngreso: null }
-                  });
+                  }).catch(() => {});
                 }
-              } else if (choferActual.isOnline && estadoVehiculo === 'disponible') {
-                // Sistema de Tablas: todo chofer online y realmente libre se mantiene en la cola FIFO
-                const baseLat = choferActual.remiseria?.latitud ?? -34.901138;
-                const baseLng = choferActual.remiseria?.longitud ?? -60.013778;
-                const distMetros = calcularDistanciaMetros(lat, lng, baseLat, baseLng);
-
-                if (!choferActual.enParadaVirtual) {
-                  await prisma.chofer.update({
+              } else if (cached.isOnline && estadoVehiculo === 'disponible') {
+                const distMetros = calcularDistanciaMetros(lat, lng, cached.baseLat, cached.baseLng);
+                if (!cached.enParadaVirtual) {
+                  cached.enParadaVirtual = true;
+                  prisma.chofer.update({
                     where: { id: choferId },
                     data: { enParadaVirtual: true, paradaVirtualIngreso: new Date() }
-                  });
+                  }).catch(() => {});
                   io?.to(remiseriaId).emit('parada_virtual_actualizada', {
                     choferId,
                     accion: 'INGRESO_AUTOMATICO',
@@ -140,29 +168,26 @@ export const initSocket = (server: HttpServer): Server => {
           }
         }
 
-        // Si tenemos un vehículo asociado, actualizar sus coordenadas en la base de datos
+        // 2. Persistencia en base de datos: Throttling a 25 segundos por vehículo
+        // En lugar de escribir en disco cada 3 segundos, se persiste cada 25s, reduciendo 90% el I/O
         if (vId) {
-          try {
-            const vehiculoActualizado = await prisma.vehiculo.update({
+          const ultimoUpdate = lastDbUpdateByVehiculo.get(vId) || 0;
+          if (ahora - ultimoUpdate > 25000) {
+            lastDbUpdateByVehiculo.set(vId, ahora);
+            prisma.vehiculo.update({
               where: { id: vId },
               data: {
                 latitud: lat,
                 longitud: lng,
                 ultimaUbicacion: new Date()
               }
+            }).catch(() => {
+              // Silencioso para no romper el ciclo de sockets
             });
-            patente = vehiculoActualizado.patente;
-            if (!estado) {
-              estadoVehiculo = vehiculoActualizado.estado.toLowerCase() === 'activo' ? 'disponible' : vehiculoActualizado.estado.toLowerCase();
-            }
-          } catch (errVehiculo) {
-            console.warn(`Aviso: vehículo ${vId} no encontrado para update GPS directo`);
           }
         }
 
-        console.log(`🚗 Movimiento GPS [${patente} - ${nombre || 'Chofer'}]: Lat: ${lat}, Lng: ${lng}`);
-
-        // Transmitir el movimiento a todos en la sala de la remisería
+        // 3. Transmisión en tiempo real SIEMPRE (cero delay para el mapa y los clientes)
         io?.to(remiseriaId).emit('vehiculo_movido', {
           id: vId || choferId,
           choferId: choferId,
@@ -273,4 +298,11 @@ export const getIO = (): Server => {
     throw new Error('Socket.io no ha sido inicializado. Llama a initSocket primero.');
   }
   return io;
+};
+
+// Permite invalidar el caché en memoria inmediatamente cuando el chofer cambia de estado o viaje
+export const invalidarChoferCache = (choferId: string) => {
+  if (choferId) {
+    choferMetaCache.delete(choferId);
+  }
 };

@@ -116,7 +116,7 @@ export default function ChoferApp() {
 
   // Modal y selección de método de pago al finalizar viaje
   const [modalFinalizarViaje, setModalFinalizarViaje] = useState(false);
-  const [metodoPagoSeleccionado, setMetodoPagoSeleccionado] = useState<'EFECTIVO' | 'TRANSFERENCIA'>('EFECTIVO');
+  const [metodoPagoSeleccionado, setMetodoPagoSeleccionado] = useState<'EFECTIVO' | 'TRANSFERENCIA' | 'CUENTA_CORRIENTE'>('EFECTIVO');
   const [montoFinalACobrar, setMontoFinalACobrar] = useState<number | null>(null);
 
   // Modal para agregar parada intermedia solicitada por el cliente
@@ -495,7 +495,7 @@ export default function ChoferApp() {
     const remiseriaId = user?.chofer?.remiseriaId;
     if (!remiseriaId) return;
 
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:3001` : 'http://localhost:3001');
     const socket = io(socketUrl, {
       transports: ['websocket'],
       withCredentials: true,
@@ -1163,6 +1163,11 @@ export default function ChoferApp() {
       }
     }
     setMontoFinalACobrar(precioSugerido);
+    if (viajeActual.metodoPago === 'CUENTA_CORRIENTE') {
+      setMetodoPagoSeleccionado('CUENTA_CORRIENTE');
+    } else {
+      setMetodoPagoSeleccionado(viajeActual.metodoPago === 'TRANSFERENCIA' ? 'TRANSFERENCIA' : 'EFECTIVO');
+    }
     setModalFinalizarViaje(true);
   };
 
@@ -1175,7 +1180,7 @@ export default function ChoferApp() {
       setViajeActual(null);
       tripDistanceRef.current = { con: 0, sin: 0 };
       setModalFinalizarViaje(false);
-      toast.success(`Viaje completado. Cobrado en ${metodoPagoSeleccionado === 'EFECTIVO' ? 'Efectivo 💵' : 'Transferencia 💳'}`);
+      toast.success(`Viaje completado. ${metodoPagoSeleccionado === 'CUENTA_CORRIENTE' ? 'Imputado a Cuenta Corriente 🏛️' : metodoPagoSeleccionado === 'TRANSFERENCIA' ? 'Cobrado por Transferencia 💳' : 'Cobrado en Efectivo 💵'}`);
       setViajeParaCalificar(vTest);
       setModalCalificarPasajeroOpen(true);
       return;
@@ -1811,7 +1816,7 @@ export default function ChoferApp() {
                   <div className="min-w-0">
                     <p className="text-xs font-bold text-gray-900 dark:text-white truncate">{clienteNombreActual}</p>
                     <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold truncate">
-                      {viajeActual.metodoPago === 'TRANSFERENCIA' ? '💳 Transferencia' : '💵 Efectivo'}
+                      {viajeActual.metodoPago === 'CUENTA_CORRIENTE' ? '🏛️ Cuenta Corriente (No cobrar)' : viajeActual.metodoPago === 'TRANSFERENCIA' ? '💳 Transferencia' : '💵 Efectivo'}
                       {viajeActual.pagaCon ? ` (Paga c/ $${Number(viajeActual.pagaCon).toLocaleString('es-AR')})` : ''}
                     </p>
                   </div>
@@ -1968,8 +1973,8 @@ export default function ChoferApp() {
                       <Banknote className="w-4 h-4 text-emerald-500" />
                       Método de pago:
                     </span>
-                    <span className="text-emerald-700 dark:text-emerald-300">
-                      {viajeActual.metodoPago === 'TRANSFERENCIA' ? 'Transferencia Bancaria 💳' : 'Efectivo 💵'}
+                    <span className="text-emerald-700 dark:text-emerald-300 font-bold">
+                      {viajeActual.metodoPago === 'CUENTA_CORRIENTE' ? '🏛️ Cuenta Corriente (No cobrar al pasajero)' : viajeActual.metodoPago === 'TRANSFERENCIA' ? 'Transferencia Bancaria 💳' : 'Efectivo 💵'}
                     </span>
                   </div>
                   {viajeActual.metodoPago !== 'TRANSFERENCIA' && (
@@ -2348,6 +2353,29 @@ export default function ChoferApp() {
                     <p className="text-[11px] text-gray-500 dark:text-slate-400">MP / Banco</p>
                   </div>
                 </button>
+
+                {viajeActual.metodoPago === 'CUENTA_CORRIENTE' && (
+                  <button
+                    type="button"
+                    onClick={() => setMetodoPagoSeleccionado('CUENTA_CORRIENTE')}
+                    className={`col-span-2 p-3.5 rounded-2xl border text-left flex items-center justify-between transition-all ${
+                      metodoPagoSeleccionado === 'CUENTA_CORRIENTE'
+                        ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-amber-900 dark:text-amber-200 ring-2 ring-amber-500/20'
+                        : 'border-gray-200 dark:border-slate-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-xl">🏛️</span>
+                      <div>
+                        <p className="font-bold text-sm">Cuenta Corriente (No cobrar al pasajero)</p>
+                        <p className="text-[11px] text-amber-700 dark:text-amber-300">Se imputa a la cuenta mensual del cliente</p>
+                      </div>
+                    </div>
+                    {metodoPagoSeleccionado === 'CUENTA_CORRIENTE' && (
+                      <Check className="w-5 h-5 text-amber-600" />
+                    )}
+                  </button>
+                )}
               </div>
             </div>
 

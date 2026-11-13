@@ -163,7 +163,8 @@ export const coordinatorDashboardController = {
               marca: true,
               modelo: true
             }
-          }
+          },
+          artEmpresa: true
         },
         orderBy: {
           fecha: 'desc'
@@ -277,7 +278,8 @@ export const coordinatorDashboardController = {
               marca: true,
               modelo: true
             }
-          }
+          },
+          artEmpresa: true
         },
         orderBy: {
           fecha: 'desc'
@@ -623,7 +625,8 @@ export const coordinatorDashboardController = {
               marca: true,
               modelo: true
             }
-          }
+          },
+          artEmpresa: true
         },
         orderBy: {
           fechaInicio: 'asc'
@@ -661,7 +664,9 @@ export const coordinatorDashboardController = {
         destinoDetallado,
         observaciones,
         choferId,
-        vehiculoId
+        vehiculoId,
+        artEmpresaId,
+        numeroSiniestro
       } = req.body;
 
       if (!coordinadorId) {
@@ -699,8 +704,16 @@ export const coordinatorDashboardController = {
           observaciones,
           choferId: choferId || null,
           vehiculoId: vehiculoId || null,
+          artEmpresaId: artEmpresaId || null,
+          numeroSiniestro: numeroSiniestro ? String(numeroSiniestro).trim() : null,
           remiseriaId: coordinador.remiseriaId,
           estado: choferId ? 'ACEPTADO' : 'PENDIENTE'
+        },
+        include: {
+          cliente: true,
+          artEmpresa: true,
+          chofer: true,
+          vehiculo: true
         }
       });
 
@@ -829,7 +842,7 @@ export const coordinatorDashboardController = {
   async calcularPrecio(req: AuthenticatedRequest, res: Response) {
     try {
       const coordinadorId = req.user?.id;
-      const { origen, destino, latOrigen, lonOrigen, latDestino, lonDestino } = req.body;
+      const { origen, destino, latOrigen, lonOrigen, latDestino, lonDestino, artEmpresaId, clienteId } = req.body;
 
       if (!coordinadorId) {
         return res.status(401).json({
@@ -859,8 +872,55 @@ export const coordinatorDashboardController = {
 
       const rawValorKm = coordinador.remiseria?.valorKm;
       const rawBajadaBandera = coordinador.remiseria?.bajadaBandera;
-      const valorKm = rawValorKm && rawValorKm > 0 ? rawValorKm : 1200;
-      const bajadaBandera = rawBajadaBandera && rawBajadaBandera > 0 ? rawBajadaBandera : 3500;
+      let valorKm = rawValorKm && rawValorKm > 0 ? rawValorKm : 1200;
+      let bajadaBandera = rawBajadaBandera && rawBajadaBandera > 0 ? rawBajadaBandera : 3500;
+      let artEmpresaAplicada: any = null;
+
+      // Si se especificó una ART / Empresa:
+      // CONFIDENCIALIDAD TOTAL: Al chofer y coordinador solo se les liquida:
+      // O la tarifa especial acordada con el chofer, o la lista normal de precios.
+      // El precio acordado entre el dueño y la ART nunca se divulga.
+      if (artEmpresaId) {
+        const art = await prisma.artEmpresa.findUnique({
+          where: { id: artEmpresaId }
+        });
+        if (art && art.activo) {
+          artEmpresaAplicada = {
+            id: art.id,
+            nombre: art.nombre
+          };
+          if (art.pagaChoferTipo === 'PERSONALIZADO' && art.choferPrecioTramo && art.choferPrecioTramo > 0) {
+            bajadaBandera = art.choferPrecioTramo;
+            if (art.choferValorKm && art.choferValorKm > 0) {
+              valorKm = art.choferValorKm;
+            }
+          }
+          // Si pagaChoferTipo es 'LISTA_NORMAL', se mantiene la tarifa normal de la remisería
+        }
+      }
+
+      // Si no es ART y viene un clienteId, verificar si el cliente tiene tarifa personalizada en su Cuenta Corriente (Similar a ART)
+      let clienteTarifaAplicada: any = null;
+      if (!artEmpresaId && clienteId) {
+        const clienteObj = await prisma.cliente.findUnique({
+          where: { id: clienteId }
+        });
+        if (clienteObj && clienteObj.cuentaCorrienteHabilitada && clienteObj.tipoTarifa === 'PERSONALIZADA') {
+          clienteTarifaAplicada = {
+            id: clienteObj.id,
+            nombre: `${clienteObj.nombre} ${clienteObj.apellido}`,
+            tipoTarifa: clienteObj.tipoTarifa,
+            precioTramo: clienteObj.tarifaPrecioTramo,
+            valorKm: clienteObj.tarifaValorKm
+          };
+          if (clienteObj.tarifaPrecioTramo && clienteObj.tarifaPrecioTramo > 0) {
+            bajadaBandera = clienteObj.tarifaPrecioTramo;
+          }
+          if (clienteObj.tarifaValorKm && clienteObj.tarifaValorKm > 0) {
+            valorKm = clienteObj.tarifaValorKm;
+          }
+        }
+      }
 
       let distanciaKm = 0;
       let calculatedViaRoute = false;
@@ -955,6 +1015,8 @@ export const coordinatorDashboardController = {
           bajadaBandera,
           valorKm,
           calculatedViaRoute,
+          artEmpresa: artEmpresaAplicada,
+          esTarifaArt: !!artEmpresaAplicada,
           coords: {
             origen: finalLatOrigen && finalLonOrigen ? { lat: finalLatOrigen, lon: finalLonOrigen } : null,
             destino: finalLatDestino && finalLonDestino ? { lat: finalLatDestino, lon: finalLonDestino } : null
@@ -1631,7 +1693,9 @@ export const coordinatorDashboardController = {
         observaciones,
         prioridad,
         recargoTipo,
-        recargoMonto
+        recargoMonto,
+        artEmpresaId,
+        numeroSiniestro
       } = req.body;
 
       if (!telefono || !origen) {
@@ -1684,6 +1748,19 @@ export const coordinatorDashboardController = {
       }
 
       let precioFinal = parseFloat(precio) || 0;
+      if (precioFinal <= 0 && clienteId && !artEmpresaId) {
+        const clienteCC = await prisma.cliente.findUnique({ where: { id: clienteId } });
+        if (clienteCC && clienteCC.cuentaCorrienteHabilitada && clienteCC.tipoTarifa === 'PERSONALIZADA') {
+          const bBandera = (clienteCC.tarifaPrecioTramo && clienteCC.tarifaPrecioTramo > 0) ? clienteCC.tarifaPrecioTramo : (coordinador.remiseria.bajadaBandera || 3500);
+          const vKm = (clienteCC.tarifaValorKm && clienteCC.tarifaValorKm > 0) ? clienteCC.tarifaValorKm : (coordinador.remiseria.valorKm || 1200);
+          const kmEst = parseFloat(req.body.distanciaKm) || 1.0;
+          let pEst = bBandera;
+          if (kmEst > 1) {
+            pEst += (kmEst - 1) * vKm;
+          }
+          precioFinal = Math.round(pEst / 50) * 50;
+        }
+      }
       if (precioFinal <= 0) {
         precioFinal = coordinador.remiseria.bajadaBandera || 3500;
       }
@@ -1700,6 +1777,20 @@ export const coordinatorDashboardController = {
         choferVehiculoId = choferEncontrado?.vehiculoId || null;
       }
 
+      // Cálculo del precio confidencial facturado a la ART
+      let precioArtCalculado: number | null = null;
+      if (artEmpresaId) {
+        const art = await prisma.artEmpresa.findUnique({ where: { id: artEmpresaId } });
+        if (art) {
+          let pArt = art.precioTramo || 0;
+          const kmEst = parseFloat(req.body.distanciaKm) || 1.0;
+          if (kmEst > 1 && art.valorKm > 0) {
+            pArt += (kmEst - 1) * art.valorKm;
+          }
+          precioArtCalculado = Math.round(pArt / 50) * 50;
+        }
+      }
+
       const nuevoViaje = await prisma.viaje.create({
         data: {
           remiseriaId: coordinador.remiseriaId,
@@ -1709,6 +1800,7 @@ export const coordinatorDashboardController = {
           origen: origen.trim(),
           destino: (destino || 'A convenir').trim(),
           precio: precioFinal,
+          precioArt: precioArtCalculado,
           fecha: new Date(),
           estado: estadoInicial,
           observaciones: observaciones || null,
@@ -1716,10 +1808,18 @@ export const coordinatorDashboardController = {
           choferId: choferId || null,
           vehiculoId: choferVehiculoId,
           recargoTipo: null,
-          recargoMonto: 0
+          recargoMonto: 0,
+          artEmpresaId: artEmpresaId || null,
+          numeroSiniestro: numeroSiniestro ? String(numeroSiniestro).trim() : null
         },
         include: {
           cliente: true,
+          artEmpresa: {
+            select: {
+              id: true,
+              nombre: true
+            }
+          },
           chofer: {
             select: {
               id: true,

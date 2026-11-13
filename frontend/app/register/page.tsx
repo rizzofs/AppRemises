@@ -7,6 +7,7 @@ import { toast } from 'react-hot-toast';
 import { authService } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { RegisterData } from '@/types';
+import LogoBruno from '@/components/LogoBruno';
 import { Eye, EyeOff, Car, User, Lock, Phone, Mail, MapPin, Calendar, Camera, ShieldCheck, Loader2, CheckCircle2 } from 'lucide-react';
 
 export default function RegisterPage() {
@@ -152,8 +153,8 @@ export default function RegisterPage() {
       <div className="max-w-md w-full my-8">
         <div className="bg-white rounded-3xl shadow-xl p-8 border border-slate-100">
           <div className="text-center mb-6">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-100 rounded-full mb-4 shadow-md shadow-primary-500/20">
-              <Car className="w-8 h-8 text-primary-600" />
+            <div className="flex justify-center mb-4">
+              <LogoBruno size={76} />
             </div>
             <h1 className="text-2xl font-bold text-gray-900">Remises Bruno</h1>
             <p className="text-gray-600 mt-2 text-sm">Crea tu cuenta verificada</p>

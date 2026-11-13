@@ -208,7 +208,7 @@ export default function ClienteApp() {
   >([]);
 
   // Método de pago y cambio en efectivo
-  const [metodoPago, setMetodoPago] = useState<'EFECTIVO' | 'TRANSFERENCIA'>('EFECTIVO');
+  const [metodoPago, setMetodoPago] = useState<'EFECTIVO' | 'TRANSFERENCIA' | 'CUENTA_CORRIENTE'>('EFECTIVO');
   const [pagaCon, setPagaCon] = useState<string>('');
 
   // Estados del Proceso
@@ -363,6 +363,7 @@ export default function ClienteApp() {
 
   const previousEstadoRef = useRef<string | null>(null);
   const activeViajeRef = useRef<any>(null);
+  const socketRef = useRef<Socket | null>(null);
   const notificacionesLlegadaRef = useRef<Set<string>>(new Set());
   const notificacionesLlegandoRef = useRef<Set<string>>(new Set());
   const [choferLlegandoAviso, setChoferLlegandoAviso] = useState<boolean>(false);
@@ -469,11 +470,12 @@ export default function ClienteApp() {
 
   // Conexión WebSocket para notificaciones inmediatas y chat en tiempo real
   useEffect(() => {
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:3001` : 'http://localhost:3001');
     const socket: Socket = io(socketUrl, {
       transports: ['websocket'],
       withCredentials: true,
     });
+    socketRef.current = socket;
 
     socket.on('connect', () => {
       const remId = user?.cliente?.remiseriaId || activeViajeRef.current?.remiseriaId;
@@ -586,6 +588,7 @@ export default function ClienteApp() {
     });
 
     return () => {
+      socketRef.current = null;
       socket.disconnect();
     };
   }, [user?.cliente?.remiseriaId, activeViaje?.remiseriaId]);
@@ -624,6 +627,18 @@ export default function ClienteApp() {
     const dispInterval = setInterval(cargarDisponibilidad, 6000);
     return () => clearInterval(dispInterval);
   }, [user, router]);
+
+  // Polling de Resiliencia (QA): Si hay viaje activo y el socket se corta por 4G móvil,
+  // sincroniza automáticamente cada 4.5 segundos para evitar que la UI quede colgada
+  useEffect(() => {
+    if (estadoViaje === 'IDLE') return;
+
+    const syncInterval = setInterval(() => {
+      buscarViajeActivo();
+    }, 4500);
+
+    return () => clearInterval(syncInterval);
+  }, [estadoViaje]);
 
   const buscarViajeActivo = async () => {
     try {
@@ -823,7 +838,9 @@ export default function ClienteApp() {
         origenCoords?.lon,
         destinoCoords?.lat,
         destinoCoords?.lon,
-        paradasPayload.length > 0 ? paradasPayload : undefined
+        paradasPayload.length > 0 ? paradasPayload : undefined,
+        user?.cliente?.id,
+        metodoPago
       );
 
       if (res.success && res.data) {
@@ -831,6 +848,7 @@ export default function ClienteApp() {
           precio: res.data.precioEstimado,
           distancia: res.data.distancia ? `${res.data.distancia} km` : 'Calculada',
           tiempo: res.data.tiempoEstimado ? `${res.data.tiempoEstimado} min` : '10-15 min',
+          esTarifaDiferenciada: res.data.esTarifaDiferenciada,
         });
       }
     } catch {
@@ -913,12 +931,13 @@ export default function ClienteApp() {
     }
   };
 
-  const calcularPrecio = async () => {
+  const calcularPrecio = async (metodoPagoParam?: 'EFECTIVO' | 'TRANSFERENCIA' | 'CUENTA_CORRIENTE') => {
     if (!origen || !destino) {
       toast.error('Por favor ingresa un origen y un destino');
       return;
     }
     
+    const metodoActual = metodoPagoParam || metodoPago;
     setIsCalculando(true);
     try {
       const paradasPayload = paradas
@@ -932,7 +951,9 @@ export default function ClienteApp() {
         origenCoords?.lon,
         destinoCoords?.lat,
         destinoCoords?.lon,
-        paradasPayload.length > 0 ? paradasPayload : undefined
+        paradasPayload.length > 0 ? paradasPayload : undefined,
+        user?.cliente?.id,
+        metodoActual
       );
       
       if (res.success && res.data) {
@@ -940,13 +961,21 @@ export default function ClienteApp() {
           precio: res.data.precioEstimado,
           distancia: res.data.distancia ? `${res.data.distancia} km` : 'Calculada',
           tiempo: res.data.tiempoEstimado ? `${res.data.tiempoEstimado} min` : '10-15 min',
+          esTarifaDiferenciada: res.data.esTarifaDiferenciada,
         });
       } else {
-        toast.error('Error al calcular el precio del viaje');
+        toast.error(
+          res.message ||
+            'No pudimos cotizar en este momento. Comunicate a los teléfonos fijos 2346-427637 o 2346-433000.',
+          { duration: 6000 }
+        );
       }
     } catch (error) {
       console.error('Error calculando precio:', error);
-      toast.error('Error al cotizar viaje');
+      toast.error(
+        'Inconveniente al cotizar. Por favor comunicate a los teléfonos fijos 2346-427637 o 2346-433000.',
+        { duration: 6000 }
+      );
     } finally {
       setIsCalculando(false);
     }
@@ -984,14 +1013,26 @@ export default function ClienteApp() {
       const res = await clienteService.solicitarViaje(payload);
       if (res.success && res.data) {
         setActiveViaje(res.data);
+        const viajeData: any = res.data;
+        const rId = viajeData?.remiseriaId || viajeData?.remiseria?.id;
+        if (rId && socketRef.current) {
+          socketRef.current.emit('join_room', { remiseriaId: rId });
+        }
         toast.success('Buscando el auto más cercano...');
       } else {
-        toast.error(res.message || 'Error al solicitar el viaje');
+        toast.error(
+          res.message ||
+            'No pudimos enviar el pedido por la App. Comunicate a los teléfonos fijos 2346-427637 o 2346-433000.',
+          { duration: 7000 }
+        );
         setEstadoViaje('IDLE');
       }
     } catch (error) {
       console.error(error);
-      toast.error('Error de red al solicitar viaje');
+      toast.error(
+        'Error de conexión. Para pedir tu remís ahora, comunicate a los teléfonos fijos 2346-427637 o 2346-433000.',
+        { duration: 7000 }
+      );
       setEstadoViaje('IDLE');
     } finally {
       setIsRequesting(false);
@@ -1428,7 +1469,7 @@ export default function ClienteApp() {
         {/* Caso 1: Origen y Destino ingresados pero no cotizados */}
         {estadoViaje === 'IDLE' && origen && destino && !presupuesto && !isCalculando && (
           <button 
-            onClick={calcularPrecio}
+            onClick={() => calcularPrecio()}
             className="w-full bg-primary-600 hover:bg-primary-700 text-white font-bold rounded-xl py-4 shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2 text-sm"
           >
             <span>Confirmar Itinerario y Ver Precio</span>
@@ -1464,7 +1505,11 @@ export default function ClienteApp() {
                 </div>
                 <div className="text-right">
                   <span className="text-2xl font-black text-gray-950 dark:text-white">${presupuesto.precio}</span>
-                  <span className="text-[10px] text-gray-400 dark:text-slate-500 block">Tarifa fija</span>
+                  {metodoPago === 'CUENTA_CORRIENTE' && (presupuesto.esTarifaDiferenciada || user?.cliente?.tipoTarifa === 'PERSONALIZADA') ? (
+                    <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 block">⭐ Tarifa Especial Cta. Cte.</span>
+                  ) : (
+                    <span className="text-[10px] text-gray-400 dark:text-slate-500 block">Tarifa fija</span>
+                  )}
                 </div>
               </div>
 
@@ -1487,10 +1532,15 @@ export default function ClienteApp() {
                 <label className="block text-[11px] font-bold text-gray-600 dark:text-slate-300 uppercase tracking-wider">
                   Método de Pago
                 </label>
-                <div className="grid grid-cols-2 gap-2">
+                <div className={`grid gap-2 ${user?.cliente?.cuentaCorrienteHabilitada ? 'grid-cols-3' : 'grid-cols-2'}`}>
                   <button
                     type="button"
-                    onClick={() => setMetodoPago('EFECTIVO')}
+                    onClick={() => {
+                      setMetodoPago('EFECTIVO');
+                      if (user?.cliente?.tipoTarifa === 'PERSONALIZADA') {
+                        calcularPrecio('EFECTIVO');
+                      }
+                    }}
                     className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
                       metodoPago === 'EFECTIVO'
                         ? 'border-emerald-500 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 shadow-xs'
@@ -1502,7 +1552,12 @@ export default function ClienteApp() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setMetodoPago('TRANSFERENCIA')}
+                    onClick={() => {
+                      setMetodoPago('TRANSFERENCIA');
+                      if (user?.cliente?.tipoTarifa === 'PERSONALIZADA') {
+                        calcularPrecio('TRANSFERENCIA');
+                      }
+                    }}
                     className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
                       metodoPago === 'TRANSFERENCIA'
                         ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/60 text-blue-800 dark:text-blue-300 shadow-xs'
@@ -1512,7 +1567,43 @@ export default function ClienteApp() {
                     <CreditCard className="w-4 h-4 text-blue-600" />
                     <span>Transferencia</span>
                   </button>
+                  {user?.cliente?.cuentaCorrienteHabilitada && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMetodoPago('CUENTA_CORRIENTE');
+                        calcularPrecio('CUENTA_CORRIENTE');
+                      }}
+                      className={`p-2.5 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                        metodoPago === 'CUENTA_CORRIENTE'
+                          ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 shadow-xs'
+                          : 'border-gray-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-gray-50'
+                      }`}
+                    >
+                      <span>🏛️ Cta. Cte.</span>
+                    </button>
+                  )}
                 </div>
+
+                {metodoPago === 'CUENTA_CORRIENTE' && (
+                  <div className="p-3 bg-amber-50/80 dark:bg-amber-950/40 rounded-xl border border-amber-200 dark:border-amber-800/60 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5">
+                        🏛️ Viaje con cargo a tu Cuenta Corriente
+                      </span>
+                      {user?.cliente?.tipoTarifa === 'PERSONALIZADA' && (
+                        <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-200 dark:bg-amber-800 text-amber-950 dark:text-amber-100">
+                          Tarifa Especial
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                      {user?.cliente?.tipoTarifa === 'PERSONALIZADA'
+                        ? 'Estás cotizando con la tarifa especial preferencial acordada para tu cuenta corriente. No debés abonar al chofer.'
+                        : 'No debés abonar al chofer en este momento. El importe se imputará a tu cuenta mensual.'}
+                    </p>
+                  </div>
+                )}
 
                 {/* Si es efectivo: ¿Con cuánto abona? */}
                 {metodoPago === 'EFECTIVO' && (

@@ -6,6 +6,7 @@ import {
   updateDuenio, 
   toggleDuenioStatus 
 } from '../controllers/duenioController';
+import { duenioClientesController } from '../controllers/duenioClientesController';
 import { authenticateToken, requireAdmin } from '../middleware/auth';
 import { body } from 'express-validator';
 
@@ -23,6 +24,12 @@ const updateDuenioValidation = [
   body('nombre').optional().notEmpty().withMessage('El nombre no puede estar vacío'),
   body('telefono').optional().notEmpty().withMessage('El teléfono no puede estar vacío')
 ];
+
+// Rutas para gestión de Clientes y Cuenta Corriente (Dueño)
+router.get('/clientes/listado', authenticateToken, duenioClientesController.getClientes);
+router.patch('/clientes/:id/cuenta-corriente', authenticateToken, duenioClientesController.toggleCuentaCorriente);
+router.get('/clientes/:id/viajes', authenticateToken, duenioClientesController.getViajesCliente);
+router.post('/clientes/:id/pago', authenticateToken, duenioClientesController.registrarPago);
 
 // Rutas públicas (requieren autenticación)
 router.get('/', authenticateToken, getAllDuenios);

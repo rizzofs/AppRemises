@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import Image from 'next/image';
+import LogoBruno from '@/components/LogoBruno';
 import {
   LayoutDashboard,
   Building2,
@@ -17,9 +17,12 @@ import {
   Menu,
   X,
   Bell,
-  DollarSign
+  DollarSign,
+  Briefcase,
+  UserCheck
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import DuenioBottomNav from '@/components/DuenioBottomNav';
 
 export default function DuenioLayout({
   children,
@@ -34,6 +37,8 @@ export default function DuenioLayout({
   const navigation = [
     { name: 'Dashboard', href: '/duenio/dashboard', icon: LayoutDashboard },
     { name: 'Mi Remisería', href: '/duenio/remiserias', icon: Building2 },
+    { name: 'ART', href: '/duenio/art', icon: Briefcase },
+    { name: 'Clientes', href: '/duenio/clientes', icon: UserCheck },
     { name: 'Coordinadores', href: '/duenio/coordinadores', icon: Users },
     { name: 'Choferes', href: '/duenio/choferes', icon: Truck },
     { name: 'Vehículos', href: '/duenio/vehiculos', icon: Car },
@@ -67,13 +72,7 @@ export default function DuenioLayout({
           {/* Sidebar Header */}
           <div className="h-20 flex items-center px-6 border-b border-slate-100">
             <Link href="/duenio/dashboard" className="flex items-center gap-3">
-              <Image 
-                src="/Isologo.png" 
-                alt="Logo" 
-                width={36} 
-                height={36}
-                className="object-contain"
-              />
+              <LogoBruno size={40} />
               <div className="flex flex-col">
                 <span className="font-bold text-lg text-slate-900 leading-tight">Remises Bruno</span>
                 <span className="text-xs text-primary-600 font-medium">Panel de Dueño</span>
@@ -133,43 +132,53 @@ export default function DuenioLayout({
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Topbar */}
-        <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 flex items-center justify-between px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center">
-            <button
-              onClick={() => setSidebarOpen(true)}
-              className="p-2 -ml-2 mr-2 rounded-lg text-slate-500 hover:bg-slate-100 lg:hidden"
-            >
-              <Menu className="w-6 h-6" />
-            </button>
-            <div className="hidden sm:block">
+        {/* Topbar - Compact on mobile like a native app header */}
+        <header className="h-14 sm:h-16 lg:h-20 bg-white/90 backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 flex items-center justify-between px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center gap-2">
+            {/* Mobile Brand / App Identity */}
+            <div className="flex items-center gap-2 lg:hidden">
+              <LogoBruno size={32} />
+              <div className="flex flex-col">
+                <span className="font-bold text-sm text-slate-900 leading-tight">Remises Bruno</span>
+                <span className="text-[10px] text-primary-600 font-semibold uppercase tracking-wider">Dueño</span>
+              </div>
+            </div>
+
+            {/* Desktop Section Title */}
+            <div className="hidden lg:block">
               <h1 className="text-xl font-semibold text-slate-900">
                 {navigation.find(n => pathname.startsWith(n.href))?.name || 'Dashboard'}
               </h1>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <button className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors relative">
+          <div className="flex items-center gap-3">
+            <button 
+              className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors relative"
+              title="Notificaciones"
+            >
               <Bell className="w-5 h-5" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white"></span>
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-emerald-500 rounded-full ring-2 ring-white"></span>
             </button>
-            <div className="h-8 w-px bg-slate-200 hidden sm:block"></div>
-            <div className="hidden sm:flex items-center gap-2">
-              <span className="text-sm text-slate-600 font-medium">{user?.duenio?.nombre}</span>
-              <div className="w-8 h-8 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center font-bold text-xs">
+            <div className="h-6 w-px bg-slate-200"></div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-slate-600 font-medium hidden sm:block">{user?.duenio?.nombre}</span>
+              <div className="w-8 h-8 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center font-bold text-xs ring-2 ring-primary-50">
                 {user?.duenio?.nombre?.charAt(0).toUpperCase() || 'D'}
               </div>
             </div>
           </div>
         </header>
 
-        {/* Page Content */}
-        <main className="flex-1 overflow-y-auto bg-slate-50/50">
-          <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
+        {/* Page Content with bottom padding for mobile bar */}
+        <main className="flex-1 overflow-y-auto bg-slate-50/50 pb-24 lg:pb-8">
+          <div className="max-w-7xl mx-auto p-3 sm:p-6 lg:p-8">
             {children}
           </div>
         </main>
+
+        {/* Mobile App Bottom Navigation */}
+        <DuenioBottomNav />
       </div>
     </div>
   );

@@ -19,7 +19,6 @@ export default function CoordinadoresPage() {
   const [selectedCoordinador, setSelectedCoordinador] = useState<Coordinador | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterActivo, setFilterActivo] = useState<'all' | 'active' | 'inactive'>('all');
-  const [filterRemiseria, setFilterRemiseria] = useState<string>('all');
   const [showPassword, setShowPassword] = useState(false);
 
   // Formulario de creación/edición
@@ -159,7 +158,7 @@ export default function CoordinadoresPage() {
   };
 
   const openCreateModal = () => {
-    setFormData({ nombre: '', email: '', password: '', remiseriaId: '' });
+    setFormData({ nombre: '', email: '', password: '', remiseriaId: remiserias[0]?.id || '' });
     setShowCreateModal(true);
   };
 
@@ -171,10 +170,8 @@ export default function CoordinadoresPage() {
     const matchesFilter = filterActivo === 'all' || 
                          (filterActivo === 'active' && coordinador.activo) ||
                          (filterActivo === 'inactive' && !coordinador.activo);
-
-    const matchesRemiseria = filterRemiseria === 'all' || coordinador.remiseriaId === filterRemiseria;
     
-    return matchesSearch && matchesFilter && matchesRemiseria;
+    return matchesSearch && matchesFilter;
   });
 
   if (!user) return null;
@@ -216,16 +213,6 @@ export default function CoordinadoresPage() {
             <option value="active">Solo Activos</option>
             <option value="inactive">Solo Inactivos</option>
           </select>
-          <select
-            value={filterRemiseria}
-            onChange={(e) => setFilterRemiseria(e.target.value)}
-            className="input max-w-[200px] bg-white cursor-pointer"
-          >
-            <option value="all">Todas las remiserías</option>
-            {remiserias.map(r => (
-              <option key={r.id} value={r.id}>{r.nombreFantasia}</option>
-            ))}
-          </select>
         </div>
 
         {/* Lista de coordinadores */}
@@ -251,7 +238,68 @@ export default function CoordinadoresPage() {
                 </p>
               </div>
             ) : (
-              <table className="min-w-full divide-y divide-slate-200">
+              <>
+                {/* VISTA MÓVIL (CARDS TÁCTILES) */}
+                <div className="block md:hidden divide-y divide-slate-100">
+                  {filteredCoordinadores.map((coordinador) => (
+                    <div key={coordinador.id} className="p-4 space-y-3 bg-white hover:bg-slate-50/50 transition-colors">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-2xl bg-indigo-100 text-indigo-700 font-bold text-sm flex items-center justify-center shrink-0 shadow-xs">
+                            {coordinador.nombre.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="font-bold text-slate-900 text-sm leading-tight truncate">
+                              {coordinador.nombre}
+                            </h4>
+                            <p className="text-xs text-slate-500 mt-0.5 truncate">
+                              {coordinador.email}
+                            </p>
+                          </div>
+                        </div>
+                        <span className={`inline-flex px-2.5 py-1 text-[11px] font-semibold rounded-full border shrink-0 ${
+                          coordinador.activo ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-700 border-red-200'
+                        }`}>
+                          {coordinador.activo ? 'Activo' : 'Inactivo'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-slate-500 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <span>Base: <strong className="text-slate-700">{coordinador.remiseria?.nombreFantasia || 'N/A'}</strong></span>
+                        <span className="text-[11px]">Alta: {new Date(coordinador.createdAt).toLocaleDateString('es-AR')}</span>
+                      </div>
+
+                      {/* Botones de acción táctiles */}
+                      <div className="grid grid-cols-3 gap-2 pt-1">
+                        <button
+                          onClick={() => openEditModal(coordinador)}
+                          className="flex items-center justify-center gap-1 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all active:scale-95"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => handleToggleStatus(coordinador.id)}
+                          className="flex items-center justify-center gap-1 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all active:scale-95"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          Estado
+                        </button>
+                        <button
+                          onClick={() => handleDelete(coordinador.id)}
+                          className="flex items-center justify-center gap-1 py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold transition-all active:scale-95"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Borrar
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* VISTA ESCRITORIO (TABLA) */}
+                <div className="hidden md:block">
+                  <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50/80">
                   <tr>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Coordinador</th>
@@ -320,7 +368,9 @@ export default function CoordinadoresPage() {
                     ))}
                   </tbody>
                 </table>
-            )}
+              </div>
+            </>
+          )}
           </div>
         )}
       </div>
@@ -386,19 +436,9 @@ export default function CoordinadoresPage() {
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Remisería
                     </label>
-                    <select
-                      required
-                      value={formData.remiseriaId}
-                      onChange={(e) => setFormData({ ...formData, remiseriaId: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="">Seleccionar remisería</option>
-                      {remiserias.map(remiseria => (
-                        <option key={remiseria.id} value={remiseria.id}>
-                          {remiseria.nombreFantasia}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="w-full px-3 py-2 border border-slate-200 bg-slate-50 rounded-lg text-slate-700 font-semibold text-sm">
+                      {remiserias[0]?.nombreFantasia || 'Remises Bruno'}
+                    </div>
                   </div>
                 </div>
                                  <div className="flex justify-end space-x-3 mt-6">

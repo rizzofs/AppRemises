@@ -100,6 +100,9 @@ model Remiseria {
   // Relación 1:N con Cliente
   clientes Cliente[]
 
+  // Relación 1:N con ArtEmpresa
+  artEmpresas ArtEmpresa[]
+
   @@map("remiserias")
 }
 
@@ -153,6 +156,24 @@ model Cliente {
   direccionesFrecuentes String? // JSON array de direcciones frecuentes/favoritas
   observaciones String? // Notas del cliente (conflictivo, VIP, etc.)
   activo    Boolean  @default(true)
+  
+  // Cuenta Corriente y Esquema Tarifario Diferenciado (solo gestionable por el Dueño)
+  cuentaCorrienteHabilitada Boolean  @default(false)
+  limiteCuentaCorriente     Float?   @default(0.0)
+  saldoCuentaCorriente      Float    @default(0.0)
+
+  // Tarifas cobradas al Cliente en Cuenta Corriente (Similar a ART)
+  tipoTarifa                String   @default("LISTA_NORMAL") // "LISTA_NORMAL" | "PERSONALIZADA"
+  tarifaValorKm             Float?   @default(0.0) // $/km si es personalizada
+  tarifaPrecioTramo         Float?   @default(0.0) // $/bajada de bandera o tramo urbano (0 a 1 km)
+  tarifaValorHoraEspera     Float?   @default(0.0) // $/hora de espera si es personalizada
+
+  // Tarifas abonadas al Chofer por viajes de este Cliente
+  pagaChoferTipo            String   @default("LISTA_NORMAL") // "LISTA_NORMAL" | "PERSONALIZADO"
+  choferValorKm             Float?   @default(0.0)
+  choferPrecioTramo         Float?   @default(0.0)
+  choferValorHoraEspera     Float?   @default(0.0)
+  
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   userId    String   @unique
@@ -173,7 +194,26 @@ model Cliente {
   // Relación 1:N con CalificacionViaje
   calificaciones CalificacionViaje[]
 
+  // Relación 1:N con PagosCuentaCorriente
+  pagosCuentaCorriente PagoCuentaCorriente[]
+
   @@map("clientes")
+}
+
+// Modelo para registrar abonos y pagos parciales o totales a cuenta corriente
+model PagoCuentaCorriente {
+  id            String    @id @default(cuid())
+  clienteId     String
+  cliente       Cliente   @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  monto         Float
+  saldoAnterior Float
+  saldoRestante Float
+  metodoPago    String?   // EFECTIVO, TRANSFERENCIA, OTRO
+  observaciones String?
+  fecha         DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+
+  @@map("pagos_cuenta_corriente")
 }
 
 // Modelo para Choferes
@@ -231,6 +271,7 @@ model Chofer {
   // Relación 1:N con CalificacionViaje
   calificaciones CalificacionViaje[]
 
+  @@index([remiseriaId, estado, isOnline])
   @@map("choferes")
 }
 
@@ -361,6 +402,18 @@ model Viaje {
   liquidacionId String?
   liquidacion   Liquidacion? @relation(fields: [liquidacionId], references: [id])
 
+  // Relación N:1 con ArtEmpresa
+  artEmpresaId  String?
+  artEmpresa    ArtEmpresa? @relation(fields: [artEmpresaId], references: [id], onDelete: SetNull)
+  numeroSiniestro String?
+
+  // Precio acordado con la ART (Privado del Dueño para facturación corporativa)
+  precioArt     Decimal?    @db.Decimal(10, 2)
+
+  @@index([remiseriaId, estado])
+  @@index([choferId, estado])
+  @@index([clienteId])
+  @@index([createdAt])
   @@map("viajes")
 }
 
@@ -399,7 +452,52 @@ model Reserva {
   vehiculoId String?
   vehiculo   Vehiculo? @relation(fields: [vehiculoId], references: [id])
 
+  // Relación N:1 con ArtEmpresa
+  artEmpresaId  String?
+  artEmpresa    ArtEmpresa? @relation(fields: [artEmpresaId], references: [id], onDelete: SetNull)
+  numeroSiniestro String?
+
   @@map("reservas")
+}
+
+// Modelo para ART y Empresas con tarifas corporativas diferenciadas
+model ArtEmpresa {
+  id              String      @id @default(cuid())
+  nombre          String
+  cuit            String?
+  razonSocial     String?
+  telefono        String?
+  email           String?
+  direccion       String?
+  
+  // Tarifas cobradas a la ART / Empresa (Facturación del Dueño - Privado)
+  valorKm         Float       @default(0.0) // Precio por kilómetro
+  precioTramo     Float       @default(0.0) // Precio por tramo (viajes locales)
+  valorHoraEspera Float       @default(0.0) // Precio por hora de espera
+
+  // Tarifas pagadas al Chofer por viajes de esta ART
+  pagaChoferTipo        String      @default("LISTA_NORMAL") // "LISTA_NORMAL" | "PERSONALIZADO"
+  choferValorKm         Float?      @default(0.0) // $/km abonado al chofer si es personalizado
+  choferPrecioTramo     Float?      @default(0.0) // $/tramo abonado al chofer si es personalizado
+  choferValorHoraEspera Float?      @default(0.0) // $/hora espera abonado al chofer si es personalizado
+
+  activo          Boolean     @default(true)
+  observaciones   String?
+
+  // Relación con Remiseria
+  remiseriaId     String
+  remiseria       Remiseria   @relation(fields: [remiseriaId], references: [id], onDelete: Cascade)
+
+  // Relación con Viajes
+  viajes          Viaje[]
+
+  // Relación con Reservas
+  reservas        Reserva[]
+
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@map("art_empresas")
 }
 
 // Modelo para monitorear el uso de la app
@@ -475,6 +573,7 @@ enum Prioridad {
 enum MetodoPago {
   EFECTIVO
   TRANSFERENCIA
+  CUENTA_CORRIENTE
 }
 
 enum TipoReserva {
@@ -534,6 +633,7 @@ model TurnoChofer {
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
+  @@index([choferId, activo])
   @@map("turnos_chofer")
 }
 

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { choferService, remiseriaService, vehiculoService } from '@/lib/api';
 import { Chofer, CreateChoferData, Remiseria, Vehiculo } from '@/types';
-import { Truck, Plus, Edit, Trash2, Eye, EyeOff, Search, Filter, ArrowLeft, User, Calendar, Phone, Mail, MapPin, FileText, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Truck, Plus, Edit, Trash2, Eye, EyeOff, Search, Filter, ArrowLeft, User, Calendar, Phone, Mail, MapPin, FileText, CheckCircle, XCircle, Clock, ChevronRight, ChevronLeft, Check, Sparkles, ShieldCheck } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function ChoferesPage() {
@@ -16,11 +16,11 @@ export default function ChoferesPage() {
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createStep, setCreateStep] = useState<number>(1);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedChofer, setSelectedChofer] = useState<Chofer | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterEstado, setFilterEstado] = useState<'all' | 'PENDIENTE_APROBACION' | 'ACTIVO' | 'SUSPENDIDO' | 'RECHAZADO' | 'DADO_DE_BAJA'>('all');
-  const [filterRemiseria, setFilterRemiseria] = useState<string>('all');
 
   // Estado para modal de Aprobación y Rechazo
   const [choferParaAprobar, setChoferParaAprobar] = useState<Chofer | null>(null);
@@ -235,22 +235,43 @@ export default function ChoferesPage() {
   };
 
   const openCreateModal = () => {
+    const nextNum = (choferes.length + 1).toString().padStart(3, '0');
     setFormData({
-      numeroChofer: '',
+      numeroChofer: `CH${nextNum}`,
       nombre: '',
       apellido: '',
       dni: '',
       telefono: '',
       email: '',
       direccion: '',
-      categoriaLicencia: '',
+      categoriaLicencia: 'D1',
       vtoLicencia: '',
-      remiseriaId: '',
+      remiseriaId: remiserias[0]?.id || '',
       vehiculoId: '',
       esPropietario: false,
       comisionPorcentaje: 30
     });
+    setCreateStep(1);
     setShowCreateModal(true);
+  };
+
+  const handleNextStep = () => {
+    if (createStep === 1) {
+      if (!formData.nombre?.trim() || !formData.apellido?.trim() || !formData.dni?.trim() || !formData.numeroChofer?.trim() || !formData.telefono?.trim()) {
+        toast.error('Completá nombre, apellido, DNI, número de chofer y teléfono');
+        return;
+      }
+    } else if (createStep === 2) {
+      if (!formData.categoriaLicencia?.trim() || !formData.vtoLicencia?.trim()) {
+        toast.error('Completá la categoría y el vencimiento de la licencia');
+        return;
+      }
+    }
+    setCreateStep(prev => Math.min(prev + 1, 4));
+  };
+
+  const handlePrevStep = () => {
+    setCreateStep(prev => Math.max(prev - 1, 1));
   };
 
   // Filtrar choferes
@@ -262,9 +283,8 @@ export default function ChoferesPage() {
       chofer.dni.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesFilter = filterEstado === 'all' || chofer.estado === filterEstado;
-    const matchesRemiseria = filterRemiseria === 'all' || chofer.remiseriaId === filterRemiseria;
     
-    return matchesSearch && matchesFilter && matchesRemiseria;
+    return matchesSearch && matchesFilter;
   });
 
   const handleAprobarChofer = async (e: React.FormEvent) => {
@@ -416,16 +436,6 @@ export default function ChoferesPage() {
             <option value="RECHAZADO">Rechazados</option>
             <option value="DADO_DE_BAJA">Dados de Baja</option>
           </select>
-          <select
-            value={filterRemiseria}
-            onChange={(e) => setFilterRemiseria(e.target.value)}
-            className="input max-w-[200px] bg-white cursor-pointer"
-          >
-            <option value="all">Todas las remiserías</option>
-            {remiserias.map(r => (
-              <option key={r.id} value={r.id}>{r.nombreFantasia}</option>
-            ))}
-          </select>
         </div>
 
         {/* Lista de choferes */}
@@ -451,12 +461,124 @@ export default function ChoferesPage() {
                 </p>
               </div>
             ) : (
-              <table className="min-w-full divide-y divide-slate-200">
+              <>
+                {/* VISTA MÓVIL (CARDS TÁCTILES) */}
+                <div className="block md:hidden divide-y divide-slate-100">
+                  {filteredChoferes.map((chofer) => (
+                    <div key={chofer.id} className="p-4 space-y-3 bg-white hover:bg-slate-50/50 transition-colors">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-11 h-11 rounded-2xl bg-primary-100 text-primary-700 font-bold text-base flex items-center justify-center shrink-0 shadow-xs">
+                            {chofer.nombre.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <h4 className="font-bold text-slate-900 text-base leading-tight truncate">
+                              {chofer.nombre} {chofer.apellido}
+                            </h4>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              #{chofer.numeroChofer} • DNI: {chofer.dni}
+                            </p>
+                          </div>
+                        </div>
+                        <span className={`inline-flex px-2.5 py-1 text-[11px] font-semibold rounded-full border shrink-0 ${getEstadoColor(chofer.estado)}`}>
+                          {getEstadoText(chofer.estado)}
+                        </span>
+                      </div>
+
+                      {/* Datos de contacto y auto */}
+                      <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-medium block">Contacto</span>
+                          <a href={`tel:${chofer.telefono}`} className="font-semibold text-primary-600 flex items-center gap-1 mt-0.5">
+                            <Phone className="w-3 h-3" />
+                            {chofer.telefono}
+                          </a>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-slate-400 font-medium block">Vehículo Asignado</span>
+                          <span className="font-semibold text-slate-800 block mt-0.5 truncate">
+                            {chofer.vehiculo ? `${chofer.vehiculo.patente} (${chofer.vehiculo.modelo})` : 'Sin asignar'}
+                          </span>
+                        </div>
+                        <div className="col-span-2 pt-1 border-t border-slate-200/50 flex items-center justify-between">
+                          <span className="text-[10px] text-slate-500 font-medium">
+                            Modalidad
+                          </span>
+                          {chofer.esPropietario ? (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700 shrink-0">
+                              Auto Propio (80%)
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-50 border border-blue-200 text-blue-700 shrink-0" title={chofer.vehiculo?.propietario ? `Titular del coche: ${chofer.vehiculo.propietario}` : undefined}>
+                              Auto Agencia ({chofer.comisionPorcentaje || 30}%)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Botones de acción táctiles */}
+                      <div className="pt-1">
+                        {chofer.estado === 'PENDIENTE_APROBACION' ? (
+                          <div className="grid grid-cols-2 gap-2 w-full">
+                            <button
+                              onClick={() => {
+                                setChoferParaAprobar(chofer);
+                                setAprobarComision(chofer.comisionPorcentaje || 30);
+                                setAprobarVehiculoId(chofer.vehiculoId || '');
+                              }}
+                              className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-emerald-600 text-white rounded-xl text-xs font-bold shadow-xs active:scale-95 transition-all"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                              Aprobar
+                            </button>
+                            <button
+                              onClick={() => {
+                                setChoferParaRechazar(chofer);
+                                setMotivoRechazoInput('');
+                              }}
+                              className="flex items-center justify-center gap-1.5 py-2.5 px-3 bg-rose-50 text-rose-700 border border-rose-200 rounded-xl text-xs font-bold active:scale-95 transition-all"
+                            >
+                              <XCircle className="w-4 h-4" />
+                              Rechazar
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-3 gap-2 w-full">
+                            <button
+                              onClick={() => openEditModal(chofer)}
+                              className="flex items-center justify-center gap-1 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all active:scale-95"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                              Editar
+                            </button>
+                            <button
+                              onClick={() => handleToggleStatus(chofer.id)}
+                              className="flex items-center justify-center gap-1 py-2 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all active:scale-95"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                              Estado
+                            </button>
+                            <button
+                              onClick={() => handleDelete(chofer.id)}
+                              className="flex items-center justify-center gap-1 py-2 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-600 text-xs font-semibold transition-all active:scale-95"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Borrar
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* VISTA ESCRITORIO (TABLA) */}
+                <div className="hidden md:block">
+                  <table className="min-w-full divide-y divide-slate-200">
                 <thead className="bg-slate-50/80">
                   <tr>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Chofer</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Contacto</th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Remisería</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Tipo</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Vehículo Asignado</th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
@@ -496,19 +618,16 @@ export default function ChoferesPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-slate-600">
-                          {chofer.remiseria?.nombreFantasia || 'N/A'}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-slate-700">
-                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-md ${
-                            chofer.esPropietario 
-                              ? 'bg-purple-100 text-purple-800 border border-purple-200' 
-                              : 'bg-blue-100 text-blue-800 border border-blue-200'
-                          }`}>
-                            {chofer.esPropietario ? 'Propietario' : `Asignado (${chofer.comisionPorcentaje}%)`}
-                          </span>
+                          {chofer.esPropietario ? (
+                            <span className="inline-flex px-2.5 py-1 text-xs font-bold rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              Auto Propio (80%)
+                            </span>
+                          ) : (
+                            <span className="inline-flex px-2.5 py-1 text-xs font-bold rounded-md bg-blue-50 text-blue-700 border border-blue-200" title={chofer.vehiculo?.propietario ? `Titular del coche: ${chofer.vehiculo.propietario}` : undefined}>
+                              Auto Agencia ({chofer.comisionPorcentaje || 30}%)
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -587,280 +706,421 @@ export default function ChoferesPage() {
                     ))}
                   </tbody>
                 </table>
-            )}
+              </div>
+            </>
+          )}
           </div>
         )}
       </div>
 
-      {/* Modal de Creación */}
+      {/* Modal de Creación por Pasos (Wizard Stepper) */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-          <div className="relative top-10 mx-auto p-6 border w-full max-w-2xl shadow-xl rounded-lg bg-white">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-semibold text-gray-900">Crear Nuevo Chofer</h3>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs overflow-y-auto h-full w-full z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
+          <div className="relative bg-white w-full max-w-xl rounded-3xl shadow-2xl border border-slate-100 overflow-hidden flex flex-col max-h-[92vh]">
+            
+            {/* Header del Modal */}
+            <div className="p-5 sm:p-6 pb-4 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-primary-600 bg-primary-50 px-2 py-0.5 rounded-md">
+                    Paso {createStep} de 4
+                  </span>
+                  <span className="text-xs font-semibold text-slate-400">
+                    {createStep === 1 && '• Identificación'}
+                    {createStep === 2 && '• Documentación'}
+                    {createStep === 3 && '• Modalidad y Auto'}
+                    {createStep === 4 && '• Confirmación'}
+                  </span>
+                </div>
+                <h3 className="text-lg sm:text-xl font-bold text-slate-900 mt-1">Alta de Chofer</h3>
+              </div>
               <button
                 onClick={() => setShowCreateModal(false)}
-                className="text-gray-400 hover:text-gray-600"
+                className="w-9 h-9 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex items-center justify-center transition-colors"
               >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                ✕
               </button>
             </div>
-            <form onSubmit={handleCreate} className="space-y-6">
-              {/* Información Personal */}
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                  <User className="w-5 h-5 mr-2" />
-                  Información Personal
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Número de Chofer *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.numeroChofer}
-                      onChange={(e) => setFormData({ ...formData, numeroChofer: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent uppercase"
-                      placeholder="ej. CH001"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      DNI *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.dni}
-                      onChange={(e) => setFormData({ ...formData, dni: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent uppercase"
-                      placeholder="12345678"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Nombre *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.nombre}
-                      onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent uppercase"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Apellido *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formData.apellido}
-                      onChange={(e) => setFormData({ ...formData, apellido: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent uppercase"
-                    />
-                  </div>
-                </div>
-              </div>
 
-              {/* Información de Contacto */}
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                  <Phone className="w-5 h-5 mr-2" />
-                  Información de Contacto
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Stepper visual interactivo */}
+            <div className="px-5 sm:px-6 pt-3 pb-2 bg-slate-50/70 border-b border-slate-100">
+              <div className="grid grid-cols-4 gap-2">
+                {[
+                  { step: 1, label: 'Personal', icon: User },
+                  { step: 2, label: 'Licencia', icon: FileText },
+                  { step: 3, label: 'Modalidad', icon: Truck },
+                  { step: 4, label: 'Resumen', icon: CheckCircle }
+                ].map((s) => {
+                  const Icon = s.icon;
+                  const isCompleted = createStep > s.step;
+                  const isCurrent = createStep === s.step;
+                  return (
+                    <div
+                      key={s.step}
+                      className={`flex flex-col items-center text-center pb-1 border-b-2 transition-all ${
+                        isCurrent
+                          ? 'border-primary-600 text-primary-600 font-bold'
+                          : isCompleted
+                          ? 'border-emerald-500 text-emerald-600 font-semibold'
+                          : 'border-transparent text-slate-400 font-medium'
+                      }`}
+                    >
+                      <div
+                        className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs mb-1 transition-all ${
+                          isCurrent
+                            ? 'bg-primary-600 text-white shadow-xs'
+                            : isCompleted
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-slate-200 text-slate-500'
+                        }`}
+                      >
+                        {isCompleted ? <Check className="w-3.5 h-3.5" /> : s.step}
+                      </div>
+                      <span className="text-[10px] hidden sm:inline">{s.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Cuerpo del Formulario según Paso Activo */}
+            <form onSubmit={handleCreate} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-4">
+              
+              {/* PASO 1: DATOS PERSONALES */}
+              {createStep === 1 && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-3 duration-200">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        N° de Chofer *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={formData.numeroChofer}
+                        onChange={(e) => setFormData({ ...formData, numeroChofer: e.target.value.toUpperCase() })}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm font-bold uppercase focus:ring-2 focus:ring-primary-500"
+                        placeholder="ej. CH001"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        DNI *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={formData.dni}
+                        onChange={(e) => setFormData({ ...formData, dni: e.target.value })}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-primary-500"
+                        placeholder="Sin puntos"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Nombre *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={formData.nombre}
+                        onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm uppercase focus:ring-2 focus:ring-primary-500"
+                        placeholder="Nombre completo"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1">
+                        Apellido *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={formData.apellido}
+                        onChange={(e) => setFormData({ ...formData, apellido: e.target.value })}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm uppercase focus:ring-2 focus:ring-primary-500"
+                        placeholder="Apellido"
+                      />
+                    </div>
+                  </div>
+
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Teléfono *
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Teléfono / WhatsApp *
                     </label>
                     <input
                       type="tel"
                       required
                       value={formData.telefono}
                       onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent uppercase"
-                      placeholder="011-1234-5678"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-primary-500"
+                      placeholder="ej. 11 1234-5678"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Email
-                    </label>
-                    <input
-                      type="email"
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      placeholder="chofer@email.com"
-                    />
-                  </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Dirección
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.direccion}
-                      onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent uppercase"
-                      placeholder="Av. San Martín 123, CABA"
-                    />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">
+                        Email (opcional)
+                      </label>
+                      <input
+                        type="email"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-primary-500"
+                        placeholder="chofer@email.com"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-600 mb-1">
+                        Domicilio (opcional)
+                      </label>
+                      <input
+                        type="text"
+                        value={formData.direccion}
+                        onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm uppercase focus:ring-2 focus:ring-primary-500"
+                        placeholder="Calle y N°"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
-              {/* Información de Licencia */}
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                  <FileText className="w-5 h-5 mr-2" />
-                  Información de Licencia
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* PASO 2: LICENCIA Y HABILITACIÓN */}
+              {createStep === 2 && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-3 duration-200">
+                  <div className="p-3 bg-blue-50/70 border border-blue-100 rounded-2xl flex items-center gap-3">
+                    <ShieldCheck className="w-6 h-6 text-blue-600 shrink-0" />
+                    <p className="text-xs text-blue-800">
+                      Verificá que la licencia profesional esté vigente antes de habilitar los viajes del chofer.
+                    </p>
+                  </div>
+
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
                       Categoría de Licencia *
                     </label>
+                    <div className="flex flex-wrap gap-2 mb-2">
+                      {['D1', 'D2', 'B1', 'B2'].map((cat) => (
+                        <button
+                          key={cat}
+                          type="button"
+                          onClick={() => setFormData({ ...formData, categoriaLicencia: cat })}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
+                            formData.categoriaLicencia === cat
+                              ? 'bg-primary-600 text-white border-primary-600 shadow-xs'
+                              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                          }`}
+                        >
+                          Cat. {cat}
+                        </button>
+                      ))}
+                    </div>
                     <input
                       type="text"
                       required
                       value={formData.categoriaLicencia}
-                      onChange={(e) => setFormData({ ...formData, categoriaLicencia: e.target.value })}
-                      placeholder="ej. D1"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      onChange={(e) => setFormData({ ...formData, categoriaLicencia: e.target.value.toUpperCase() })}
+                      placeholder="O ingresá otra categoría (ej. D1)"
+                      className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs sm:text-sm uppercase font-semibold focus:ring-2 focus:ring-primary-500"
                     />
                   </div>
+
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Vencimiento de Licencia *
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                      Fecha de Vencimiento de la Licencia *
                     </label>
                     <input
                       type="date"
                       required
                       value={formData.vtoLicencia}
                       onChange={(e) => setFormData({ ...formData, vtoLicencia: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold focus:ring-2 focus:ring-primary-500"
                     />
                   </div>
                 </div>
-              </div>
+              )}
 
-              {/* Tipo de Chofer */}
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                  <User className="w-5 h-5 mr-2" />
-                  Tipo de Chofer
-                </h4>
-                <div className="flex items-center space-x-4">
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="esPropietario"
-                      checked={formData.esPropietario === false}
-                      onChange={() => setFormData({ ...formData, esPropietario: false })}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                    />
-                    <span className="ml-2 text-sm text-gray-700">A cargo de la agencia (Asignado)</span>
-                  </label>
-                  <label className="flex items-center">
-                    <input
-                      type="radio"
-                      name="esPropietario"
-                      checked={formData.esPropietario === true}
-                      onChange={() => setFormData({ ...formData, esPropietario: true })}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                    />
-                    <span className="ml-2 text-sm text-gray-700">Dueño del vehículo (Propietario)</span>
-                  </label>
-                </div>
-                {formData.esPropietario === false && (
-                  <div className="mt-4 max-w-xs">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Comisión del Chofer (%)
+              {/* PASO 3: MODALIDAD Y VEHÍCULO ASIGNADO */}
+              {createStep === 3 && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-3 duration-200">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                      Categoría del Chofer y Comisión
                     </label>
-                    <div className="relative">
-                      <input
-                        type="number"
-                        min="0"
-                        max="100"
-                        step="0.5"
-                        value={formData.comisionPorcentaje !== undefined ? formData.comisionPorcentaje : 30}
-                        onChange={(e) => setFormData({ ...formData, comisionPorcentaje: parseFloat(e.target.value) || 0 })}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
-                      <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                        <span className="text-gray-500 sm:text-sm">%</span>
+                    <div className="space-y-2.5">
+                      <div
+                        onClick={() => setFormData({ ...formData, esPropietario: false, comisionPorcentaje: 30 })}
+                        className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${
+                          formData.esPropietario === false
+                            ? 'bg-blue-50/50 border-blue-600 shadow-xs'
+                            : 'bg-white border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">🚗</span>
+                            <div>
+                              <span className="text-xs sm:text-sm font-bold text-slate-900 block">
+                                Chofer con Vehículo de la Remisería
+                              </span>
+                              <span className="text-[11px] text-slate-500 block mt-0.5">
+                                Conduce un coche asignado (de la remisería o de una persona externa).
+                              </span>
+                            </div>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-md bg-blue-100 text-blue-800 text-[10px] font-black shrink-0">
+                            Auto Agencia (30%)
+                          </span>
+                        </div>
+                      </div>
+
+                      <div
+                        onClick={() => setFormData({ ...formData, esPropietario: true, comisionPorcentaje: 80 })}
+                        className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all ${
+                          formData.esPropietario === true
+                            ? 'bg-emerald-50/50 border-emerald-600 shadow-xs'
+                            : 'bg-white border-slate-200 hover:border-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-lg">👤</span>
+                            <div>
+                              <span className="text-xs sm:text-sm font-bold text-slate-900 block">
+                                Chofer Propietario (Auto Propio)
+                              </span>
+                              <span className="text-[11px] text-slate-500 block mt-0.5">
+                                Es dueño de su vehículo. Paga el 20% a la remisería y retiene el 80%.
+                              </span>
+                            </div>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-black shrink-0">
+                            Auto Propio (80%)
+                          </span>
+                        </div>
                       </div>
                     </div>
                   </div>
-                )}
-              </div>
 
-              {/* Asignación */}
-              <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="text-lg font-medium text-gray-900 mb-4 flex items-center">
-                  <Truck className="w-5 h-5 mr-2" />
-                  Asignación
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Remisería *
-                    </label>
-                    <select
-                      required
-                      value={formData.remiseriaId}
-                      onChange={(e) => setFormData({ ...formData, remiseriaId: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="">Seleccionar remisería</option>
-                      {remiserias.map(remiseria => (
-                        <option key={remiseria.id} value={remiseria.id}>
-                          {remiseria.nombreFantasia}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
                       Vehículo Asignado (opcional)
                     </label>
                     <select
                       value={formData.vehiculoId}
                       onChange={(e) => setFormData({ ...formData, vehiculoId: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-xs sm:text-sm bg-white focus:ring-2 focus:ring-primary-500"
                     >
-                      <option value="">Sin asignar</option>
-                      {vehiculos.map(vehiculo => (
-                        <option key={vehiculo.id} value={vehiculo.id}>
-                          {vehiculo.patente} - {vehiculo.marca} {vehiculo.modelo}
+                      <option value="">Sin asignar por el momento</option>
+                      {vehiculos.map((v) => (
+                        <option key={v.id} value={v.id}>
+                          {v.patente} • {v.marca} {v.modelo} ({v.propietario === 'Agencia' ? '🏢 Agencia' : `🚗 Dueño: ${v.propietario}`})
                         </option>
                       ))}
                     </select>
                   </div>
-                </div>
-              </div>
 
-              <div className="flex justify-end space-x-3 pt-4 border-t">
-                <button
-                  type="button"
-                  onClick={() => setShowCreateModal(false)}
-                  className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors duration-200"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  type="submit" 
-                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-200 flex items-center"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Crear Chofer
-                </button>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/60 flex items-center justify-between text-xs">
+                    <span className="text-slate-500">Base Asignada:</span>
+                    <strong className="text-slate-800 font-bold">{remiserias[0]?.nombreFantasia || 'Remises Bruno'}</strong>
+                  </div>
+                </div>
+              )}
+
+              {/* PASO 4: REVISIÓN Y CONFIRMACIÓN */}
+              {createStep === 4 && (
+                <div className="space-y-4 animate-in fade-in slide-in-from-right-3 duration-200">
+                  <div className="p-4 bg-gradient-to-br from-slate-900 to-indigo-950 text-white rounded-2xl shadow-sm space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-slate-400 uppercase tracking-wider font-bold">Ficha del Chofer</span>
+                      <span className="text-xs font-bold px-2 py-0.5 rounded bg-white/20 text-white">
+                        #{formData.numeroChofer}
+                      </span>
+                    </div>
+                    <p className="text-lg font-black text-white">
+                      {formData.nombre} {formData.apellido}
+                    </p>
+                    <p className="text-xs text-slate-300">
+                      DNI: {formData.dni} • Cel: {formData.telefono}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/70">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Licencia</span>
+                      <span className="font-bold text-slate-800 block mt-0.5">Cat. {formData.categoriaLicencia}</span>
+                      <span className="text-[11px] text-slate-500">Vence: {formData.vtoLicencia}</span>
+                    </div>
+
+                    <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/70">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase block">Modalidad</span>
+                      <span className="font-bold text-slate-800 block mt-0.5">
+                        {formData.esPropietario ? 'Auto Propio (80%)' : 'Auto Agencia (30%)'}
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        {formData.esPropietario ? 'Comisión base 20%' : 'Se lleva el 30% diario'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200/70 text-xs">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase block">Vehículo Asignado</span>
+                    <span className="font-semibold text-slate-800 block mt-0.5">
+                      {formData.vehiculoId
+                        ? (() => {
+                            const veh = vehiculos.find((v) => v.id === formData.vehiculoId);
+                            return veh ? `${veh.patente} • ${veh.marca} ${veh.modelo} (Titular: ${veh.propietario})` : 'Vehículo seleccionado';
+                          })()
+                        : 'Sin auto asignado (se puede asignar luego)'}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Botones de Navegación del Modal */}
+              <div className="pt-4 border-t border-slate-100 flex items-center justify-between gap-3">
+                {createStep > 1 ? (
+                  <button
+                    type="button"
+                    onClick={handlePrevStep}
+                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold transition-all"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Atrás
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateModal(false)}
+                    className="px-4 py-2.5 rounded-xl text-slate-500 hover:bg-slate-100 text-xs font-semibold transition-all"
+                  >
+                    Cancelar
+                  </button>
+                )}
+
+                {createStep < 4 ? (
+                  <button
+                    type="button"
+                    onClick={handleNextStep}
+                    className="flex items-center gap-1.5 px-5 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-xs font-bold shadow-md shadow-primary-500/20 active:scale-95 transition-all ml-auto"
+                  >
+                    Siguiente
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    className="flex items-center gap-1.5 px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-600/20 active:scale-95 transition-all ml-auto"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    Confirmar y Crear Chofer
+                  </button>
+                )}
               </div>
             </form>
           </div>
@@ -984,53 +1244,41 @@ export default function ChoferesPage() {
                     />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Tipo de Chofer
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Categoría del Chofer y Comisión
                     </label>
-                    <div className="flex items-center space-x-4 mt-1">
-                      <label className="flex items-center">
+                    <p className="text-xs text-slate-500 mb-2">
+                      Comisión agencia: 20%. Choferes con auto asignado se llevan el 30% de recaudación diaria.
+                    </p>
+                    <div className="space-y-2">
+                      <label className="flex items-start p-2.5 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-100">
                         <input
                           type="radio"
                           name="editEsPropietario"
                           checked={formData.esPropietario === false}
-                          onChange={() => setFormData({ ...formData, esPropietario: false })}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                          onChange={() => setFormData({ ...formData, esPropietario: false, comisionPorcentaje: 30 })}
+                          className="mt-0.5 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
                         />
-                        <span className="ml-2 text-sm text-gray-700">A cargo de la agencia (Asignado)</span>
+                        <div className="ml-3">
+                          <span className="text-xs font-bold text-gray-800 block">🚗 Chofer con Vehículo de la Remisería [Auto Agencia (30%)]</span>
+                          <span className="text-[11px] text-slate-500">Conduce un coche asignado (de la remisería o de una persona externa). Se lleva el 30% de su recaudación.</span>
+                        </div>
                       </label>
-                      <label className="flex items-center">
+                      <label className="flex items-start p-2.5 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-100">
                         <input
                           type="radio"
                           name="editEsPropietario"
                           checked={formData.esPropietario === true}
-                          onChange={() => setFormData({ ...formData, esPropietario: true })}
-                          className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                          onChange={() => setFormData({ ...formData, esPropietario: true, comisionPorcentaje: 80 })}
+                          className="mt-0.5 h-4 w-4 text-emerald-600 focus:ring-emerald-500 border-gray-300"
                         />
-                        <span className="ml-2 text-sm text-gray-700">Dueño del vehículo (Propietario)</span>
+                        <div className="ml-3">
+                          <span className="text-xs font-bold text-gray-800 block">👤 Chofer Propietario [Auto Propio (80%)]</span>
+                          <span className="text-[11px] text-slate-500">Paga el 20% a la remisería, retiene el 80% de su recaudación.</span>
+                        </div>
                       </label>
                     </div>
                   </div>
-                  {formData.esPropietario === false && (
-                    <div className="md:col-span-2">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Comisión del Chofer (%)
-                      </label>
-                      <div className="relative">
-                        <input
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.5"
-                          value={formData.comisionPorcentaje !== undefined ? formData.comisionPorcentaje : 30}
-                          onChange={(e) => setFormData({ ...formData, comisionPorcentaje: parseFloat(e.target.value) || 0 })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        />
-                        <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                          <span className="text-gray-500 sm:text-sm">%</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                   <div className="md:col-span-2">
                     <label className="block text-sm font-medium text-gray-700 mb-1">
                       Vehículo Asignado
@@ -1038,12 +1286,12 @@ export default function ChoferesPage() {
                     <select
                       value={formData.vehiculoId}
                       onChange={(e) => setFormData({ ...formData, vehiculoId: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
                     >
                       <option value="">Sin asignar</option>
                       {vehiculos.map(vehiculo => (
                         <option key={vehiculo.id} value={vehiculo.id}>
-                          {vehiculo.patente} - {vehiculo.marca} {vehiculo.modelo}
+                          {vehiculo.patente} - {vehiculo.marca} {vehiculo.modelo} ({vehiculo.propietario === 'Agencia' ? '🏢 Agencia' : vehiculo.propietario === 'Chofer' ? '👤 Chofer' : `🚗 Dueño: ${vehiculo.propietario}`})
                         </option>
                       ))}
                     </select>

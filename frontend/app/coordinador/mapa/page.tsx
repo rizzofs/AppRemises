@@ -237,7 +237,7 @@ export default function MapaTiempoReal() {
 
   // Suscripción a WebSockets para actualizaciones en vivo
   useEffect(() => {
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:3001` : 'http://localhost:3001');
     const socket = io(socketUrl, {
       transports: ['websocket'],
       withCredentials: true

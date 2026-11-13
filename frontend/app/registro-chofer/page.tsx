@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import LogoBruno from '@/components/LogoBruno';
 import { toast } from 'react-hot-toast';
 import { 
   Car, 
@@ -283,8 +284,8 @@ export default function RegistroChoferPage() {
       <div className="max-w-2xl mx-auto">
         {/* Cabecera */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-500/20 text-primary-400 rounded-3xl mb-4 border border-primary-500/30 backdrop-blur-sm">
-            <Car className="w-8 h-8" />
+          <div className="flex justify-center mb-4">
+            <LogoBruno size={72} />
           </div>
           <h1 className="text-3xl font-black text-white tracking-tight">Postulación de Chofer</h1>
           <p className="text-slate-400 text-sm mt-2 max-w-md mx-auto">

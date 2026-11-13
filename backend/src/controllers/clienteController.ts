@@ -5,6 +5,16 @@ import crypto from 'crypto';
 import { prisma } from '../lib/prisma';
 import { AuthenticatedRequest } from '../types';
 
+// Cache y Circuit Breaker para cotizaciones (Blindaje de Carga y Resiliencia QA)
+interface RouteCacheEntry {
+  distanciaKm: number;
+  tiempoEstimado: number;
+  timestamp: number;
+}
+const routeCache = new Map<string, RouteCacheEntry>();
+let osrmConsecutiveErrors = 0;
+let osrmDisabledUntil = 0;
+
 export const registerCliente = async (req: Request, res: Response) => {
   try {
     const {
@@ -154,7 +164,8 @@ export const registerCliente = async (req: Request, res: Response) => {
     console.error('Error en registro de cliente:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -198,7 +209,8 @@ export const getClienteProfile = async (req: AuthenticatedRequest, res: Response
     console.error('Error obteniendo perfil de cliente:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -275,7 +287,8 @@ export const updateClienteProfile = async (req: AuthenticatedRequest, res: Respo
     console.error('Error actualizando perfil de cliente:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -403,7 +416,8 @@ export const getClienteViajes = async (req: AuthenticatedRequest, res: Response)
     console.error('Error obteniendo viajes del cliente:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -470,7 +484,8 @@ export const getClienteReservas = async (req: AuthenticatedRequest, res: Respons
     console.error('Error obteniendo reservas del cliente:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -544,7 +559,30 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
       });
     }
 
-    // Calcular precio considerando paradas intermedias
+    // Manejo de método de pago y validación de cuenta corriente
+    let metodoPagoFinal: 'EFECTIVO' | 'TRANSFERENCIA' | 'CUENTA_CORRIENTE' = 'EFECTIVO';
+    if (metodoPago === 'TRANSFERENCIA') {
+      metodoPagoFinal = 'TRANSFERENCIA';
+    } else if (metodoPago === 'CUENTA_CORRIENTE') {
+      if (!clienteActual?.cuentaCorrienteHabilitada) {
+        return res.status(403).json({
+          success: false,
+          error: 'No tenés habilitada la cuenta corriente. Comunicate con la remisería para activarla.'
+        });
+      }
+      metodoPagoFinal = 'CUENTA_CORRIENTE';
+    }
+
+    // Si el cliente tiene cuenta corriente habilitada con tarifa personalizada (similar a ART)
+    let customTarifas: { bajadaBandera?: number; valorKm?: number } | undefined = undefined;
+    if (metodoPagoFinal === 'CUENTA_CORRIENTE' && clienteActual?.cuentaCorrienteHabilitada && clienteActual.tipoTarifa === 'PERSONALIZADA') {
+      customTarifas = {
+        bajadaBandera: (clienteActual.tarifaPrecioTramo && clienteActual.tarifaPrecioTramo > 0) ? clienteActual.tarifaPrecioTramo : undefined,
+        valorKm: (clienteActual.tarifaValorKm && clienteActual.tarifaValorKm > 0) ? clienteActual.tarifaValorKm : undefined
+      };
+    }
+
+    // Calcular precio considerando paradas intermedias y tarifas personalizadas
     const cotizacion = await calcularPrecioViaje(
       origen,
       destino,
@@ -552,7 +590,8 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
       longitudOrigen ? parseFloat(longitudOrigen) : undefined,
       latitudDestino ? parseFloat(latitudDestino) : undefined,
       longitudDestino ? parseFloat(longitudDestino) : undefined,
-      Array.isArray(paradas) ? paradas : undefined
+      Array.isArray(paradas) ? paradas : undefined,
+      customTarifas
     );
     const precio = cotizacion.precio;
 
@@ -563,8 +602,6 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
     // Generar trackingToken único para compartir el viaje
     const trackingToken = crypto.randomBytes(16).toString('hex');
 
-    // Manejo de pago y cambio en efectivo
-    const metodoPagoFinal = metodoPago === 'TRANSFERENCIA' ? 'TRANSFERENCIA' : 'EFECTIVO';
     let pagaConNum: number | null = null;
     let vueltoEstimadoNum: number | null = null;
     if (metodoPagoFinal === 'EFECTIVO' && pagaCon) {
@@ -671,7 +708,8 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
     console.error('Error al solicitar viaje:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -679,7 +717,7 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
 // Calcular precio de viaje
 export const calcularPrecio = async (req: Request, res: Response) => {
   try {
-    const { origen, destino, latitudOrigen, longitudOrigen, latitudDestino, longitudDestino, paradas } = req.body;
+    const { origen, destino, latitudOrigen, longitudOrigen, latitudDestino, longitudDestino, paradas, clienteId, metodoPago } = req.body;
 
     if (!origen || !destino) {
       return res.status(400).json({
@@ -690,8 +728,38 @@ export const calcularPrecio = async (req: Request, res: Response) => {
 
     // Buscar remisería activa (Remises Bruno)
     const remiseria = await prisma.remiseria.findFirst({ where: { estado: true } }) || await prisma.remiseria.findFirst();
-    const bajadaBandera = remiseria?.bajadaBandera || 3500;
-    const valorKm = remiseria?.valorKm || 1200;
+    let bajadaBandera = remiseria?.bajadaBandera || 3500;
+    let valorKm = remiseria?.valorKm || 1200;
+
+    // Resolver clienteId si está autenticado
+    let reqClienteId = clienteId || (req as any).user?.cliente?.id;
+    if (!reqClienteId && req.headers.authorization) {
+      try {
+        const token = req.headers.authorization.split(' ')[1];
+        const jwt = await import('jsonwebtoken');
+        const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'super-secret-jwt-key-for-appremises-saas-development');
+        if (decoded?.id) {
+          const cl = await prisma.cliente.findUnique({ where: { userId: decoded.id } });
+          if (cl) reqClienteId = cl.id;
+        }
+      } catch (e) {}
+    }
+
+    // Si el cliente tiene cuenta corriente con tarifa personalizada (similar a ART)
+    let customTarifas: { bajadaBandera?: number; valorKm?: number } | undefined = undefined;
+    if (reqClienteId) {
+      const cl = await prisma.cliente.findUnique({ where: { id: reqClienteId } });
+      const aplicaTarifaCC = (!metodoPago || metodoPago === 'CUENTA_CORRIENTE') && cl?.cuentaCorrienteHabilitada && cl?.tipoTarifa === 'PERSONALIZADA';
+      if (aplicaTarifaCC && cl) {
+        if (cl.tarifaPrecioTramo && cl.tarifaPrecioTramo > 0) {
+          bajadaBandera = cl.tarifaPrecioTramo;
+        }
+        if (cl.tarifaValorKm && cl.tarifaValorKm > 0) {
+          valorKm = cl.tarifaValorKm;
+        }
+        customTarifas = { bajadaBandera, valorKm };
+      }
+    }
 
     const cotizacion = await calcularPrecioViaje(
       origen,
@@ -700,7 +768,8 @@ export const calcularPrecio = async (req: Request, res: Response) => {
       longitudOrigen ? parseFloat(longitudOrigen) : undefined,
       latitudDestino ? parseFloat(latitudDestino) : undefined,
       longitudDestino ? parseFloat(longitudDestino) : undefined,
-      Array.isArray(paradas) ? paradas : undefined
+      Array.isArray(paradas) ? paradas : undefined,
+      customTarifas
     );
 
     res.json({
@@ -713,14 +782,16 @@ export const calcularPrecio = async (req: Request, res: Response) => {
         tiempoEstimado: cotizacion.tiempoEstimado,
         tarifaBase: bajadaBandera,
         tarifaPorKm: valorKm,
-        tarifaPorMinuto: 0
+        tarifaPorMinuto: 0,
+        esTarifaDiferenciada: Boolean(customTarifas)
       }
     });
   } catch (error) {
     console.error('Error al calcular precio:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -804,7 +875,8 @@ export const crearReserva = async (req: AuthenticatedRequest, res: Response) => 
     console.error('Error al crear reserva:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -954,8 +1026,8 @@ export const cancelarViaje = async (req: AuthenticatedRequest, res: Response) =>
     console.error('Error al cancelar viaje:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor',
-      message: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -1038,7 +1110,8 @@ export const calificarViaje = async (req: AuthenticatedRequest, res: Response) =
     console.error('Error al calificar viaje:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -1165,7 +1238,8 @@ export const agregarParadaEnCurso = async (req: AuthenticatedRequest, res: Respo
     console.error('Error al agregar parada intermedia:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -1257,7 +1331,8 @@ export const enviarMensajeChat = async (req: AuthenticatedRequest, res: Response
     console.error('Error al enviar mensaje de chat:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -1328,7 +1403,8 @@ export const enviarAlertaSOS = async (req: AuthenticatedRequest, res: Response) 
     console.error('Error al emitir alerta SOS:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -1428,7 +1504,8 @@ export const getViajeTracking = async (req: Request, res: Response) => {
     console.error('Error al consultar tracking:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -1482,7 +1559,8 @@ export const cancelarReserva = async (req: AuthenticatedRequest, res: Response) 
     console.error('Error al cancelar reserva:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -1506,7 +1584,8 @@ export const getUbicacionActual = async (req: AuthenticatedRequest, res: Respons
     console.error('Error al obtener ubicación:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
@@ -1534,11 +1613,16 @@ export async function calcularPrecioViaje(
   longitudOrigen?: number,
   latitudDestino?: number,
   longitudDestino?: number,
-  paradas?: Array<{ direccion?: string; lat?: number; lon?: number }>
+  paradas?: Array<{ direccion?: string; lat?: number; lon?: number }>,
+  customTarifas?: { bajadaBandera?: number; valorKm?: number }
 ): Promise<{ precio: number; distanciaKm: number; tiempoEstimado: number }> {
   const remiseria = await prisma.remiseria.findFirst({ where: { estado: true } }) || await prisma.remiseria.findFirst();
-  const bajadaBandera = remiseria?.bajadaBandera || 3500;
-  const valorKm = remiseria?.valorKm || 1200;
+  const bajadaBandera = (customTarifas?.bajadaBandera && customTarifas.bajadaBandera > 0)
+    ? customTarifas.bajadaBandera
+    : (remiseria?.bajadaBandera || 3500);
+  const valorKm = (customTarifas?.valorKm && customTarifas.valorKm > 0)
+    ? customTarifas.valorKm
+    : (remiseria?.valorKm || 1200);
 
   let distanciaKm = 0;
   let tiempoEstimado = 10;
@@ -1563,32 +1647,62 @@ export async function calcularPrecioViaje(
   }
 
   if (puntosValidos.length >= 2) {
-    try {
-      const coordsQuery = puntosValidos.map((pt) => `${pt.lon},${pt.lat}`).join(';');
-      const url = `http://router.project-osrm.org/route/v1/driving/${coordsQuery}?overview=false`;
-      const response = await fetch(url, { signal: AbortSignal.timeout(3500) });
-      const data = (await response.json()) as any;
-      if (data.routes && data.routes.length > 0) {
-        distanciaKm = data.routes[0].distance / 1000;
-        distanciaKm = Math.round(distanciaKm * 10) / 10;
-        tiempoEstimado = Math.max(5, Math.round(data.routes[0].duration / 60));
-        calculatedViaRoute = true;
-      }
-    } catch (error) {
-      console.warn('Fallo OSRM, calculando con Haversine acumulado por puntos:', error);
-      // Fallback a suma Haversine punto a punto + 30% por trama urbana
-      let distTotal = 0;
-      for (let i = 0; i < puntosValidos.length - 1; i++) {
-        distTotal += calcularDistanciaHaversine(
-          puntosValidos[i].lat,
-          puntosValidos[i].lon,
-          puntosValidos[i + 1].lat,
-          puntosValidos[i + 1].lon
-        );
-      }
-      distanciaKm = Math.round(distTotal * 1.3 * 10) / 10;
-      tiempoEstimado = Math.max(6, Math.round(distanciaKm * 2.5));
+    const coordsQuery = puntosValidos.map((pt) => `${pt.lon.toFixed(3)},${pt.lat.toFixed(3)}`).join(';');
+    const ahora = Date.now();
+    const cachedRoute = routeCache.get(coordsQuery);
+
+    // 1. Si está en caché RAM (menos de 1 hora), respuesta inmediata en 0ms
+    if (cachedRoute && ahora - cachedRoute.timestamp < 3600000) {
+      distanciaKm = cachedRoute.distanciaKm;
+      tiempoEstimado = cachedRoute.tiempoEstimado;
       calculatedViaRoute = true;
+    } else {
+      // 2. Comprobar si el circuit breaker está activo (OSRM temporalmente desactivado)
+      const canUseOsrm = ahora > osrmDisabledUntil;
+
+      if (canUseOsrm) {
+        try {
+          const rawCoords = puntosValidos.map((pt) => `${pt.lon},${pt.lat}`).join(';');
+          const url = `http://router.project-osrm.org/route/v1/driving/${rawCoords}?overview=false`;
+          // Timeout reducido a 1200ms para no demorar al usuario si OSRM se cuelga
+          const response = await fetch(url, { signal: AbortSignal.timeout(1200) });
+          const data = (await response.json()) as any;
+          if (data.routes && data.routes.length > 0) {
+            distanciaKm = data.routes[0].distance / 1000;
+            distanciaKm = Math.round(distanciaKm * 10) / 10;
+            tiempoEstimado = Math.max(5, Math.round(data.routes[0].duration / 60));
+            calculatedViaRoute = true;
+            osrmConsecutiveErrors = 0; // Reset de errores
+
+            // Guardar en caché
+            routeCache.set(coordsQuery, { distanciaKm, tiempoEstimado, timestamp: ahora });
+          }
+        } catch (error) {
+          osrmConsecutiveErrors++;
+          if (osrmConsecutiveErrors >= 3) {
+            // Activar Circuit Breaker por 60 segundos: no saturar la red ni esperar timeouts
+            osrmDisabledUntil = ahora + 60000;
+            console.warn('⚠️ OSRM bajo alta demanda o saturado. Activado Circuit Breaker por 60s (Fallback local Haversine).');
+          }
+        }
+      }
+
+      // 3. Fallback instantáneo a Haversine acumulado (+30% trama urbana)
+      if (!calculatedViaRoute) {
+        let distTotal = 0;
+        for (let i = 0; i < puntosValidos.length - 1; i++) {
+          distTotal += calcularDistanciaHaversine(
+            puntosValidos[i].lat,
+            puntosValidos[i].lon,
+            puntosValidos[i + 1].lat,
+            puntosValidos[i + 1].lon
+          );
+        }
+        distanciaKm = Math.round(distTotal * 1.3 * 10) / 10;
+        tiempoEstimado = Math.max(6, Math.round(distanciaKm * 2.5));
+        calculatedViaRoute = true;
+        routeCache.set(coordsQuery, { distanciaKm, tiempoEstimado, timestamp: ahora });
+      }
     }
   }
 
@@ -1705,14 +1819,27 @@ export const buscarClientePorDni = async (req: Request, res: Response) => {
     console.error('Error buscando cliente por DNI:', error);
     res.status(500).json({
       success: false,
-      error: 'Error interno del servidor'
+      error: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
+      message: 'Tuvimos un inconveniente técnico momentáneo. Para no demorar tu viaje, comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
     });
   }
 };
 
 // Obtener disponibilidad de vehículos y demora estimada en tiempo real para el cliente
+interface DisponibilidadCacheEntry {
+  data: any;
+  timestamp: number;
+}
+let disponibilidadCache: DisponibilidadCacheEntry | null = null;
+
 export const getDisponibilidad = async (req: Request, res: Response) => {
   try {
+    const ahora = Date.now();
+    // Micro-cache de 4 segundos para soportar cientos de clientes simultáneos sin saturar DB
+    if (disponibilidadCache && ahora - disponibilidadCache.timestamp < 4000) {
+      return res.json(disponibilidadCache.data);
+    }
+
     const [choferesOnline, viajesActivos, viajesPendientes, totalVehiculosActivos] = await Promise.all([
       prisma.chofer.findMany({
         where: {
@@ -1783,7 +1910,7 @@ export const getDisponibilidad = async (req: Request, res: Response) => {
       }
     }
 
-    res.json({
+    const responsePayload = {
       success: true,
       data: {
         hayAutosDisponibles,
@@ -1796,7 +1923,14 @@ export const getDisponibilidad = async (req: Request, res: Response) => {
         demoraMin,
         demoraMax
       }
-    });
+    };
+
+    disponibilidadCache = {
+      data: responsePayload,
+      timestamp: ahora
+    };
+
+    res.json(responsePayload);
   } catch (error) {
     console.error('Error obteniendo disponibilidad de vehículos:', error);
     res.status(500).json({

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import Image from 'next/image';
+import LogoBruno from '@/components/LogoBruno';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -16,7 +16,7 @@ export default function ForgotPasswordPage() {
     setError('');
 
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:3001/api` : 'http://localhost:3001/api');
       const res = await fetch(`${apiUrl}/auth/forgot-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -47,15 +47,9 @@ export default function ForgotPasswordPage() {
           {/* Logo / Brand */}
           <div className="text-center mb-8">
             <div className="flex justify-center mb-4">
-              <Image 
-                src="/Isologo.png" 
-                alt="RZCore Logo" 
-                width={100} 
-                height={100}
-                className="object-contain"
-              />
+              <LogoBruno size={88} />
             </div>
-            <h1 className="text-2xl font-bold text-white">AppRemises</h1>
+            <h1 className="text-2xl font-bold text-white">Remises Bruno</h1>
           </div>
 
           {submitted ? (

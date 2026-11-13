@@ -6,6 +6,7 @@ import LogoutButton from '@/components/LogoutButton';
 import ChoferBottomNav from '@/components/ChoferBottomNav';
 import ProtectedRoute from '@/components/ProtectedRoute';
 import ThemeToggle from '@/components/ThemeToggle';
+import LogoBruno from '@/components/LogoBruno';
 import { ThemeModuleProvider } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { choferService } from '@/lib/api';
@@ -73,6 +74,7 @@ export default function ChoferLayout({
       <ThemeModuleProvider>
         <div className="chofer-module min-h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 flex flex-col overflow-x-hidden transition-colors duration-200">
           <header className="fixed top-0 inset-x-0 z-40 bg-primary-600 dark:bg-slate-900 text-white px-3 py-2.5 shadow-md flex justify-between items-center gap-2 border-b border-primary-700 dark:border-slate-800 transition-colors">
+            <LogoBruno size={30} />
             {/* Contenedor dinámico para el estado EN LÍNEA / PAUSAR / DESCONECTARSE en el navbar */}
             <div id="chofer-navbar-status" className="flex-1 min-w-0">
               {pathname !== '/chofer/app' && (

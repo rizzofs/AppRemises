@@ -11,8 +11,8 @@ export const authenticateToken = async (req: AuthenticatedRequest, res: Response
     return res.status(401).json({ success: false, error: 'Token de acceso requerido' });
   }
 
-  // Soporte para sesión de Demo Fallback en llamadas a la API
-  if (token === 'demo-access-token') {
+  // Soporte para sesión de Demo Fallback ÚNICAMENTE en entorno de desarrollo local (Bloqueado en producción por seguridad)
+  if (token === 'demo-access-token' && process.env.NODE_ENV !== 'production') {
     const testUser = await prisma.user.findFirst({
       where: { rol: 'DUENIO' },
       include: { duenio: true }

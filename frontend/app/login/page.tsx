@@ -9,7 +9,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { LoginCredentials } from '@/types';
 import { Eye, EyeOff, Car, User, Lock } from 'lucide-react';
 import Link from 'next/link';
-import Image from 'next/image';
+import LogoBruno from '@/components/LogoBruno';
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -100,14 +100,8 @@ export default function LoginPage() {
       <div className="max-w-md w-full">
         <div className="card p-8">
           <div className="text-center mb-8">
-            <div className="flex justify-center mb-6">
-              <Image 
-                src="/Isologo.png" 
-                alt="RZCore Logo" 
-                width={120} 
-                height={120}
-                className="object-contain drop-shadow-md"
-              />
+            <div className="flex justify-center mb-5">
+              <LogoBruno size={96} />
             </div>
             <h1 className="text-2xl font-bold text-gray-900">Remises Bruno</h1>
             <p className="text-gray-600 mt-2">Inicia sesión en tu cuenta</p>

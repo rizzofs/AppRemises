@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { toast } from 'react-hot-toast';
 import { Eye, EyeOff, User, Mail, Lock, Phone, MapPin, Calendar, UserCheck, ShieldCheck, Loader2, CheckCircle2 } from 'lucide-react';
 import { clienteAuthService } from '@/lib/api';
+import LogoBruno from '@/components/LogoBruno';
 
 interface RegisterFormData {
   nombre: string;
@@ -149,10 +150,10 @@ export default function RegistroPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
-          <div className="mx-auto h-12 w-12 bg-blue-600 rounded-full flex items-center justify-center shadow-lg shadow-blue-500/30">
-            <UserCheck className="h-6 w-6 text-white" />
+          <div className="flex justify-center">
+            <LogoBruno size={72} />
           </div>
-          <h2 className="mt-6 text-3xl font-extrabold text-gray-900">
+          <h2 className="mt-4 text-3xl font-extrabold text-gray-900">
             Crear cuenta de Pasajero
           </h2>
           <p className="mt-1 text-base font-semibold text-blue-600">

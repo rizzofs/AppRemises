@@ -3,8 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { io, Socket } from 'socket.io-client';
-import { coordinadorDashboardService, clienteAuthService, choferService, vehiculoService } from '@/lib/api';
+import { coordinadorDashboardService, clienteAuthService, choferService, vehiculoService, artEmpresaService } from '@/lib/api';
+import { ArtEmpresa } from '@/types';
 import { useAppTracking } from '@/hooks/useAppTracking';
+import LogoBruno from '@/components/LogoBruno';
 import { 
   Car, 
   Clock, 
@@ -132,8 +134,11 @@ export default function CoordinadorDashboard() {
     precio: '3500',
     choferId: '',
     observaciones: '',
-    prioridad: 'NORMAL' as 'BAJA' | 'NORMAL' | 'ALTA' | 'URGENTE'
+    prioridad: 'NORMAL' as 'BAJA' | 'NORMAL' | 'ALTA' | 'URGENTE',
+    artEmpresaId: '',
+    numeroSiniestro: ''
   });
+  const [artList, setArtList] = useState<ArtEmpresa[]>([]);
   const [predictiveSuggestions, setPredictiveSuggestions] = useState<any[]>([]);
   const [selectedPredictiveClient, setSelectedPredictiveClient] = useState<any>(null);
   const [creandoViajeExpress, setCreandoViajeExpress] = useState(false);
@@ -263,7 +268,9 @@ export default function CoordinadorDashboard() {
     hora: new Date().toTimeString().slice(0, 5),
     tipoViaje: 'inmediato' as 'inmediato' | 'programado',
     observaciones: '',
-    prioridad: 'NORMAL' as 'BAJA' | 'NORMAL' | 'ALTA' | 'URGENTE'
+    prioridad: 'NORMAL' as 'BAJA' | 'NORMAL' | 'ALTA' | 'URGENTE',
+    artEmpresaId: '',
+    numeroSiniestro: ''
   });
 
   const [creandoViaje, setCreandoViaje] = useState(false);
@@ -297,10 +304,15 @@ export default function CoordinadorDashboard() {
       // 6. Drivers online
       const choferesRes = await coordinadorDashboardService.getChoferesTiempoReal();
       // 7. Todos los choferes y vehículos de la remisería para asignación manual
-      const [allChoferesRes, allVehiculosRes] = await Promise.all([
+      const [allChoferesRes, allVehiculosRes, allArtsRes] = await Promise.all([
         choferService.getAll(),
-        vehiculoService.getAll()
+        vehiculoService.getAll(),
+        artEmpresaService.getAll({ activas: true })
       ]);
+
+      if (allArtsRes.success && allArtsRes.data) {
+        setArtList(allArtsRes.data);
+      }
 
       if (allChoferesRes.success && allChoferesRes.data) {
         setTodosLosChoferes(allChoferesRes.data.filter((c: any) => c.estado === 'ACTIVO'));
@@ -368,6 +380,9 @@ export default function CoordinadorDashboard() {
           vueltoEstimado: v.vueltoEstimado,
           distanciaKmConPasajero: v.distanciaKmConPasajero,
           distanciaKmSinPasajero: v.distanciaKmSinPasajero,
+          artEmpresa: v.artEmpresa,
+          artEmpresaId: v.artEmpresaId,
+          numeroSiniestro: v.numeroSiniestro,
           rawFecha: v.fecha,
           rawViaje: v
         };
@@ -466,7 +481,7 @@ export default function CoordinadorDashboard() {
     const remId = user?.coordinador?.remiseriaId || (user as any)?.remiseriaId;
     if (!remId) return;
 
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:3001` : 'http://localhost:3001');
     const socket: Socket = io(socketUrl, {
       transports: ['websocket'],
       withCredentials: true,
@@ -788,7 +803,9 @@ export default function CoordinadorDashboard() {
           hora: new Date().toTimeString().slice(0, 5),
           tipoViaje: 'inmediato',
           observaciones: '',
-          prioridad: 'NORMAL'
+          prioridad: 'NORMAL',
+          artEmpresaId: '',
+          numeroSiniestro: ''
         });
         fetchData();
       } else {
@@ -980,7 +997,9 @@ export default function CoordinadorDashboard() {
       precio: '3500',
       choferId: '',
       observaciones: '',
-      prioridad: 'NORMAL'
+      prioridad: 'NORMAL',
+      artEmpresaId: '',
+      numeroSiniestro: ''
     });
     setPredictiveSuggestions([]);
     setSelectedPredictiveClient(null);
@@ -1101,7 +1120,8 @@ export default function CoordinadorDashboard() {
           latOrigen: expressOrigenCoords?.lat,
           lonOrigen: expressOrigenCoords?.lon,
           latDestino: expressDestinoCoords?.lat,
-          lonDestino: expressDestinoCoords?.lon
+          lonDestino: expressDestinoCoords?.lon,
+          artEmpresaId: expressData.artEmpresaId || undefined
         }
       );
 
@@ -1183,7 +1203,9 @@ export default function CoordinadorDashboard() {
         precio: expressData.precio,
         choferId: expressData.choferId || undefined,
         observaciones: expressData.observaciones,
-        prioridad: expressData.prioridad
+        prioridad: expressData.prioridad,
+        artEmpresaId: expressData.artEmpresaId || undefined,
+        numeroSiniestro: expressData.numeroSiniestro || undefined
       });
 
       if (res && res.success) {
@@ -1376,9 +1398,12 @@ export default function CoordinadorDashboard() {
       <div className="bg-white shadow-sm border-b shrink-0">
         <div className="w-full px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center py-3 sm:py-4 gap-3">
-            <div>
-              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Dashboard Coordinador</h1>
-              <p className="text-xs sm:text-sm text-gray-600">Bienvenido, {user?.coordinador?.nombre || user?.email}</p>
+            <div className="flex items-center gap-3">
+              <LogoBruno size={42} />
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Dashboard Coordinador</h1>
+                <p className="text-xs sm:text-sm text-gray-600">Bienvenido, {user?.coordinador?.nombre || user?.email}</p>
+              </div>
             </div>
             
             <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -1677,8 +1702,13 @@ export default function CoordinadorDashboard() {
                           filteredEnCurso.map((viaje) => (
                             <tr key={viaje.id} className="hover:bg-gray-50 transition-colors">
                               <td className="px-3 sm:px-4 py-3">
-                                <div className="font-medium text-gray-900 text-xs sm:text-sm truncate" title={viaje.cliente}>
-                                  {viaje.cliente}
+                                <div className="font-medium text-gray-900 text-xs sm:text-sm truncate flex items-center" title={viaje.cliente}>
+                                  <span>{viaje.cliente}</span>
+                                  {viaje.artEmpresa && (
+                                    <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
+                                      ART: {viaje.artEmpresa.nombre}
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="text-xs text-gray-500 flex items-center space-x-1.5 mt-0.5">
                                   <span className="truncate">{viaje.telefono}</span>
@@ -1828,8 +1858,13 @@ export default function CoordinadorDashboard() {
                           filteredSinAsignar.map((viaje) => (
                             <tr key={viaje.id} className="hover:bg-red-50/30 transition-colors">
                               <td className="px-3 sm:px-4 py-3">
-                                <div className="font-medium text-gray-900 text-xs sm:text-sm truncate" title={viaje.cliente}>
-                                  {viaje.cliente}
+                                <div className="font-medium text-gray-900 text-xs sm:text-sm truncate flex items-center" title={viaje.cliente}>
+                                  <span>{viaje.cliente}</span>
+                                  {viaje.artEmpresa && (
+                                    <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
+                                      ART: {viaje.artEmpresa.nombre}
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="text-xs text-gray-500 truncate mt-0.5">{viaje.telefono}</div>
                               </td>
@@ -2270,8 +2305,13 @@ export default function CoordinadorDashboard() {
                                     </td>
 
                                     <td className="px-3 sm:px-4 py-3">
-                                      <div className="font-medium text-gray-900 text-xs sm:text-sm truncate max-w-[140px]" title={viaje.cliente}>
-                                        {viaje.cliente}
+                                      <div className="font-medium text-gray-900 text-xs sm:text-sm truncate max-w-[140px] flex items-center" title={viaje.cliente}>
+                                        <span>{viaje.cliente}</span>
+                                        {viaje.artEmpresa && (
+                                          <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
+                                            ART
+                                          </span>
+                                        )}
                                       </div>
                                       <div className="text-xs text-gray-500 flex items-center space-x-1.5 mt-0.5">
                                         <span className="truncate max-w-[90px]">{viaje.telefono}</span>
@@ -3205,6 +3245,48 @@ export default function CoordinadorDashboard() {
                     })}
                   </div>
                 )}
+              </div>
+
+              {/* Convenio ART / Empresa Corporativa */}
+              <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-200">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-amber-900 uppercase">
+                    🏢 Convenio ART / Empresa (Opcional)
+                  </label>
+                  {expressData.artEmpresaId && (
+                    <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full">
+                      Tarifa ART activa
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <select
+                    value={expressData.artEmpresaId}
+                    onChange={(e) => {
+                      const newArtId = e.target.value;
+                      setExpressData((prev) => ({ ...prev, artEmpresaId: newArtId }));
+                      if (expressData.origen && expressData.destino) {
+                        setTimeout(() => ejecutarCalculoPrecioExpress(), 50);
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-amber-300 rounded-xl text-xs bg-white text-gray-800 font-medium focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  >
+                    <option value="">Particular / Tarifa Estándar</option>
+                    {artList.map((art) => (
+                      <option key={art.id} value={art.id}>
+                        {art.nombre} (Tramo: ${art.precioTramo} - Km: ${art.valorKm})
+                      </option>
+                    ))}
+                  </select>
+
+                  <input
+                    type="text"
+                    placeholder="N° Siniestro / Bono ART"
+                    value={expressData.numeroSiniestro}
+                    onChange={(e) => setExpressData({ ...expressData, numeroSiniestro: e.target.value })}
+                    className="w-full px-3 py-2 border border-amber-300 rounded-xl text-xs bg-white text-gray-800 placeholder-gray-400 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
               </div>
 
               {/* Asignar Móvil Inmediato */}

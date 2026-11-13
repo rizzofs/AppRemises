@@ -74,14 +74,18 @@ export const liquidacionController = {
       let comisionAgencia = 0;
       let gananciaPropietario = 0;
 
+      // Reglas de Comisiones:
+      // 1. Todos pagan 20% de comisión a la remisería.
+      // 2. Choferes con vehículo asignado se llevan el 30% de la recaudación diaria.
+      // 3. Dueño del vehículo se lleva el 50% restante (menos combustible).
       if (chofer.esPropietario) {
-        comisionAgencia = (totalRecaudado * chofer.remiseria.comisionDuenioAuto) / 100;
-        comisionChofer = totalRecaudado - comisionAgencia;
+        comisionAgencia = (totalRecaudado * 20) / 100; // 20% para la agencia
+        comisionChofer = totalRecaudado - comisionAgencia; // 80% para el chofer dueño
         gananciaPropietario = 0; // El dueño del auto es el chofer mismo
       } else {
-        comisionChofer = (totalRecaudado * chofer.comisionPorcentaje) / 100;
-        comisionAgencia = (totalRecaudado * chofer.remiseria.comisionDuenioAuto) / 100;
-        gananciaPropietario = totalRecaudado - comisionChofer - comisionAgencia;
+        comisionChofer = (totalRecaudado * 30) / 100; // 30% recaudación diaria
+        comisionAgencia = (totalRecaudado * 20) / 100; // 20% comisión remisería
+        gananciaPropietario = totalRecaudado - comisionChofer - comisionAgencia; // 50% para el dueño del auto
       }
 
       res.json({
@@ -199,12 +203,17 @@ export const liquidacionController = {
       let gananciaPropietario = 0;
 
       if (chofer.esPropietario) {
-        comisionAgencia = (totalRecaudado * chofer.remiseria.comisionDuenioAuto) / 100;
+        // Chofer dueño del vehículo: Paga 20% de comisión a la remisería, retiene el 80%
+        comisionAgencia = (totalRecaudado * 20) / 100;
         comisionChofer = totalRecaudado - comisionAgencia;
         gananciaPropietario = 0;
       } else {
-        comisionChofer = (totalRecaudado * chofer.comisionPorcentaje) / 100;
-        comisionAgencia = (totalRecaudado * chofer.remiseria.comisionDuenioAuto) / 100;
+        // Chofer que maneja un vehículo asignado (por la remisería o un tercero):
+        // El chofer se lleva el 30% de su recaudación diaria
+        // La remisería cobra el 20% de comisión
+        // El dueño del auto (o la remisería si es propietaria) recibe el 50% restante
+        comisionChofer = (totalRecaudado * 30) / 100;
+        comisionAgencia = (totalRecaudado * 20) / 100;
         gananciaPropietario = totalRecaudado - comisionChofer - comisionAgencia - combustibleVal;
       }
 
@@ -354,10 +363,38 @@ export const liquidacionController = {
         include: {
           chofer: {
             select: {
+              id: true,
               nombre: true,
               apellido: true,
               numeroChofer: true,
-              esPropietario: true
+              esPropietario: true,
+              vehiculo: {
+                select: {
+                  id: true,
+                  patente: true,
+                  marca: true,
+                  modelo: true,
+                  propietario: true
+                }
+              }
+            }
+          },
+          viajes: {
+            select: {
+              id: true,
+              precio: true,
+              fecha: true,
+              origen: true,
+              destino: true,
+              vehiculo: {
+                select: {
+                  id: true,
+                  patente: true,
+                  marca: true,
+                  modelo: true,
+                  propietario: true
+                }
+              }
             }
           },
           coordinador: {

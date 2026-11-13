@@ -2,7 +2,10 @@
 
 import LogoutButton from '@/components/LogoutButton';
 import ThemeToggle from '@/components/ThemeToggle';
+import LogoBruno from '@/components/LogoBruno';
 import { ThemeModuleProvider } from '@/contexts/ThemeContext';
+import { triggerEmergencyPhoneFallback } from '@/components/EmergencyPhoneFallback';
+import { PhoneCall } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -20,10 +23,22 @@ export default function ClienteLayout({
     <ThemeModuleProvider>
       <div className="cliente-module min-h-screen bg-gray-50 dark:bg-slate-950 text-gray-900 dark:text-slate-100 flex flex-col transition-colors duration-200">
         <header className="bg-white dark:bg-slate-900 p-4 shadow-sm sticky top-0 z-30 flex justify-between items-center border-b border-gray-100 dark:border-slate-800 transition-colors">
-          <h1 className="text-xl font-bold text-gray-800 dark:text-slate-100 tracking-tight">
-            Remises Bruno
-          </h1>
+          <div className="flex items-center gap-2.5">
+            <LogoBruno size={34} />
+            <h1 className="text-xl font-bold text-gray-800 dark:text-slate-100 tracking-tight">
+              Remises Bruno
+            </h1>
+          </div>
           <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => triggerEmergencyPhoneFallback({ action: 'solicitar tu remís' })}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 text-xs font-bold transition-colors"
+              title="Teléfonos fijos de Remises Bruno"
+            >
+              <PhoneCall className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Teléfonos</span>
+            </button>
             {/* Selector de Modo Oscuro / Claro / Sistema */}
             <ThemeToggle />
             <Link 

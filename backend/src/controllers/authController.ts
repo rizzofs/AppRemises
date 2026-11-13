@@ -380,8 +380,8 @@ export const refreshToken = async (req: Request, res: Response) => {
       });
     }
 
-    // Soporte para sesión de Demo Fallback
-    if (refreshToken === 'demo-refresh-token') {
+    // Soporte para sesión de Demo Fallback ÚNICAMENTE en desarrollo local
+    if (refreshToken === 'demo-refresh-token' && process.env.NODE_ENV !== 'production') {
       return res.json({
         success: true,
         data: {

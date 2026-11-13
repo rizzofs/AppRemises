@@ -24,10 +24,36 @@ import {
   ReservaClienteData,
   ViajeCliente,
   ReservaCliente,
-  Cliente
+  Cliente,
+  PagoCuentaCorriente,
+  Viaje,
+  ArtEmpresa,
+  CreateArtEmpresaData,
+  UpdateArtEmpresaData,
+  FacturacionArtResponse
 } from '@/types';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+export const getApiBaseUrl = (): string => {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL;
+  }
+  if (typeof window !== 'undefined') {
+    return `http://${window.location.hostname}:3001/api`;
+  }
+  return 'http://localhost:3001/api';
+};
+
+export const getSocketUrl = (): string => {
+  if (process.env.NEXT_PUBLIC_SOCKET_URL) {
+    return process.env.NEXT_PUBLIC_SOCKET_URL;
+  }
+  if (typeof window !== 'undefined') {
+    return `http://${window.location.hostname}:3001`;
+  }
+  return 'http://localhost:3001';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Crear instancia de axios
 const api = axios.create({
@@ -38,8 +64,11 @@ const api = axios.create({
   timeout: 10000, // 10 segundos de timeout
 });
 
-// Interceptor para agregar token de autorización (prioriza sessionStorage por pestaña)
+// Interceptor para agregar token de autorización y auto-detectar host dinámico (PC o Celular en red local)
 api.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined' && !process.env.NEXT_PUBLIC_API_URL) {
+    config.baseURL = `http://${window.location.hostname}:3001/api`;
+  }
   const token =
     (typeof window !== 'undefined' && sessionStorage.getItem('accessToken')) ||
     localStorage.getItem('accessToken');
@@ -68,7 +97,7 @@ api.interceptors.response.use(
           (typeof window !== 'undefined' && sessionStorage.getItem('refreshToken')) ||
           localStorage.getItem('refreshToken');
         if (refreshToken) {
-          const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
+          const response = await axios.post(`${getApiBaseUrl()}/auth/refresh`, {
             refreshToken,
           });
 
@@ -94,6 +123,31 @@ api.interceptors.response.use(
       }
     }
 
+    const status = error.response?.status;
+    const reqUrl = String(originalRequest?.url || '');
+    const reqMethod = String(originalRequest?.method || 'get').toLowerCase();
+    const isSilentPolling =
+      reqMethod === 'get' &&
+      (reqUrl.includes('/disponibilidad') ||
+        reqUrl.includes('/mi-estado') ||
+        reqUrl.includes('/cliente/viajes') ||
+        reqUrl.includes('/tracking/'));
+
+    if (
+      typeof window !== 'undefined' &&
+      !isSilentPolling &&
+      (!status || status >= 500 || status === 429)
+    ) {
+      window.dispatchEvent(
+        new CustomEvent('remiseria-system-error', {
+          detail: {
+            status,
+            message: error.response?.data?.message || error.response?.data?.error,
+          },
+        })
+      );
+    }
+
     return Promise.reject(error);
   }
 );
@@ -105,8 +159,44 @@ const handleApiResponse = <T>(response: any): ApiResponse<T> => {
   }
   return {
     success: false,
-    message: 'Respuesta inválida del servidor',
+    message: 'Tuvimos un inconveniente en el sistema. Comunicate a nuestros teléfonos fijos: 2346-427637 o 2346-433000.',
   };
+};
+
+// Formateador amigable de errores (400, 404, 429, 500, red) con derivación a teléfonos fijos
+const formatEmergencyError = (error: any, actionLabel?: string, showModal: boolean = false): string => {
+  const status = error?.response?.status;
+  const backendMsg = error?.response?.data?.message || error?.response?.data?.error || '';
+  const telefonosSuffix = 'Por favor comunicate a los teléfonos fijos 2346-427637 o 2346-433000.';
+
+  if (showModal && typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('remiseria-system-error', {
+        detail: {
+          status,
+          action: actionLabel,
+          message: backendMsg,
+        },
+      })
+    );
+  }
+
+  // Si el mensaje del backend ya incluye los teléfonos fijos, devolverlo directo
+  if (backendMsg && (backendMsg.includes('2346-427637') || backendMsg.includes('2346-433000'))) {
+    return backendMsg;
+  }
+
+  // Si es un error 500+, caída de red o error genérico ("Error interno...", "Error 500", etc.)
+  if (!status || status >= 500 || status === 404 || status === 429 || /error interno|500|400|network/i.test(backendMsg)) {
+    return `Tuvimos un inconveniente momentáneo${actionLabel ? ` al ${actionLabel.toLowerCase()}` : ''}. ${telefonosSuffix}`;
+  }
+
+  // Si es un 400 con mensaje específico, lo acompañamos de los teléfonos fijos para que no pierda el viaje
+  if (backendMsg) {
+    return `${backendMsg}. Si necesitás asistencia inmediata, llamanos al 2346-427637 o 2346-433000.`;
+  }
+
+  return `No pudimos completar la solicitud. ${telefonosSuffix}`;
 };
 
 // Servicios de autenticación
@@ -581,7 +671,7 @@ export const choferService = {
     distancias?: {
       distanciaKmConPasajero?: number;
       distanciaKmSinPasajero?: number;
-      metodoPago?: 'EFECTIVO' | 'TRANSFERENCIA';
+      metodoPago?: 'EFECTIVO' | 'TRANSFERENCIA' | 'CUENTA_CORRIENTE';
       precioFinal?: number;
     }
   ): Promise<ApiResponse<any>> => {
@@ -1068,7 +1158,7 @@ export const appUsageService = {
       const token = localStorage.getItem('accessToken');
       if (!token) return { success: false, message: 'No hay token de acceso' };
 
-      const response = await fetch(`${API_BASE_URL}/app-usage/track`, {
+      const response = await fetch(`${getApiBaseUrl()}/app-usage/track`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1090,7 +1180,7 @@ export const appUsageService = {
       const token = localStorage.getItem('accessToken');
       if (!token) return { success: false, message: 'No hay token de acceso' };
 
-      const response = await fetch(`${API_BASE_URL}/app-usage/stats?period=${period}`, {
+      const response = await fetch(`${getApiBaseUrl()}/app-usage/stats?period=${period}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -1286,7 +1376,7 @@ export const coordinadorDashboardService = {
     }
   },
 
-  calcularPrecio: async (origen: string, destino: string, coords?: { latOrigen?: number; lonOrigen?: number; latDestino?: number; lonDestino?: number }): Promise<ApiResponse<any>> => {
+  calcularPrecio: async (origen: string, destino: string, coords?: { latOrigen?: number; lonOrigen?: number; latDestino?: number; lonDestino?: number; artEmpresaId?: string }): Promise<ApiResponse<any>> => {
     try {
       const response = await api.post('/coordinator-dashboard/viajes/calcular-precio', { 
         origen, 
@@ -1294,7 +1384,8 @@ export const coordinadorDashboardService = {
         latOrigen: coords?.latOrigen,
         lonOrigen: coords?.lonOrigen,
         latDestino: coords?.latDestino,
-        lonDestino: coords?.lonDestino
+        lonDestino: coords?.lonDestino,
+        artEmpresaId: coords?.artEmpresaId
       });
       return handleApiResponse<any>(response);
     } catch (error: any) {
@@ -1632,7 +1723,7 @@ export const clienteService = {
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || error.response?.data?.error || 'Error al solicitar viaje',
+        message: formatEmergencyError(error, 'solicitar tu remís', true),
       };
     }
   },
@@ -1645,8 +1736,10 @@ export const clienteService = {
     longitudOrigen?: number,
     latitudDestino?: number,
     longitudDestino?: number,
-    paradas?: Array<{ direccion: string; lat?: number; lon?: number }>
-  ): Promise<ApiResponse<CalculoPrecioData>> => {
+    paradas?: Array<{ direccion: string; lat?: number; lon?: number }>,
+    clienteId?: string,
+    metodoPago?: string
+  ): Promise<ApiResponse<CalculoPrecioData & { esTarifaDiferenciada?: boolean }>> => {
     try {
       const response = await api.post('/cliente/viajes/calcular-precio', {
         origen,
@@ -1655,13 +1748,15 @@ export const clienteService = {
         longitudOrigen,
         latitudDestino,
         longitudDestino,
-        paradas
+        paradas,
+        clienteId,
+        metodoPago
       });
-      return handleApiResponse<CalculoPrecioData>(response);
+      return handleApiResponse<CalculoPrecioData & { esTarifaDiferenciada?: boolean }>(response);
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || error.response?.data?.error || 'Error al calcular precio',
+        message: formatEmergencyError(error, 'cotizar el viaje', true),
       };
     }
   },
@@ -1674,7 +1769,7 @@ export const clienteService = {
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || error.response?.data?.error || 'Error al crear reserva',
+        message: formatEmergencyError(error, 'confirmar tu reserva', true),
       };
     }
   },
@@ -1687,7 +1782,7 @@ export const clienteService = {
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || error.response?.data?.error || 'Error al cargar viajes',
+        message: formatEmergencyError(error, 'cargar tus viajes', false),
       };
     }
   },
@@ -1700,7 +1795,7 @@ export const clienteService = {
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || error.response?.data?.error || 'Error al cargar reservas',
+        message: formatEmergencyError(error, 'cargar tus reservas', false),
       };
     }
   },
@@ -1713,7 +1808,7 @@ export const clienteService = {
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || error.response?.data?.error || 'Error al cancelar viaje',
+        message: formatEmergencyError(error, 'cancelar el viaje', true),
       };
     }
   },
@@ -1729,7 +1824,7 @@ export const clienteService = {
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || error.response?.data?.error || 'Error al enviar calificación',
+        message: formatEmergencyError(error, 'enviar tu calificación', false),
       };
     }
   },
@@ -1745,7 +1840,7 @@ export const clienteService = {
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || error.response?.data?.error || 'Error al agregar parada',
+        message: formatEmergencyError(error, 'agregar la parada', true),
       };
     }
   },
@@ -1758,7 +1853,7 @@ export const clienteService = {
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || error.response?.data?.error || 'Error al enviar mensaje',
+        message: formatEmergencyError(error, 'enviar el mensaje', false),
       };
     }
   },
@@ -1771,7 +1866,7 @@ export const clienteService = {
     } catch (error: any) {
       return {
         success: false,
-        message: error.response?.data?.message || error.response?.data?.error || 'Error al emitir alerta SOS',
+        message: formatEmergencyError(error, 'emitir alerta SOS', true),
       };
     }
   },
@@ -1864,6 +1959,182 @@ export const clienteService = {
       };
     }
   },
+};
+
+// Servicio para gestión de ART y Facturación Corporativa
+export const artEmpresaService = {
+  getAll: async (params?: { remiseriaId?: string; activas?: boolean }): Promise<ApiResponse<ArtEmpresa[]>> => {
+    try {
+      const response = await api.get('/art-empresas', { params });
+      return handleApiResponse<ArtEmpresa[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al obtener ARTs',
+      };
+    }
+  },
+
+  getById: async (id: string): Promise<ApiResponse<ArtEmpresa>> => {
+    try {
+      const response = await api.get(`/art-empresas/${id}`);
+      return handleApiResponse<ArtEmpresa>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al obtener detalle de ART',
+      };
+    }
+  },
+
+  create: async (data: CreateArtEmpresaData): Promise<ApiResponse<ArtEmpresa>> => {
+    try {
+      const response = await api.post('/art-empresas', data);
+      return handleApiResponse<ArtEmpresa>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al crear ART',
+      };
+    }
+  },
+
+  update: async (id: string, data: UpdateArtEmpresaData): Promise<ApiResponse<ArtEmpresa>> => {
+    try {
+      const response = await api.put(`/art-empresas/${id}`, data);
+      return handleApiResponse<ArtEmpresa>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al actualizar ART',
+      };
+    }
+  },
+
+  toggleActivo: async (id: string): Promise<ApiResponse<ArtEmpresa>> => {
+    try {
+      const response = await api.patch(`/art-empresas/${id}/toggle-activo`);
+      return handleApiResponse<ArtEmpresa>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al alternar estado de ART',
+      };
+    }
+  },
+
+  delete: async (id: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.delete(`/art-empresas/${id}`);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al eliminar ART',
+      };
+    }
+  },
+
+  getFacturacion: async (params?: {
+    artEmpresaId?: string;
+    desde?: string;
+    hasta?: string;
+    estado?: string;
+    remiseriaId?: string;
+  }): Promise<ApiResponse<FacturacionArtResponse>> => {
+    try {
+      const response = await api.get('/art-empresas/facturacion', { params });
+      return handleApiResponse<FacturacionArtResponse>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al obtener reporte de facturación',
+      };
+    }
+  },
+
+  asignarViajeArt: async (
+    viajeId: string,
+    data: { artEmpresaId?: string | null; numeroSiniestro?: string; recalcularTarifa?: boolean }
+  ): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch(`/art-empresas/viajes/${viajeId}/asignar`, data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al asignar viaje a ART',
+      };
+    }
+  }
+};
+
+// Servicio exclusivo del Dueño para Clientes y Cuenta Corriente
+export const duenioClienteService = {
+  getClientes: async (params?: { q?: string; filtroCC?: string }): Promise<ApiResponse<Cliente[]>> => {
+    try {
+      const response = await api.get('/duenios/clientes/listado', { params });
+      return handleApiResponse<Cliente[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al obtener clientes',
+      };
+    }
+  },
+
+  toggleCuentaCorriente: async (
+    id: string,
+    data: {
+      habilitada?: boolean;
+      limite?: number;
+      tipoTarifa?: 'LISTA_NORMAL' | 'PERSONALIZADA';
+      tarifaValorKm?: number;
+      tarifaPrecioTramo?: number;
+      tarifaValorHoraEspera?: number;
+      pagaChoferTipo?: 'LISTA_NORMAL' | 'PERSONALIZADO';
+      choferValorKm?: number;
+      choferPrecioTramo?: number;
+      choferValorHoraEspera?: number;
+    }
+  ): Promise<ApiResponse<Cliente>> => {
+    try {
+      const response = await api.patch(`/duenios/clientes/${id}/cuenta-corriente`, data);
+      return handleApiResponse<Cliente>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al actualizar cuenta corriente',
+      };
+    }
+  },
+
+  getViajesCliente: async (id: string): Promise<ApiResponse<{ cliente: Cliente; viajes: Viaje[]; pagos?: PagoCuentaCorriente[] }>> => {
+    try {
+      const response = await api.get(`/duenios/clientes/${id}/viajes`);
+      return handleApiResponse<{ cliente: Cliente; viajes: Viaje[]; pagos?: PagoCuentaCorriente[] }>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al obtener viajes del cliente',
+      };
+    }
+  },
+
+  registrarPago: async (
+    id: string,
+    data: { monto: number; metodoPago?: string; observaciones?: string }
+  ): Promise<ApiResponse<{ cliente: Cliente; pago: PagoCuentaCorriente; esPagoParcial: boolean }>> => {
+    try {
+      const response = await api.post(`/duenios/clientes/${id}/pago`, data);
+      return handleApiResponse<{ cliente: Cliente; pago: PagoCuentaCorriente; esPagoParcial: boolean }>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al registrar abono',
+      };
+    }
+  }
 };
 
 export default api;

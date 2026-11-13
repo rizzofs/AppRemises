@@ -94,6 +94,22 @@ export interface Cliente {
   fotoUrl?: string | null;
   direccionesFrecuentes?: string | DireccionFrecuente[] | null;
   activo: boolean;
+  cuentaCorrienteHabilitada?: boolean;
+  limiteCuentaCorriente?: number;
+  saldoCuentaCorriente?: number;
+  saldoPendiente?: number;
+  tipoTarifa?: 'LISTA_NORMAL' | 'PERSONALIZADA';
+  tarifaValorKm?: number | null;
+  tarifaPrecioTramo?: number | null;
+  tarifaValorHoraEspera?: number | null;
+  pagaChoferTipo?: 'LISTA_NORMAL' | 'PERSONALIZADO';
+  choferValorKm?: number | null;
+  choferPrecioTramo?: number | null;
+  choferValorHoraEspera?: number | null;
+  totalViajes?: number;
+  viajesCompletados?: number;
+  viajesCuentaCorriente?: number;
+  ultimoViaje?: any;
   createdAt: string;
   updatedAt: string;
   userId: string;
@@ -116,7 +132,19 @@ export interface UpdateCoordinadorData {
   activo?: boolean;
 }
 
-export type MetodoPago = 'EFECTIVO' | 'TRANSFERENCIA';
+export interface PagoCuentaCorriente {
+  id: string;
+  clienteId: string;
+  monto: number;
+  saldoAnterior: number;
+  saldoRestante: number;
+  metodoPago?: string | null;
+  observaciones?: string | null;
+  fecha: string;
+  createdAt: string;
+}
+
+export type MetodoPago = 'EFECTIVO' | 'TRANSFERENCIA' | 'CUENTA_CORRIENTE';
 
 // Chofer
 export interface Chofer {
@@ -258,6 +286,15 @@ export interface Viaje {
   clienteNombre?: string;
   clienteTelefono?: string;
   clienteEmail?: string;
+  artEmpresaId?: string | null;
+  artEmpresa?: ArtEmpresa | null;
+  numeroSiniestro?: string | null;
+  precioArt?: number | null;
+  precioFacturaArt?: number;
+  pagaChofer?: number;
+  gananciaNeta?: number;
+  tiempoEsperaSegundos?: number;
+  costoEspera?: number;
   remiseria?: Remiseria;
   chofer?: Chofer;
   vehiculo?: Vehiculo;
@@ -509,7 +546,7 @@ export interface SolicitudViajeData {
   latitudDestino?: number;
   longitudDestino?: number;
   paradas?: ParadaIntermedia[];
-  metodoPago?: 'EFECTIVO' | 'TRANSFERENCIA';
+  metodoPago?: 'EFECTIVO' | 'TRANSFERENCIA' | 'CUENTA_CORRIENTE';
   pagaCon?: number;
 }
 
@@ -640,4 +677,86 @@ export interface LiquidacionPendienteResumen {
     combustible: number;
     gananciaPropietario: number;
   };
-} 
+}
+
+// ART y Empresas (Tarifas Corporativas)
+export interface ArtEmpresa {
+  id: string;
+  nombre: string;
+  cuit?: string | null;
+  razonSocial?: string | null;
+  telefono?: string | null;
+  email?: string | null;
+  direccion?: string | null;
+  valorKm: number;
+  precioTramo: number;
+  valorHoraEspera: number;
+  pagaChoferTipo?: 'LISTA_NORMAL' | 'PERSONALIZADO';
+  choferValorKm?: number | null;
+  choferPrecioTramo?: number | null;
+  choferValorHoraEspera?: number | null;
+  activo: boolean;
+  observaciones?: string | null;
+  remiseriaId: string;
+  createdAt?: string;
+  updatedAt?: string;
+  totalViajes?: number;
+  viajesCompletados?: number;
+  totalFacturado?: number;
+  totalPagaChofer?: number;
+  gananciaEstimada?: number;
+  totalKm?: number;
+  totalEsperaMinutos?: number;
+  totalCostoEspera?: number;
+}
+
+export interface CreateArtEmpresaData {
+  nombre: string;
+  cuit?: string;
+  razonSocial?: string;
+  telefono?: string;
+  email?: string;
+  direccion?: string;
+  valorKm: number;
+  precioTramo: number;
+  valorHoraEspera: number;
+  pagaChoferTipo?: 'LISTA_NORMAL' | 'PERSONALIZADO';
+  choferValorKm?: number;
+  choferPrecioTramo?: number;
+  choferValorHoraEspera?: number;
+  observaciones?: string;
+  activo?: boolean;
+  remiseriaId?: string;
+}
+
+export interface UpdateArtEmpresaData extends Partial<CreateArtEmpresaData> {}
+
+export interface FacturacionArtResumen {
+  totalViajes: number;
+  totalFacturado: number;
+  totalPagaChofer?: number;
+  totalGanancia?: number;
+  totalKm: number;
+  totalEsperaMinutos: number;
+  totalCostoEspera: number;
+  promedioPorViaje: number;
+}
+
+export interface FacturacionPorArtItem {
+  artEmpresa: ArtEmpresa;
+  totalViajes: number;
+  totalFacturado: number;
+  totalPagaChofer?: number;
+  totalGanancia?: number;
+  totalKm: number;
+  totalEsperaMinutos: number;
+  totalCostoEspera: number;
+  viajes: any[];
+}
+
+export interface FacturacionArtResponse {
+  resumen: FacturacionArtResumen;
+  porArt: FacturacionPorArtItem[];
+  viajes: any[];
+}
+ 

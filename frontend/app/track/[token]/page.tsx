@@ -18,6 +18,7 @@ import {
   Check
 } from 'lucide-react';
 import { clienteService } from '@/lib/api';
+import LogoBruno from '@/components/LogoBruno';
 import { toast } from 'react-hot-toast';
 
 export default function TrackViajePage() {
@@ -61,7 +62,7 @@ export default function TrackViajePage() {
   // WebSocket para tracking GPS en tiempo real
   useEffect(() => {
     if (!viaje?.remiseria?.id) return;
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:3001';
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || (typeof window !== 'undefined' ? `http://${window.location.hostname}:3001` : 'http://localhost:3001');
     const socket: Socket = io(socketUrl, {
       transports: ['websocket'],
       withCredentials: true,
@@ -172,10 +173,8 @@ export default function TrackViajePage() {
       {/* HEADER DE SEGURIDAD */}
       <header className="bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-800 py-3.5 px-4 sticky top-0 z-30 shadow-xs">
         <div className="max-w-lg mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="p-2 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-xl">
-              <ShieldCheck className="w-5 h-5" />
-            </div>
+          <div className="flex items-center gap-2.5">
+            <LogoBruno size={36} />
             <div>
               <h1 className="font-bold text-sm text-slate-900 dark:text-white leading-tight">
                 {viaje.remiseria?.nombreFantasia || 'Remises Bruno'}

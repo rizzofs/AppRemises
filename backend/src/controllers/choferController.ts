@@ -1533,7 +1533,8 @@ export const choferController = {
 
       // Notificar por WebSockets a la sala de la remisería
       try {
-        const { getIO } = await import('../lib/socket');
+        const { getIO, invalidarChoferCache } = await import('../lib/socket');
+        invalidarChoferCache(chofer.id);
         const io = getIO();
         if (io && chofer.remiseriaId) {
           const estadoVehiculo = enPausa ? 'en_pausa' : 'disponible';
@@ -1625,20 +1626,33 @@ export const choferController = {
         });
       }
 
-      if (viaje.estado !== 'PENDIENTE' && viaje.choferId !== chofer.id) {
-        return res.status(400).json({
-          success: false,
-          message: 'Este viaje ya fue tomado por otro conductor',
-        });
-      }
-
-      const viajeActualizado = await prisma.viaje.update({
-        where: { id: viajeId },
+      // ATOMIC UPDATE (Blindaje Concurrencia QA):
+      // Garantiza a nivel de PostgreSQL que si dos choferes aceptan en el mismo milisegundo,
+      // solo uno gane el viaje y se evite la doble asignación (Race Condition).
+      const updateResult = await prisma.viaje.updateMany({
+        where: {
+          id: viajeId,
+          OR: [
+            { estado: 'PENDIENTE' },
+            { choferId: chofer.id }
+          ]
+        },
         data: {
           choferId: chofer.id,
           vehiculoId: chofer.vehiculoId || viaje.vehiculoId || null,
           estado: 'ACEPTADO',
         },
+      });
+
+      if (updateResult.count === 0) {
+        return res.status(409).json({
+          success: false,
+          message: 'Este viaje ya fue tomado por otro conductor',
+        });
+      }
+
+      const viajeActualizado = await prisma.viaje.findUnique({
+        where: { id: viajeId },
         include: {
           cliente: {
             select: {
@@ -1695,6 +1709,13 @@ export const choferController = {
         },
       });
 
+      if (!viajeActualizado) {
+        return res.status(500).json({
+          success: false,
+          message: 'Error al recuperar el viaje actualizado',
+        });
+      }
+
       // Al tomar el viaje, sale de la Tabla y limpiamos la oferta activa y cualquier otra oferta apuntando a este chofer
       ofertasViajesMap.delete(viajeId);
       for (const st of ofertasViajesMap.values()) {
@@ -1712,7 +1733,8 @@ export const choferController = {
       });
 
       try {
-        const { getIO } = await import('../lib/socket');
+        const { getIO, invalidarChoferCache } = await import('../lib/socket');
+        invalidarChoferCache(chofer.id);
         const io = getIO();
         if (io && viaje.remiseriaId) {
           io.to(viaje.remiseriaId).emit('parada_virtual_actualizada', {
@@ -1955,6 +1977,13 @@ export const choferController = {
         },
       });
 
+      if (!viajeActualizado) {
+        return res.status(500).json({
+          success: false,
+          message: 'Error al recuperar el viaje actualizado',
+        });
+      }
+
       // Si el viaje se completa o avanza y trae distancias, acumular al turno activo del chofer
       const choferId = viaje.choferId;
       if (choferId && ((distCon && distCon > 0) || (distSin && distSin > 0))) {
@@ -1986,6 +2015,22 @@ export const choferController = {
             paradaVirtualIngreso: new Date(),
           },
         });
+      }
+
+      // Si el viaje finalizado es en Cuenta Corriente, sumamos al saldo adeudado del cliente
+      if (estado === 'COMPLETADO' && viaje.clienteId && viajeActualizado.metodoPago === 'CUENTA_CORRIENTE') {
+        try {
+          await prisma.cliente.update({
+            where: { id: viaje.clienteId },
+            data: {
+              saldoCuentaCorriente: {
+                increment: Number(viajeActualizado.precio || 0)
+              }
+            }
+          });
+        } catch (errCC) {
+          console.warn('Aviso incrementando saldo cuenta corriente:', errCC);
+        }
       }
 
       // Emitir evento por socket para notificar al cliente y coordinador en tiempo real
@@ -2158,7 +2203,8 @@ export const choferController = {
       });
 
       try {
-        const { getIO } = await import('../lib/socket');
+        const { getIO, invalidarChoferCache } = await import('../lib/socket');
+        if (updatedViaje.choferId) invalidarChoferCache(updatedViaje.choferId);
         const io = getIO();
         io.to(viaje.remiseriaId).emit('parada_agregada', {
           viajeId,
@@ -3946,7 +3992,8 @@ export const choferController = {
 
       // Notificar a la sala de la remisería
       try {
-        const { getIO } = await import('../lib/socket');
+        const { getIO, invalidarChoferCache } = await import('../lib/socket');
+        invalidarChoferCache(chofer.id);
         const io = getIO();
         if (io && chofer.remiseriaId) {
           io.to(chofer.remiseriaId).emit('parada_virtual_actualizada', {
@@ -4021,7 +4068,8 @@ export const choferController = {
 
       // Notificar por WebSocket
       try {
-        const { getIO } = await import('../lib/socket');
+        const { getIO, invalidarChoferCache } = await import('../lib/socket');
+        invalidarChoferCache(chofer.id);
         const io = getIO();
         if (io && chofer.remiseriaId) {
           io.to(chofer.remiseriaId).emit('parada_virtual_actualizada', {
@@ -4197,7 +4245,8 @@ export const choferController = {
 
       // Notificar por WebSocket al coordinador y a la remisería
       try {
-        const { getIO } = await import('../lib/socket');
+        const { getIO, invalidarChoferCache } = await import('../lib/socket');
+        invalidarChoferCache(chofer.id);
         const io = getIO();
         if (io && chofer.remiseriaId) {
           io.to(chofer.remiseriaId).emit('nuevo_viaje', nuevoViaje);
