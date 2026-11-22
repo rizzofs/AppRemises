@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { AuthenticatedRequest } from '../types';
+import { emitirAlertaDocumentacionSiCorresponde, evaluarDocumentacionChoferYVehiculo } from '../services/documentacionService';
 
 
 export const vehiculoController = {
@@ -218,7 +219,8 @@ export const vehiculoController = {
         vtoMatafuego, 
         vtoSeguro, 
         observaciones, 
-        remiseriaId 
+        remiseriaId,
+        choferId
       } = req.body;
 
       // Validar campos requeridos
@@ -322,17 +324,45 @@ export const vehiculoController = {
             userId: req.user.id,
             userEmail: req.user.email,
             action: 'CREATE_VEHICULO',
-            details: JSON.stringify({ vehiculoId: vehiculo.id, patente: vehiculo.patente, modelo: `${vehiculo.marca} ${vehiculo.modelo}` }),
+            details: JSON.stringify({ vehiculoId: vehiculo.id, patente: vehiculo.patente, modelo: `${vehiculo.marca} ${vehiculo.modelo}`, choferId }),
             ipAddress: req.ip,
             userAgent: req.get('User-Agent') || null
           }
         });
       }
 
+      // Si se asignó un chofer al dar de alta el vehículo, vincularlo y evaluar documentación
+      let vehiculoFinal = vehiculo;
+      let resumenDocumentacion = null;
+
+      if (choferId) {
+        await prisma.chofer.update({
+          where: { id: choferId },
+          data: { vehiculoId: vehiculo.id }
+        });
+
+        // Re-obtener vehículo con choferes actualizados
+        const vActualizado = await prisma.vehiculo.findUnique({
+          where: { id: vehiculo.id },
+          include: {
+            remiseria: { select: { id: true, nombreFantasia: true } },
+            choferes: { select: { id: true, numeroChofer: true, nombre: true, apellido: true } }
+          }
+        });
+        if (vActualizado) vehiculoFinal = vActualizado;
+
+        // Disparar evaluación y alerta WebSocket en la app del chofer
+        resumenDocumentacion = await emitirAlertaDocumentacionSiCorresponde(choferId, remiseriaId);
+      }
+
       res.status(201).json({
         success: true,
-        data: vehiculo,
-        message: 'Vehículo creado exitosamente',
+        data: vehiculoFinal,
+        resumenDocumentacion,
+        alertasVencimiento: resumenDocumentacion?.alertas || [],
+        message: resumenDocumentacion?.tieneAlertas
+          ? `Vehículo creado exitosamente. Se alertó al chofer en la app sobre ${resumenDocumentacion.cantidadAlertas} documento(s) por vencer o vencido(s).`
+          : 'Vehículo creado exitosamente',
       });
     } catch (error) {
       console.error('Error creating vehiculo:', error);
@@ -360,7 +390,8 @@ export const vehiculoController = {
         vtoMatafuego, 
         vtoSeguro, 
         observaciones, 
-        estado 
+        estado,
+        choferId
       } = req.body;
 
       // Verificar que el vehículo existe
@@ -457,6 +488,46 @@ export const vehiculoController = {
         },
       });
 
+      // Si se especificó o reasignó chofer, vincularlo
+      if (choferId) {
+        await prisma.chofer.update({
+          where: { id: choferId },
+          data: { vehiculoId: vehiculo.id }
+        });
+      }
+
+      // Evaluar y notificar vencimientos en la app del chofer si se modificaron fechas o se asignó chofer
+      const choferesAsignados = await prisma.chofer.findMany({
+        where: { vehiculoId: vehiculo.id },
+        select: { id: true }
+      });
+
+      let resumenDocs = null;
+      for (const ch of choferesAsignados) {
+        resumenDocs = await emitirAlertaDocumentacionSiCorresponde(ch.id, existingVehiculo.remiseriaId);
+      }
+
+      // Re-obtener vehículo actualizado con choferes
+      const vehiculoActualizado = await prisma.vehiculo.findUnique({
+        where: { id },
+        include: {
+          remiseria: {
+            select: {
+              id: true,
+              nombreFantasia: true,
+            },
+          },
+          choferes: {
+            select: {
+              id: true,
+              numeroChofer: true,
+              nombre: true,
+              apellido: true,
+            },
+          },
+        },
+      });
+
       // Registrar log de auditoría
       if (req.user) {
         await prisma.appUsage.create({
@@ -473,7 +544,9 @@ export const vehiculoController = {
 
       res.json({
         success: true,
-        data: vehiculo,
+        data: vehiculoActualizado || vehiculo,
+        resumenDocumentacion: resumenDocs,
+        alertasVencimiento: resumenDocs?.alertas || [],
         message: 'Vehículo actualizado exitosamente',
       });
     } catch (error) {

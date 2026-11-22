@@ -28,9 +28,11 @@ import {
   PagoCuentaCorriente,
   Viaje,
   ArtEmpresa,
+  ResumenDocumentacion,
   CreateArtEmpresaData,
   UpdateArtEmpresaData,
-  FacturacionArtResponse
+  FacturacionArtResponse,
+  CrearViajeArtData
 } from '@/types';
 
 export const getApiBaseUrl = (): string => {
@@ -617,10 +619,10 @@ export const choferService = {
     }
   },
 
-  getMiEstado: async (choferId?: string): Promise<ApiResponse<{ chofer: any; viajeActual: any; viajesDisponibles: any[]; viajeEnColaTabla?: any; turnoActivo?: any; enPausa?: boolean; motivoPausa?: string | null; pausaInicio?: string | null; puestoEnTabla?: number | null; totalEnTabla?: number }>> => {
+  getMiEstado: async (choferId?: string): Promise<ApiResponse<{ chofer: any; viajeActual: any; viajesDisponibles: any[]; viajesProgramados?: any[]; viajeEnColaTabla?: any; turnoActivo?: any; enPausa?: boolean; motivoPausa?: string | null; pausaInicio?: string | null; puestoEnTabla?: number | null; totalEnTabla?: number; documentacion?: ResumenDocumentacion }>> => {
     try {
       const response = await api.get('/choferes/mi-estado', { params: choferId ? { choferId } : undefined });
-      return handleApiResponse<{ chofer: any; viajeActual: any; viajesDisponibles: any[]; viajeEnColaTabla?: any; turnoActivo?: any; enPausa?: boolean; motivoPausa?: string | null; pausaInicio?: string | null; puestoEnTabla?: number | null; totalEnTabla?: number }>(response);
+      return handleApiResponse<{ chofer: any; viajeActual: any; viajesDisponibles: any[]; viajesProgramados?: any[]; viajeEnColaTabla?: any; turnoActivo?: any; enPausa?: boolean; motivoPausa?: string | null; pausaInicio?: string | null; puestoEnTabla?: number | null; totalEnTabla?: number; documentacion?: ResumenDocumentacion }>(response);
     } catch (error: any) {
       return {
         success: false,
@@ -673,6 +675,9 @@ export const choferService = {
       distanciaKmSinPasajero?: number;
       metodoPago?: 'EFECTIVO' | 'TRANSFERENCIA' | 'CUENTA_CORRIENTE';
       precioFinal?: number;
+      pin?: string;
+      montoPeajes?: number;
+      observacionesPeaje?: string;
     }
   ): Promise<ApiResponse<any>> => {
     try {
@@ -752,7 +757,14 @@ export const choferService = {
     }
   },
 
-  updateMiPerfil: async (data: { vehiculoId?: string | null; fotoUrl?: string | null }): Promise<ApiResponse<any>> => {
+  updateMiPerfil: async (data: {
+    vehiculoId?: string | null;
+    fotoUrl?: string | null;
+    vtoLicencia?: string | null;
+    vtoSeguro?: string | null;
+    vtoVtv?: string | null;
+    vtoMatafuego?: string | null;
+  }): Promise<ApiResponse<any>> => {
     try {
       const response = await api.patch('/choferes/mi-perfil', data);
       return handleApiResponse<any>(response);
@@ -2064,6 +2076,207 @@ export const artEmpresaService = {
       return {
         success: false,
         message: error.response?.data?.message || error.response?.data?.error || 'Error al asignar viaje a ART',
+      };
+    }
+  },
+
+  crearViajeArt: async (data: CrearViajeArtData): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/art-empresas/viajes/programar', data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al crear y asignar viaje de ART',
+      };
+    }
+  },
+
+  getViajesProgramados: async (params?: { estado?: string; fechaDesde?: string; choferId?: string }): Promise<ApiResponse<any[]>> => {
+    try {
+      const response = await api.get('/art-empresas/viajes/programados', { params });
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al obtener viajes de ART programados',
+      };
+    }
+  },
+
+  // 1. Reasignar chofer por avería antes de salir
+  reasignarChofer: async (viajeId: string, data: { nuevoChoferId: string; motivo?: string }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch(`/art-empresas/viajes/${viajeId}/reasignar-chofer`, data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al reasignar chofer',
+      };
+    }
+  },
+
+  // 2. Auxilio mecánico y trasbordo en viaje (rotura de vehículo en recorrido)
+  auxilioMecanico: async (viajeId: string, data: {
+    nuevoChoferId: string;
+    puntoTrasbordo: string;
+    kmChoferInicial?: number;
+    pagaChoferInicial?: number;
+    observaciones?: string;
+  }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post(`/art-empresas/viajes/${viajeId}/auxilio-mecanico`, data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al registrar auxilio mecánico',
+      };
+    }
+  },
+
+  // 3. Modificar o anular número de siniestro por error de tipeo de la ART
+  modificarSiniestro: async (viajeId: string, data: { nuevoNumeroSiniestro: string; motivo?: string }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch(`/art-empresas/viajes/${viajeId}/siniestro`, data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al actualizar siniestro',
+      };
+    }
+  },
+
+  anularSiniestro: async (viajeId: string, data: { motivo?: string; numeroSiniestroNuevo?: string }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post(`/art-empresas/viajes/${viajeId}/anular-siniestro`, data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al anular siniestro',
+      };
+    }
+  },
+
+  // 4. Coordinación y contacto con el paciente (confirmado, desistimiento, etc.)
+  actualizarCoordinacionPaciente: async (viajeId: string, data: {
+    estadoCoordinacion: 'PENDIENTE_CONTACTO' | 'CONFIRMADO' | 'RECHAZADO_POR_PACIENTE' | 'NO_RESPONDE';
+    motivoRechazo?: string;
+    observaciones?: string;
+  }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch(`/art-empresas/viajes/${viajeId}/coordinacion-paciente`, data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al actualizar coordinación',
+      };
+    }
+  },
+
+  // 5. Período actual de facturación de la ART (semanal, quincenal, mensual)
+  getPeriodoActual: async (artId: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.get(`/art-empresas/${artId}/periodo-actual`);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al obtener período de ART',
+      };
+    }
+  },
+
+  // 6. Peajes pagados por el chofer
+  actualizarPeajes: async (viajeId: string, data: { montoPeajes: number; observacionesPeaje?: string }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch(`/art-empresas/viajes/${viajeId}/peajes`, data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al actualizar peajes',
+      };
+    }
+  },
+
+  // 7. Cierres de facturación y control riguroso de cobranzas
+  getCierresFacturacion: async (params?: { artEmpresaId?: string; estado?: string }): Promise<ApiResponse<any[]>> => {
+    try {
+      const response = await api.get('/art-empresas/cierres/listar', { params });
+      return handleApiResponse<any[]>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al obtener cierres de facturación',
+      };
+    }
+  },
+
+  generarCierreFacturacion: async (data: {
+    artEmpresaId: string;
+    fechaDesde: string;
+    fechaHasta: string;
+    periodoTipo?: string;
+    observaciones?: string;
+  }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/art-empresas/cierres/generar', data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al generar cierre de facturación',
+      };
+    }
+  },
+
+  registrarFacturaCierre: async (id: string, data: {
+    numeroFactura: string;
+    fechaEmision?: string;
+    fechaEnvioFactura?: string;
+    observaciones?: string;
+  }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch(`/art-empresas/cierres/${id}/factura`, data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al registrar factura',
+      };
+    }
+  },
+
+  marcarCierreCobrado: async (id: string, data: {
+    fechaCobro?: string;
+    metodoCobro?: string;
+    comprobanteCobroUrl?: string;
+    observaciones?: string;
+  }): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.patch(`/art-empresas/cierres/${id}/cobro`, data);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al registrar cobro',
+      };
+    }
+  },
+
+  anularCierreFacturacion: async (id: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.delete(`/art-empresas/cierres/${id}`);
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || error.response?.data?.error || 'Error al anular cierre',
       };
     }
   }

@@ -383,6 +383,7 @@ export default function CoordinadorDashboard() {
           artEmpresa: v.artEmpresa,
           artEmpresaId: v.artEmpresaId,
           numeroSiniestro: v.numeroSiniestro,
+          codigoPin: v.codigoPin,
           rawFecha: v.fecha,
           rawViaje: v
         };
@@ -400,6 +401,7 @@ export default function CoordinadorDashboard() {
       if (reservasRes.success && reservasRes.data) {
         setReservas(reservasRes.data.map((r: any) => {
           const formattedDate = new Date(r.fechaInicio).toLocaleDateString();
+          const isArt = Boolean(r.isViajeArt || r.tipo === 'ART_PROGRAMADO');
           return {
             id: r.id,
             cliente: r.clienteNombre,
@@ -408,7 +410,13 @@ export default function CoordinadorDashboard() {
             destino: r.destino,
             fecha: formattedDate,
             hora: r.horaInicio,
-            tipo: r.tipo === 'PERIODICA' ? 'Periódica' : 'Única'
+            horaSalidaChofer: r.horaSalidaChofer,
+            horaTurno: r.horaTurno,
+            isViajeArt: isArt,
+            artNombre: r.artEmpresa?.nombre,
+            numeroSiniestro: r.numeroSiniestro,
+            chofer: r.chofer,
+            tipo: isArt ? 'ART Programado' : (r.tipo === 'PERIODICA' ? 'Periódica' : 'Única')
           };
         }));
       }
@@ -575,6 +583,42 @@ export default function CoordinadorDashboard() {
     });
 
     socket.on('parada_virtual_actualizada', () => {
+      fetchData();
+    });
+
+    // Notificación en vivo de Viaje ART asignado por el Dueño
+    socket.on('movil_no_disponible_programado', (data: any) => {
+      try {
+        const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+        if (AudioContextClass) {
+          const ctx = new AudioContextClass();
+          const now = ctx.currentTime;
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(440, now);
+          osc.frequency.setValueAtTime(554.37, now + 0.15);
+          gain.gain.setValueAtTime(0.3, now);
+          gain.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now);
+          osc.stop(now + 0.5);
+        }
+      } catch {}
+
+      toast(
+        `🏢 ¡VIAJE DE ART ASIGNADO POR EL DUEÑO!\n🚕 Chofer: ${data.choferNombre || 'Chofer'} (Móvil #${data.numeroChofer || ''} - ${data.patente || ''})\n🚗 Salida Chofer: ${data.horaSalidaChofer || '08:00'} hs | 🏥 Turno: ${data.horaTurno || '10:00'} hs\n⚠️ ESTE MÓVIL NO ESTARÁ DISPONIBLE EN ESA FRANJA.`,
+        {
+          duration: 9000,
+          icon: '🏢',
+          style: { background: '#0f172a', color: '#38bdf8', fontWeight: 'bold' }
+        }
+      );
+      fetchData();
+    });
+
+    socket.on('viaje_programado_art_asignado', () => {
       fetchData();
     });
 
@@ -1709,6 +1753,11 @@ export default function CoordinadorDashboard() {
                                       ART: {viaje.artEmpresa.nombre}
                                     </span>
                                   )}
+                                  {viaje.codigoPin && (
+                                    <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-mono font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0" title="Código PIN dictado al chofer para abordar">
+                                      PIN: {viaje.codigoPin}
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="text-xs text-gray-500 flex items-center space-x-1.5 mt-0.5">
                                   <span className="truncate">{viaje.telefono}</span>
@@ -1865,6 +1914,11 @@ export default function CoordinadorDashboard() {
                                       ART: {viaje.artEmpresa.nombre}
                                     </span>
                                   )}
+                                  {viaje.codigoPin && (
+                                    <span className="ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-mono font-black bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0" title="Código PIN dictado al chofer para abordar">
+                                      PIN: {viaje.codigoPin}
+                                    </span>
+                                  )}
                                 </div>
                                 <div className="text-xs text-gray-500 truncate mt-0.5">{viaje.telefono}</div>
                               </td>
@@ -1959,19 +2013,52 @@ export default function CoordinadorDashboard() {
                           </tr>
                         ) : (
                           filteredReservas.map((reserva) => (
-                            <tr key={reserva.id} className="hover:bg-gray-50 transition-colors">
+                            <tr key={reserva.id} className={`hover:bg-gray-50 transition-colors ${reserva.isViajeArt ? 'bg-amber-50/40 border-l-4 border-l-amber-500' : ''}`}>
                               <td className="px-3 sm:px-4 py-3 font-medium text-gray-900 text-xs sm:text-sm">
                                 <div>{reserva.cliente}</div>
-                                <div className="text-xs text-gray-500">{reserva.telefono}</div>
+                                {reserva.telefono && <div className="text-xs text-gray-500">{reserva.telefono}</div>}
+                                {reserva.isViajeArt && (
+                                  <div className="text-[11px] font-bold text-blue-700 mt-0.5">
+                                    🏢 {reserva.artNombre || 'ART'} {reserva.numeroSiniestro ? `(Sin: ${reserva.numeroSiniestro})` : ''}
+                                  </div>
+                                )}
                               </td>
                               <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm text-gray-900">{reserva.origen}</td>
                               <td className="px-3 sm:px-4 py-3 text-xs sm:text-sm text-gray-900">{reserva.destino}</td>
                               <td className="px-3 sm:px-4 py-3 text-xs text-gray-600">{reserva.fecha}</td>
-                              <td className="px-3 sm:px-4 py-3 text-xs font-mono text-gray-600">{reserva.hora}</td>
+                              <td className="px-3 sm:px-4 py-3 text-xs font-mono">
+                                {reserva.isViajeArt ? (
+                                  <div className="flex flex-col gap-1">
+                                    <span className="font-black text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300 inline-block w-fit">
+                                      🚗 Salida: {reserva.horaSalidaChofer || reserva.hora} hs
+                                    </span>
+                                    {reserva.horaTurno && (
+                                      <span className="font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded border border-emerald-300 inline-block w-fit">
+                                        🏥 Turno: {reserva.horaTurno} hs
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-gray-600">{reserva.hora}</span>
+                                )}
+                              </td>
                               <td className="px-3 sm:px-4 py-3">
-                                <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                                  {reserva.tipo}
-                                </span>
+                                {reserva.isViajeArt ? (
+                                  <div className="flex flex-col gap-1">
+                                    <span className="inline-flex px-2 py-0.5 text-[11px] font-black rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 w-fit">
+                                      🏢 ART Asignado
+                                    </span>
+                                    {reserva.chofer && (
+                                      <span className="text-[11px] font-bold text-purple-700 bg-purple-50 px-1.5 py-0.5 rounded border border-purple-200 w-fit">
+                                        Móvil #{reserva.chofer.numeroChofer || ''} {reserva.chofer.nombre}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="inline-flex px-2 py-0.5 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                                    {reserva.tipo}
+                                  </span>
+                                )}
                               </td>
                             </tr>
                           ))
@@ -2036,6 +2123,25 @@ export default function CoordinadorDashboard() {
                               📍 Esperando en Parada Base (FIFO)
                             </div>
                           ) : null}
+
+                          {chofer.proximoViajeArt && (
+                            <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 mt-2 space-y-1">
+                              <div className="flex items-center justify-between text-[11px] font-black text-amber-900">
+                                <span className="flex items-center gap-1">
+                                  <span>⚠️</span> COMPROMETIDO ART
+                                </span>
+                                <span className="bg-amber-200/80 px-1.5 py-0.5 rounded text-amber-950 font-black">
+                                  Salida: {chofer.proximoViajeArt.horaSalidaChofer} hs
+                                </span>
+                              </div>
+                              <div className="text-[10px] text-amber-800">
+                                🏢 {chofer.proximoViajeArt.artNombre} • Turno: {chofer.proximoViajeArt.horaTurno} hs
+                              </div>
+                              <div className="text-[10px] font-bold text-red-600">
+                                🚫 MÓVIL NO DISPONIBLE
+                              </div>
+                            </div>
+                          )}
                         </div>
                         <button
                           type="button"
@@ -3584,9 +3690,32 @@ export default function CoordinadorDashboard() {
                     <option key={c.id} value={c.id}>
                       {c.nombre} {c.apellido} — {c.vehiculo?.patente || 'Auto propio'} ({c.estado || 'Disponible'})
                       {c.enParadaVirtual ? ' [En Base]' : ''}
+                      {c.proximoViajeArt ? ` [⚠️ ART Salida: ${c.proximoViajeArt.horaSalidaChofer}hs - NO DISPONIBLE]` : ''}
                     </option>
                   ))}
                 </select>
+                {(() => {
+                  const choferSeleccionado = choferesParaAsignar.find((c: any) => c.id === selectedChoferId);
+                  if (choferSeleccionado?.proximoViajeArt) {
+                    return (
+                      <div className="p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-900 text-xs space-y-1 mt-2">
+                        <div className="font-bold flex items-center gap-1.5 text-amber-950">
+                          <span>⚠️</span> ATENCIÓN COORDINADOR: MÓVIL COMPROMETIDO POR ART
+                        </div>
+                        <div>
+                          Este chofer tiene asignado un viaje de <strong>{choferSeleccionado.proximoViajeArt.artNombre}</strong>.
+                        </div>
+                        <div className="font-semibold text-amber-900">
+                          🚗 Salida del Chofer: <strong>{choferSeleccionado.proximoViajeArt.horaSalidaChofer} hs</strong> | 🏥 Turno: <strong>{choferSeleccionado.proximoViajeArt.horaTurno} hs</strong>
+                        </div>
+                        <p className="text-[11px] text-red-600 font-bold">
+                          Asegúrese de no asignar viajes que impidan al chofer salir puntual a las {choferSeleccionado.proximoViajeArt.horaSalidaChofer} hs.
+                        </p>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
               </div>
 
               <div>

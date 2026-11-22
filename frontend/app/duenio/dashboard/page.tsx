@@ -84,10 +84,16 @@ export default function DuenioDashboard() {
     } finally {
       setLoading(false);
       setRefreshing(false);
+      if (typeof window !== 'undefined') {
+        window.scrollTo(0, 0);
+      }
     }
   }, [user, selectedRemiseriaId]);
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.scrollTo(0, 0);
+    }
     if (!user || user.rol !== 'DUENIO') {
       router.push('/login');
       return;

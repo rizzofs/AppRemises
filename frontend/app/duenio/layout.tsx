@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
@@ -33,6 +33,23 @@ export default function DuenioLayout({
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
+
+  // Evitar saltos de scroll indeseados al entrar o navegar entre secciones
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'scrollRestoration' in window.history) {
+      window.history.scrollRestoration = 'manual';
+    }
+  }, []);
+
+  useEffect(() => {
+    if (mainRef.current) {
+      mainRef.current.scrollTop = 0;
+    }
+    if (typeof window !== 'undefined') {
+      window.scrollTo(0, 0);
+    }
+  }, [pathname]);
 
   const navigation = [
     { name: 'Dashboard', href: '/duenio/dashboard', icon: LayoutDashboard },
@@ -54,7 +71,7 @@ export default function DuenioLayout({
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="h-screen h-[100dvh] bg-slate-50 flex overflow-hidden">
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div 
@@ -65,12 +82,12 @@ export default function DuenioLayout({
 
       {/* Sidebar */}
       <div className={`
-        fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-slate-200 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:flex-shrink-0
+        fixed inset-y-0 left-0 z-50 w-72 h-full bg-white border-r border-slate-200 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:flex-shrink-0
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
         <div className="h-full flex flex-col">
           {/* Sidebar Header */}
-          <div className="h-20 flex items-center px-6 border-b border-slate-100">
+          <div className="h-20 flex items-center px-6 border-b border-slate-100 shrink-0">
             <Link href="/duenio/dashboard" className="flex items-center gap-3">
               <LogoBruno size={40} />
               <div className="flex flex-col">
@@ -105,7 +122,7 @@ export default function DuenioLayout({
           </nav>
 
           {/* Sidebar Footer (User Info) */}
-          <div className="p-4 border-t border-slate-100">
+          <div className="p-4 border-t border-slate-100 shrink-0">
             <div className="flex items-center gap-3 px-3 py-3 rounded-xl bg-slate-50 border border-slate-100">
               <div className="w-10 h-10 rounded-full bg-primary-100 text-primary-700 flex items-center justify-center font-bold text-sm flex-shrink-0">
                 {user?.duenio?.nombre?.charAt(0).toUpperCase() || 'D'}
@@ -131,9 +148,9 @@ export default function DuenioLayout({
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden">
         {/* Topbar - Compact on mobile like a native app header */}
-        <header className="h-14 sm:h-16 lg:h-20 bg-white/90 backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 flex items-center justify-between px-4 sm:px-6 lg:px-8">
+        <header className="h-14 sm:h-16 lg:h-20 bg-white/90 backdrop-blur-md border-b border-slate-200 shrink-0 z-30 flex items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-2">
             {/* Mobile Brand / App Identity */}
             <div className="flex items-center gap-2 lg:hidden">
@@ -171,7 +188,7 @@ export default function DuenioLayout({
         </header>
 
         {/* Page Content with bottom padding for mobile bar */}
-        <main className="flex-1 overflow-y-auto bg-slate-50/50 pb-24 lg:pb-8">
+        <main ref={mainRef} className="flex-1 overflow-y-auto bg-slate-50/50 pb-24 lg:pb-8">
           <div className="max-w-7xl mx-auto p-3 sm:p-6 lg:p-8">
             {children}
           </div>

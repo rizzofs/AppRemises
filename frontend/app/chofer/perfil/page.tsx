@@ -21,9 +21,13 @@ import {
   Check,
   Upload,
   AlertCircle,
+  ShieldAlert,
+  Edit3,
+  Calendar,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { Vehiculo } from '@/types';
+import { evaluarDocumentacionClient, getDocumentoBadgeClasses } from '@/lib/documentacionUtils';
 
 export default function ChoferPerfilPage() {
   const { user, updateUser } = useAuth();
@@ -43,6 +47,72 @@ export default function ChoferPerfilPage() {
   const [fotoUrlInput, setFotoUrlInput] = useState<string>('');
   const [guardandoFoto, setGuardandoFoto] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Modal para Cargar / Actualizar Vencimientos de Documentación
+  const [modalDocumentacion, setModalDocumentacion] = useState(false);
+  const [docForm, setDocForm] = useState({
+    vtoLicencia: '',
+    vtoSeguro: '',
+    vtoVtv: '',
+    vtoMatafuego: '',
+  });
+  const [guardandoDoc, setGuardandoDoc] = useState(false);
+
+  const toInputDate = (dateVal?: string | Date | null) => {
+    if (!dateVal) return '';
+    if (typeof dateVal === 'string') {
+      const m = dateVal.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (m) return m[1];
+    }
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return '';
+    return d.toISOString().split('T')[0];
+  };
+
+  const abrirModalDocumentacion = () => {
+    setDocForm({
+      vtoLicencia: toInputDate(user?.chofer?.vtoLicencia),
+      vtoSeguro: toInputDate(user?.chofer?.vehiculo?.vtoSeguro),
+      vtoVtv: toInputDate(user?.chofer?.vehiculo?.vtoVtv),
+      vtoMatafuego: toInputDate(user?.chofer?.vehiculo?.vtoMatafuego),
+    });
+    setModalDocumentacion(true);
+  };
+
+  const handleGuardarDocumentacion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      setGuardandoDoc(true);
+      const res = await choferService.updateMiPerfil({
+        vtoLicencia: docForm.vtoLicencia || null,
+        vtoSeguro: docForm.vtoSeguro || null,
+        vtoVtv: docForm.vtoVtv || null,
+        vtoMatafuego: docForm.vtoMatafuego || null,
+      });
+
+      if (res.success && res.data) {
+        if (user && user.chofer) {
+          updateUser({
+            ...user,
+            chofer: {
+              ...user.chofer,
+              ...res.data,
+              vehiculo: res.data.vehiculo || user.chofer.vehiculo,
+            },
+          });
+        }
+        setModalDocumentacion(false);
+        toast.success('¡Fechas de documentación actualizadas con éxito!');
+      } else {
+        toast.error(res.message || 'Error al actualizar documentación');
+      }
+    } catch (err) {
+      console.error('Error al guardar documentación:', err);
+      toast.error('Error al actualizar documentación');
+    } finally {
+      setGuardandoDoc(false);
+    }
+  };
 
   useEffect(() => {
     if (!user) return;
@@ -303,6 +373,195 @@ export default function ChoferPerfilPage() {
           </span>
         </div>
       </div>
+
+      {/* Documentación y Estado de Vencimientos */}
+      {(() => {
+        const evaluacion = evaluarDocumentacionClient(user?.chofer, user?.chofer?.vehiculo);
+
+        return (
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 p-4 space-y-3 transition-colors">
+            <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-2.5">
+              <div className="flex items-center gap-2">
+                <ShieldAlert
+                  className={`w-4 h-4 ${
+                    evaluacion.tieneAlertas
+                      ? evaluacion.tieneCriticas
+                        ? 'text-red-500'
+                        : 'text-amber-500'
+                      : 'text-emerald-500'
+                  }`}
+                />
+                <h4 className="font-semibold text-xs text-gray-700 dark:text-slate-300 uppercase tracking-wider">
+                  Documentación y Vencimientos
+                </h4>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={abrirModalDocumentacion}
+                  className="inline-flex items-center gap-1.5 text-xs font-bold text-primary-600 dark:text-primary-400 hover:text-primary-700 bg-primary-50 dark:bg-primary-950/60 px-2.5 py-1.5 rounded-xl border border-primary-200 dark:border-primary-800 transition-colors shadow-xs"
+                >
+                  <Edit3 className="w-3.5 h-3.5" />
+                  Cargar / Actualizar Fechas
+                </button>
+                <span
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                    evaluacion.tieneAlertas
+                      ? evaluacion.tieneCriticas
+                        ? 'bg-red-500/10 text-red-500 border border-red-500/20'
+                        : 'bg-amber-500/10 text-amber-500 border border-amber-500/20'
+                      : 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20'
+                  }`}
+                >
+                  {evaluacion.tieneAlertas ? `${evaluacion.cantidadAlertas} por regularizar` : 'Todo al día'}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              {/* Licencia de Conducir */}
+              <div
+                className={`p-3 rounded-xl border flex items-center justify-between ${
+                  getDocumentoBadgeClasses(evaluacion.items.licencia.estado).bgLight
+                } ${getDocumentoBadgeClasses(evaluacion.items.licencia.estado).border}`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="text-xl shrink-0">🪪</span>
+                  <div className="min-w-0">
+                    <p className="font-bold text-gray-900 dark:text-white truncate">Licencia de Conducir</p>
+                    <p className="text-[11px] text-gray-500 dark:text-slate-400">
+                      {evaluacion.items.licencia.fecha
+                        ? `Vto: ${evaluacion.items.licencia.fecha}`
+                        : 'Sin fecha registrada'}
+                    </p>
+                  </div>
+                </div>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                    getDocumentoBadgeClasses(evaluacion.items.licencia.estado).badge
+                  }`}
+                >
+                  {evaluacion.items.licencia.label || (evaluacion.items.licencia.estado === 'VENCIDO'
+                    ? `Vencida (-${Math.abs(evaluacion.items.licencia.diasRestantes || 0)}d)`
+                    : evaluacion.items.licencia.estado === 'VENCE_HOY'
+                    ? 'Vence hoy'
+                    : evaluacion.items.licencia.estado === 'PROXIMO_A_VENCER'
+                    ? `En ${evaluacion.items.licencia.diasRestantes}d`
+                    : evaluacion.items.licencia.estado === 'AL_DIA'
+                    ? 'Al día'
+                    : 'Sin cargar')}
+                </span>
+              </div>
+
+              {/* Seguro Automotor */}
+              <div
+                className={`p-3 rounded-xl border flex items-center justify-between ${
+                  getDocumentoBadgeClasses(evaluacion.items.seguro.estado).bgLight
+                } ${getDocumentoBadgeClasses(evaluacion.items.seguro.estado).border}`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="text-xl shrink-0">🛡️</span>
+                  <div className="min-w-0">
+                    <p className="font-bold text-gray-900 dark:text-white truncate">Seguro Automotor</p>
+                    <p className="text-[11px] text-gray-500 dark:text-slate-400">
+                      {evaluacion.items.seguro.fecha
+                        ? `Vto: ${evaluacion.items.seguro.fecha}`
+                        : 'Sin fecha registrada'}
+                    </p>
+                  </div>
+                </div>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                    getDocumentoBadgeClasses(evaluacion.items.seguro.estado).badge
+                  }`}
+                >
+                  {evaluacion.items.seguro.label || (evaluacion.items.seguro.estado === 'VENCIDO'
+                    ? `Vencido (-${Math.abs(evaluacion.items.seguro.diasRestantes || 0)}d)`
+                    : evaluacion.items.seguro.estado === 'VENCE_HOY'
+                    ? 'Vence hoy'
+                    : evaluacion.items.seguro.estado === 'PROXIMO_A_VENCER'
+                    ? `En ${evaluacion.items.seguro.diasRestantes}d`
+                    : evaluacion.items.seguro.estado === 'AL_DIA'
+                    ? 'Al día'
+                    : 'Sin cargar')}
+                </span>
+              </div>
+
+              {/* VTV */}
+              <div
+                className={`p-3 rounded-xl border flex items-center justify-between ${
+                  getDocumentoBadgeClasses(evaluacion.items.vtv.estado).bgLight
+                } ${getDocumentoBadgeClasses(evaluacion.items.vtv.estado).border}`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="text-xl shrink-0">📋</span>
+                  <div className="min-w-0">
+                    <p className="font-bold text-gray-900 dark:text-white truncate">VTV / RTO</p>
+                    <p className="text-[11px] text-gray-500 dark:text-slate-400">
+                      {evaluacion.items.vtv.fecha ? `Vto: ${evaluacion.items.vtv.fecha}` : 'Sin fecha registrada'}
+                    </p>
+                  </div>
+                </div>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                    getDocumentoBadgeClasses(evaluacion.items.vtv.estado).badge
+                  }`}
+                >
+                  {evaluacion.items.vtv.label || (evaluacion.items.vtv.estado === 'VENCIDO'
+                    ? `Vencida (-${Math.abs(evaluacion.items.vtv.diasRestantes || 0)}d)`
+                    : evaluacion.items.vtv.estado === 'VENCE_HOY'
+                    ? 'Vence hoy'
+                    : evaluacion.items.vtv.estado === 'PROXIMO_A_VENCER'
+                    ? `En ${evaluacion.items.vtv.diasRestantes}d`
+                    : evaluacion.items.vtv.estado === 'AL_DIA'
+                    ? 'Al día'
+                    : 'Sin cargar')}
+                </span>
+              </div>
+
+              {/* Matafuego */}
+              <div
+                className={`p-3 rounded-xl border flex items-center justify-between ${
+                  getDocumentoBadgeClasses(evaluacion.items.matafuego.estado).bgLight
+                } ${getDocumentoBadgeClasses(evaluacion.items.matafuego.estado).border}`}
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="text-xl shrink-0">🧯</span>
+                  <div className="min-w-0">
+                    <p className="font-bold text-gray-900 dark:text-white truncate">Carga de Matafuego</p>
+                    <p className="text-[11px] text-gray-500 dark:text-slate-400">
+                      {evaluacion.items.matafuego.fecha
+                        ? `Vto: ${evaluacion.items.matafuego.fecha}`
+                        : 'Sin fecha registrada'}
+                    </p>
+                  </div>
+                </div>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full font-bold shrink-0 ${
+                    getDocumentoBadgeClasses(evaluacion.items.matafuego.estado).badge
+                  }`}
+                >
+                  {evaluacion.items.matafuego.label || (evaluacion.items.matafuego.estado === 'VENCIDO'
+                    ? `Vencido (-${Math.abs(evaluacion.items.matafuego.diasRestantes || 0)}d)`
+                    : evaluacion.items.matafuego.estado === 'VENCE_HOY'
+                    ? 'Vence hoy'
+                    : evaluacion.items.matafuego.estado === 'PROXIMO_A_VENCER'
+                    ? `En ${evaluacion.items.matafuego.diasRestantes}d`
+                    : evaluacion.items.matafuego.estado === 'AL_DIA'
+                    ? 'Al día'
+                    : 'Sin cargar')}
+                </span>
+              </div>
+            </div>
+
+            {evaluacion.tieneAlertas && (
+              <p className="text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 p-2.5 rounded-xl border border-amber-200 dark:border-amber-900/40">
+                ⚠️ Para mantener tu móvil habilitado y operar con normalidad, presentá la documentación renovada en la agencia antes del vencimiento.
+              </p>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Rendimiento y Kilometraje del Mes */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-100 dark:border-slate-800 p-4 space-y-3 transition-colors">
@@ -580,6 +839,141 @@ export default function ChoferPerfilPage() {
                 {guardandoFoto ? 'Guardando...' : 'Guardar Foto de Perfil'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================== */}
+      {/* MODAL: CARGAR / ACTUALIZAR DOCUMENTACIÓN             */}
+      {/* ==================================================== */}
+      {modalDocumentacion && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-md shadow-2xl border border-gray-100 dark:border-slate-800 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-primary-50 dark:bg-primary-950/60 text-primary-600 dark:text-primary-400 flex items-center justify-center">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-base text-gray-900 dark:text-white">Actualizar Documentación</h3>
+                  <p className="text-xs text-gray-500 dark:text-slate-400">Registrá tus nuevos vencimientos</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalDocumentacion(false)}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-200 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleGuardarDocumentacion} className="space-y-4">
+              {!user?.chofer?.vehiculoId && (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/40 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>Actualmente no tenés un vehículo asignado. Podés actualizar tu carnet de conducir; los datos del móvil se habilitarán al asignarte una unidad.</span>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                {/* Licencia de Conducir */}
+                <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🪪</span>
+                    <label className="text-xs font-bold text-gray-800 dark:text-slate-200">
+                      Licencia de Conducir (Carnet)
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-gray-500 dark:text-slate-400">
+                    Documento personal del chofer.
+                  </p>
+                  <input
+                    type="date"
+                    value={docForm.vtoLicencia}
+                    onChange={(e) => setDocForm({ ...docForm, vtoLicencia: e.target.value })}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+
+                {/* Seguro Automotor */}
+                <div className={`p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 space-y-1.5 ${!user?.chofer?.vehiculoId ? 'opacity-60' : ''}`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🛡️</span>
+                    <label className="text-xs font-bold text-gray-800 dark:text-slate-200">
+                      Póliza de Seguro Automotor
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-gray-500 dark:text-slate-400">
+                    {user?.chofer?.vehiculo ? `Asociado al móvil ${user.chofer.vehiculo.patente}` : 'Requiere vehículo asignado'}
+                  </p>
+                  <input
+                    type="date"
+                    disabled={!user?.chofer?.vehiculoId}
+                    value={docForm.vtoSeguro}
+                    onChange={(e) => setDocForm({ ...docForm, vtoSeguro: e.target.value })}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
+                  />
+                </div>
+
+                {/* VTV / RTO */}
+                <div className={`p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 space-y-1.5 ${!user?.chofer?.vehiculoId ? 'opacity-60' : ''}`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">📋</span>
+                    <label className="text-xs font-bold text-gray-800 dark:text-slate-200">
+                      VTV / RTO (Revisión Técnica)
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-gray-500 dark:text-slate-400">
+                    {user?.chofer?.vehiculo ? `Asociado al móvil ${user.chofer.vehiculo.patente}` : 'Requiere vehículo asignado'}
+                  </p>
+                  <input
+                    type="date"
+                    disabled={!user?.chofer?.vehiculoId}
+                    value={docForm.vtoVtv}
+                    onChange={(e) => setDocForm({ ...docForm, vtoVtv: e.target.value })}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
+                  />
+                </div>
+
+                {/* Matafuego */}
+                <div className={`p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-gray-200 dark:border-slate-700 space-y-1.5 ${!user?.chofer?.vehiculoId ? 'opacity-60' : ''}`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">🧯</span>
+                    <label className="text-xs font-bold text-gray-800 dark:text-slate-200">
+                      Carga de Matafuego
+                    </label>
+                  </div>
+                  <p className="text-[11px] text-gray-500 dark:text-slate-400">
+                    {user?.chofer?.vehiculo ? `Asociado al móvil ${user.chofer.vehiculo.patente}` : 'Requiere vehículo asignado'}
+                  </p>
+                  <input
+                    type="date"
+                    disabled={!user?.chofer?.vehiculoId}
+                    value={docForm.vtoMatafuego}
+                    onChange={(e) => setDocForm({ ...docForm, vtoMatafuego: e.target.value })}
+                    className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl text-xs text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500 disabled:opacity-50"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-gray-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setModalDocumentacion(false)}
+                  className="flex-1 py-3 text-xs font-semibold text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={guardandoDoc}
+                  className="flex-2 py-3 px-4 bg-primary-600 hover:bg-primary-700 text-white font-bold text-xs rounded-xl shadow-md shadow-primary-600/20 disabled:opacity-50 transition-all flex items-center justify-center gap-1.5"
+                >
+                  {guardandoDoc ? 'Guardando...' : 'Guardar Vencimientos'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

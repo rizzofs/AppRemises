@@ -5,8 +5,9 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
 import { choferService, remiseriaService, vehiculoService } from '@/lib/api';
 import { Chofer, CreateChoferData, Remiseria, Vehiculo } from '@/types';
-import { Truck, Plus, Edit, Trash2, Eye, EyeOff, Search, Filter, ArrowLeft, User, Calendar, Phone, Mail, MapPin, FileText, CheckCircle, XCircle, Clock, ChevronRight, ChevronLeft, Check, Sparkles, ShieldCheck } from 'lucide-react';
+import { Truck, Plus, Edit, Trash2, Eye, EyeOff, Search, Filter, ArrowLeft, User, Calendar, Phone, Mail, MapPin, FileText, CheckCircle, XCircle, Clock, ChevronRight, ChevronLeft, Check, Sparkles, ShieldCheck, ShieldAlert, Bell } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { evaluarDocumentacionClient, getDocumentoBadgeClasses } from '@/lib/documentacionUtils';
 
 export default function ChoferesPage() {
   const { user } = useAuth();
@@ -107,7 +108,15 @@ export default function ChoferesPage() {
     try {
       const response = await choferService.create(formData);
       if (response.success) {
-        toast.success('Chofer creado exitosamente');
+        const alertas = (response as any).alertasVencimiento || [];
+        if (alertas.length > 0) {
+          toast.success(
+            `Chofer creado exitosamente. Se le notificó en su app sobre ${alertas.length} documento(s) por vencer o vencido(s).`,
+            { duration: 5500 }
+          );
+        } else {
+          toast.success('Chofer creado exitosamente');
+        }
         setShowCreateModal(false);
         setFormData({
           numeroChofer: '',
@@ -297,7 +306,15 @@ export default function ChoferesPage() {
         vehiculoId: aprobarVehiculoId || undefined,
       });
       if (res.success) {
-        toast.success(res.message || 'Chofer aprobado exitosamente');
+        const alertas = (res as any).alertasVencimiento || [];
+        if (alertas.length > 0) {
+          toast.success(
+            `Chofer aprobado. Se le notificó en su app sobre ${alertas.length} documento(s) por vencer o vencido(s).`,
+            { duration: 5500 }
+          );
+        } else {
+          toast.success(res.message || 'Chofer aprobado exitosamente');
+        }
         setChoferParaAprobar(null);
         await loadChoferes();
       } else {
@@ -1079,6 +1096,40 @@ export default function ChoferesPage() {
                         : 'Sin auto asignado (se puede asignar luego)'}
                     </span>
                   </div>
+
+                  {/* Resumen de Documentación del Chofer + Vehículo */}
+                  {formData.vehiculoId && (() => {
+                    const veh = vehiculos.find((v) => v.id === formData.vehiculoId);
+                    const evalDoc = evaluarDocumentacionClient(formData, veh);
+                    return (
+                      <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            <ShieldAlert className={`w-4 h-4 ${evalDoc.tieneAlertas ? 'text-amber-500' : 'text-emerald-500'}`} />
+                            <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wide">
+                              Control de Vencimientos
+                            </span>
+                          </div>
+                          {evalDoc.tieneAlertas && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+                              {evalDoc.cantidadAlertas} por vencer/vencido(s)
+                            </span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                          <div>🛡️ Seguro: <strong>{veh?.vtoSeguro ? new Date(veh.vtoSeguro).toLocaleDateString() : 'Sin cargar'}</strong></div>
+                          <div>📋 VTV: <strong>{veh?.vtoVtv ? new Date(veh.vtoVtv).toLocaleDateString() : 'Sin cargar'}</strong></div>
+                          <div>🧯 Matafuego: <strong>{veh?.vtoMatafuego ? new Date(veh.vtoMatafuego).toLocaleDateString() : 'Sin cargar'}</strong></div>
+                          <div>🪪 Carnet: <strong>{formData.vtoLicencia || 'Sin cargar'}</strong></div>
+                        </div>
+                        {evalDoc.tieneAlertas && (
+                          <p className="text-[10px] text-amber-700 pt-1 border-t border-slate-200">
+                            🔔 Al crear el chofer, recibirá una alerta automática en su app sobre estos vencimientos.
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -1390,6 +1441,41 @@ export default function ChoferesPage() {
                   ))}
                 </select>
               </div>
+
+              {/* Control de Documentación del vehículo seleccionado al aprobar */}
+              {aprobarVehiculoId && (() => {
+                const veh = vehiculos.find((v) => v.id === aprobarVehiculoId);
+                const evalDoc = evaluarDocumentacionClient(choferParaAprobar, veh);
+                return (
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-800 text-[11px] uppercase tracking-wide">
+                        Control de Documentación
+                      </span>
+                      {evalDoc.tieneAlertas ? (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">
+                          {evalDoc.cantidadAlertas} por vencer/vencido(s)
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">
+                          Al día
+                        </span>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+                      <div>🛡️ Seguro: <strong>{veh?.vtoSeguro ? new Date(veh.vtoSeguro).toLocaleDateString() : 'Sin cargar'}</strong></div>
+                      <div>📋 VTV: <strong>{veh?.vtoVtv ? new Date(veh.vtoVtv).toLocaleDateString() : 'Sin cargar'}</strong></div>
+                      <div>🧯 Matafuego: <strong>{veh?.vtoMatafuego ? new Date(veh.vtoMatafuego).toLocaleDateString() : 'Sin cargar'}</strong></div>
+                      <div>🪪 Carnet: <strong>{choferParaAprobar?.vtoLicencia ? new Date(choferParaAprobar.vtoLicencia).toLocaleDateString() : 'Sin cargar'}</strong></div>
+                    </div>
+                    {evalDoc.tieneAlertas && (
+                      <p className="text-[10px] text-amber-700 pt-1 border-t border-slate-200">
+                        🔔 Al aprobar, el chofer recibirá una notificación automática en su aplicación informándole sobre los vencimientos.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div className="flex justify-end gap-3 pt-4 border-t border-gray-100">
                 <button

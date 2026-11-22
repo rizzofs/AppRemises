@@ -40,7 +40,9 @@ import {
   AlertTriangle,
   Copy,
   ExternalLink,
-  MessageCircle
+  MessageCircle,
+  Key,
+  ShieldCheck
 } from 'lucide-react';
 import { DireccionFrecuente, ParadaIntermedia } from '@/types';
 import { clienteService, coordinadorDashboardService } from '@/lib/api';
@@ -1808,6 +1810,37 @@ export default function ClienteApp() {
                   </span>
                 </div>
               </div>
+
+              {/* Código PIN de 4 dígitos para iniciar viaje con el chofer (estilo Uber) */}
+              {activeViaje.codigoPin && ['ACEPTADO', 'EN_CAMINO'].includes(activeViaje.estado) && (
+                <div className="bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white p-3.5 sm:p-4 rounded-2xl shadow-lg shadow-emerald-700/20 border border-emerald-400/40 animate-in fade-in zoom-in-95">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="p-1 rounded-lg bg-white/20 text-white">
+                          <Key className="w-3.5 h-3.5" />
+                        </span>
+                        <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-emerald-100">
+                          Tu Código de Abordaje
+                        </span>
+                      </div>
+                      <p className="text-xs sm:text-sm text-white font-medium mt-1 leading-snug">
+                        Díctale estos 4 números al chofer al subirte para iniciar el viaje.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col items-center shrink-0">
+                      <div className="px-3.5 py-1.5 sm:px-4 sm:py-2 bg-white text-emerald-900 rounded-xl font-mono text-2xl sm:text-3xl font-black tracking-widest shadow-inner border border-emerald-100 select-all">
+                        {activeViaje.codigoPin}
+                      </div>
+                      <span className="text-[9px] uppercase tracking-wider text-emerald-200 mt-1 font-semibold flex items-center gap-1">
+                        <ShieldCheck className="w-3 h-3 text-emerald-300" />
+                        Viaje Seguro
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Mapa en vivo con el auto yendo a buscar al cliente y recorrido */}
               <ClienteTrackingMap

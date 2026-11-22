@@ -103,6 +103,9 @@ model Remiseria {
   // Relación 1:N con ArtEmpresa
   artEmpresas ArtEmpresa[]
 
+  // Relación 1:N con Cierres de Facturación ART
+  cierresFacturacionArt CierreFacturacionArt[]
+
   @@map("remiserias")
 }
 
@@ -410,6 +413,32 @@ model Viaje {
   // Precio acordado con la ART (Privado del Dueño para facturación corporativa)
   precioArt     Decimal?    @db.Decimal(10, 2)
 
+  // Horarios de salida anticipada y turno (Ej: viajes ART / Empresa programados)
+  horaSalidaChofer String? // Ej: "08:00" - Hora en que el chofer debe salir para llegar al origen
+  horaTurno        String? // Ej: "10:00" - Hora en que debe estar en el origen/turno médico
+
+  // Código PIN de 4 dígitos para validación de abordaje (estilo Uber)
+  // Aplica solo a viajes solicitados por App de Cliente; null para ART, viajes de calle o manuales
+  codigoPin        String?
+
+  // Peajes abonados por el chofer (se suman al cobro de ART y reintegro al chofer)
+  montoPeajes      Float?   @default(0.0)
+  observacionesPeaje String?
+
+  // Estado de coordinación y contacto con el paciente
+  estadoCoordinacion String?  @default("PENDIENTE_CONTACTO") // "PENDIENTE_CONTACTO" | "CONFIRMADO" | "RECHAZADO_POR_PACIENTE" | "NO_RESPONDE"
+  motivoRechazoPaciente String?
+
+  // Relevo / Auxilio mecánico en viaje (rotura de vehículo durante el recorrido)
+  auxilioMecanico  Boolean  @default(false)
+  puntoTrasbordo   String?
+  kmChoferInicial  Float?   @default(0.0)
+  pagaChoferInicial Float?  @default(0.0)
+
+  // Enlace a Cierre de Facturación de ART
+  cierreFacturacionArtId String?
+  cierreFacturacionArt   CierreFacturacionArt? @relation(fields: [cierreFacturacionArtId], references: [id])
+
   @@index([remiseriaId, estado])
   @@index([choferId, estado])
   @@index([clienteId])
@@ -493,6 +522,13 @@ model ArtEmpresa {
 
   // Relación con Reservas
   reservas        Reserva[]
+
+  // Período de Cierre de Facturación acordado con la ART
+  periodoFacturacion    String      @default("MENSUAL") // "SEMANAL" | "QUINCENAL" | "MENSUAL"
+  diaCorteFacturacion   Int?
+
+  // Relación con Cierres de Facturación
+  cierresFacturacion    CierreFacturacionArt[]
 
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
@@ -672,5 +708,46 @@ enum TipoGasto {
   PEAJE
   LAVADO
   OTRO
+}
+
+// Modelo para Cierres de Facturación y Cobranzas de ART
+model CierreFacturacionArt {
+  id                 String      @id @default(cuid())
+  remiseriaId        String
+  remiseria          Remiseria   @relation(fields: [remiseriaId], references: [id], onDelete: Cascade)
+  artEmpresaId       String
+  artEmpresa         ArtEmpresa  @relation(fields: [artEmpresaId], references: [id], onDelete: Cascade)
+  
+  periodoTipo        String      @default("MENSUAL") // "SEMANAL" | "QUINCENAL" | "MENSUAL" | "PERSONALIZADO"
+  fechaDesde         DateTime
+  fechaHasta         DateTime
+  
+  totalViajes        Int         @default(0)
+  totalKm            Float       @default(0.0)
+  totalEsperaHoras   Float       @default(0.0)
+  totalPeajes        Float       @default(0.0)
+  totalFacturadoArt  Float       @default(0.0)
+  totalPagaChoferes  Float       @default(0.0)
+  margenGanancia     Float       @default(0.0)
+  
+  // Estado de Facturación y Cobranza
+  estado             String      @default("PENDIENTE_FACTURAR") // "PENDIENTE_FACTURAR" | "FACTURA_EMITIDA" | "COBRADO" | "ANULADO"
+  numeroFactura      String?
+  fechaEmision       DateTime?
+  fechaEnvioFactura  DateTime?
+  
+  // Cobro
+  fechaCobro         DateTime?
+  metodoCobro        String?     // TRANSFERENCIA, CHEQUE, EFECTIVO, OTRO
+  comprobanteCobroUrl String?
+  observaciones      String?
+  
+  viajes             Viaje[]
+  
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@index([remiseriaId, artEmpresaId])
+  @@map("cierres_facturacion_art")
 }
  

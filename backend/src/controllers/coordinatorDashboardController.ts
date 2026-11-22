@@ -604,38 +604,105 @@ export const coordinatorDashboardController = {
         });
       }
 
-      const reservas = await prisma.reserva.findMany({
-        where: {
-          remiseriaId: coordinador.remiseriaId,
-          estado: 'ACTIVA'
-        },
-        include: {
-          chofer: {
-            select: {
-              id: true,
-              nombre: true,
-              apellido: true,
-              telefono: true
-            }
+      const [reservas, viajesArtProgramados] = await Promise.all([
+        prisma.reserva.findMany({
+          where: {
+            remiseriaId: coordinador.remiseriaId,
+            estado: 'ACTIVA'
           },
-          vehiculo: {
-            select: {
-              id: true,
-              patente: true,
-              marca: true,
-              modelo: true
-            }
+          include: {
+            chofer: {
+              select: {
+                id: true,
+                nombre: true,
+                apellido: true,
+                telefono: true
+              }
+            },
+            vehiculo: {
+              select: {
+                id: true,
+                patente: true,
+                marca: true,
+                modelo: true
+              }
+            },
+            artEmpresa: true
           },
-          artEmpresa: true
-        },
-        orderBy: {
-          fechaInicio: 'asc'
-        }
+          orderBy: {
+            fechaInicio: 'asc'
+          }
+        }),
+        prisma.viaje.findMany({
+          where: {
+            remiseriaId: coordinador.remiseriaId,
+            artEmpresaId: { not: null },
+            estado: { in: ['ACEPTADO', 'PENDIENTE', 'EN_CAMINO'] }
+          },
+          include: {
+            chofer: {
+              select: {
+                id: true,
+                nombre: true,
+                apellido: true,
+                telefono: true,
+                numeroChofer: true
+              }
+            },
+            vehiculo: {
+              select: {
+                id: true,
+                patente: true,
+                marca: true,
+                modelo: true
+              }
+            },
+            artEmpresa: true
+          },
+          orderBy: {
+            fecha: 'asc'
+          }
+        })
+      ]);
+
+      // Mapear viajes de ART programados al formato consumible por la tabla de reservados
+      const viajesArtComoReservas = viajesArtProgramados.map(v => ({
+        id: v.id,
+        isViajeArt: true,
+        clienteNombre: v.clienteNombre || 'Pasajero ART',
+        clienteTelefono: v.clienteTelefono || '',
+        clienteEmail: v.clienteEmail || null,
+        origen: v.origen,
+        destino: v.destino,
+        fechaInicio: v.fecha,
+        fechaFin: null,
+        horaInicio: v.horaSalidaChofer || '08:00',
+        horaTurno: v.horaTurno || null,
+        horaSalidaChofer: v.horaSalidaChofer || null,
+        tipo: 'ART_PROGRAMADO',
+        estado: v.estado,
+        observaciones: v.observaciones,
+        numeroSiniestro: v.numeroSiniestro,
+        precioArt: v.precioArt,
+        precioChofer: v.precio,
+        choferId: v.choferId,
+        chofer: v.chofer,
+        vehiculoId: v.vehiculoId,
+        vehiculo: v.vehiculo,
+        artEmpresaId: v.artEmpresaId,
+        artEmpresa: v.artEmpresa,
+        createdAt: v.createdAt
+      }));
+
+      const combinadas = [...viajesArtComoReservas, ...reservas].sort((a, b) => {
+        const timeA = new Date(a.fechaInicio).getTime();
+        const timeB = new Date(b.fechaInicio).getTime();
+        return timeA - timeB;
       });
 
       res.json({
         success: true,
-        data: reservas
+        data: combinadas
       });
     } catch (error) {
       console.error('Error getting reservas:', error);
@@ -1327,7 +1394,12 @@ export const coordinatorDashboardController = {
         });
       }
 
-      const [choferes, viajesEnCurso] = await Promise.all([
+      const hoyInicio = new Date();
+      hoyInicio.setHours(0, 0, 0, 0);
+      const hoyFin = new Date();
+      hoyFin.setHours(23, 59, 59, 999);
+
+      const [choferes, viajesEnCurso, viajesArtHoy] = await Promise.all([
         prisma.chofer.findMany({
           where: {
             remiseriaId: coordinador.remiseriaId,
@@ -1356,12 +1428,32 @@ export const coordinatorDashboardController = {
             estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] }
           },
           select: { choferId: true }
+        }),
+        prisma.viaje.findMany({
+          where: {
+            remiseriaId: coordinador.remiseriaId,
+            artEmpresaId: { not: null },
+            choferId: { not: null },
+            estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO', 'PENDIENTE'] },
+            fecha: { gte: hoyInicio, lte: hoyFin }
+          },
+          include: {
+            artEmpresa: { select: { nombre: true } }
+          }
         })
       ]);
+
+      const viajesArtPorChoferMap = new Map<string, any>();
+      for (const va of viajesArtHoy) {
+        if (va.choferId && !viajesArtPorChoferMap.has(va.choferId)) {
+          viajesArtPorChoferMap.set(va.choferId, va);
+        }
+      }
 
       const choferesOcupadosSet = new Set(viajesEnCurso.map(v => v.choferId));
       const choferesEnriquecidos = choferes.map(c => {
         const tieneViaje = choferesOcupadosSet.has(c.id);
+        const viajeArt = viajesArtPorChoferMap.get(c.id);
         let enPausa = false;
         try {
           if (c.observaciones && c.observaciones.startsWith('{')) {
@@ -1371,7 +1463,18 @@ export const coordinatorDashboardController = {
         return {
           ...c,
           estado: tieneViaje ? 'en_viaje' : (enPausa ? 'en_pausa' : 'disponible'),
-          enParadaVirtual: tieneViaje ? false : c.enParadaVirtual
+          enParadaVirtual: tieneViaje ? false : c.enParadaVirtual,
+          comprometidoArt: Boolean(viajeArt),
+          proximoViajeArt: viajeArt ? {
+            id: viajeArt.id,
+            artNombre: viajeArt.artEmpresa?.nombre || 'ART / Empresa',
+            horaSalidaChofer: viajeArt.horaSalidaChofer || '08:00',
+            horaTurno: viajeArt.horaTurno || '10:00',
+            origen: viajeArt.origen,
+            destino: viajeArt.destino,
+            clienteNombre: viajeArt.clienteNombre,
+            numeroSiniestro: viajeArt.numeroSiniestro
+          } : null
         };
       });
 

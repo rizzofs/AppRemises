@@ -234,6 +234,33 @@ export interface Vehiculo {
   choferes?: Chofer[];
 }
 
+export type EstadoVencimiento = 'VENCIDO' | 'VENCE_HOY' | 'PROXIMO_A_VENCER' | 'AL_DIA' | 'NO_REGISTRADO';
+export type UrgenciaVencimiento = 'CRITICA' | 'ADVERTENCIA' | 'OK';
+
+export interface DocumentoEvaluado {
+  tipo: 'LICENCIA' | 'SEGURO' | 'VTV' | 'MATAFUEGO';
+  nombre: string;
+  fecha: string | null;
+  estado: EstadoVencimiento;
+  diasRestantes: number | null;
+  urgencia: UrgenciaVencimiento;
+  mensaje: string;
+  label?: string;
+}
+
+export interface ResumenDocumentacion {
+  tieneAlertas: boolean;
+  tieneCriticas: boolean;
+  cantidadAlertas: number;
+  alertas: DocumentoEvaluado[];
+  items: {
+    licencia: DocumentoEvaluado;
+    seguro: DocumentoEvaluado;
+    vtv: DocumentoEvaluado;
+    matafuego: DocumentoEvaluado;
+  };
+}
+
 export interface CreateVehiculoData {
   patente: string;
   marca: string;
@@ -248,6 +275,7 @@ export interface CreateVehiculoData {
   vtoSeguro?: string;
   observaciones?: string;
   remiseriaId: string;
+  choferId?: string;
 }
 
 export interface UpdateVehiculoData {
@@ -264,6 +292,7 @@ export interface UpdateVehiculoData {
   vtoSeguro?: string;
   observaciones?: string;
   estado?: 'ACTIVO' | 'MANTENIMIENTO' | 'INACTIVO';
+  choferId?: string;
 }
 
 // Viaje (recaudación)
@@ -293,8 +322,21 @@ export interface Viaje {
   precioFacturaArt?: number;
   pagaChofer?: number;
   gananciaNeta?: number;
+  horaSalidaChofer?: string | null;
+  horaTurno?: string | null;
+  codigoPin?: string | null;
+  requierePin?: boolean;
   tiempoEsperaSegundos?: number;
   costoEspera?: number;
+  montoPeajes?: number | null;
+  observacionesPeaje?: string | null;
+  estadoCoordinacion?: 'PENDIENTE_CONTACTO' | 'CONFIRMADO' | 'RECHAZADO_POR_PACIENTE' | 'NO_RESPONDE' | null;
+  motivoRechazoPaciente?: string | null;
+  auxilioMecanico?: boolean;
+  puntoTrasbordo?: string | null;
+  kmChoferInicial?: number | null;
+  pagaChoferInicial?: number | null;
+  cierreFacturacionArtId?: string | null;
   remiseria?: Remiseria;
   chofer?: Chofer;
   vehiculo?: Vehiculo;
@@ -590,6 +632,8 @@ export interface ViajeCliente {
   observaciones?: string;
   createdAt: string;
   trackingToken?: string;
+  codigoPin?: string | null;
+  requierePin?: boolean;
   paradas?: string | ParadaIntermedia[];
   tiempoEsperaSegundos?: number;
   costoEspera?: number;
@@ -696,6 +740,8 @@ export interface ArtEmpresa {
   choferPrecioTramo?: number | null;
   choferValorHoraEspera?: number | null;
   activo: boolean;
+  periodoFacturacion?: 'SEMANAL' | 'QUINCENAL' | 'MENSUAL';
+  diaCorteFacturacion?: number | null;
   observaciones?: string | null;
   remiseriaId: string;
   createdAt?: string;
@@ -724,6 +770,8 @@ export interface CreateArtEmpresaData {
   choferValorKm?: number;
   choferPrecioTramo?: number;
   choferValorHoraEspera?: number;
+  periodoFacturacion?: 'SEMANAL' | 'QUINCENAL' | 'MENSUAL';
+  diaCorteFacturacion?: number;
   observaciones?: string;
   activo?: boolean;
   remiseriaId?: string;
@@ -734,12 +782,43 @@ export interface UpdateArtEmpresaData extends Partial<CreateArtEmpresaData> {}
 export interface FacturacionArtResumen {
   totalViajes: number;
   totalFacturado: number;
+  totalPeajes?: number;
+  totalFacturadoTotal?: number;
   totalPagaChofer?: number;
+  totalPagaChoferTotal?: number;
   totalGanancia?: number;
   totalKm: number;
   totalEsperaMinutos: number;
   totalCostoEspera: number;
   promedioPorViaje: number;
+}
+
+export interface CierreFacturacionArt {
+  id: string;
+  remiseriaId: string;
+  artEmpresaId: string;
+  artEmpresa?: ArtEmpresa;
+  periodoTipo: string;
+  fechaDesde: string;
+  fechaHasta: string;
+  totalViajes: number;
+  totalKm: number;
+  totalEsperaHoras: number;
+  totalPeajes: number;
+  totalFacturadoArt: number;
+  totalPagaChoferes: number;
+  margenGanancia: number;
+  estado: 'PENDIENTE_FACTURAR' | 'FACTURA_EMITIDA' | 'COBRADO' | 'ANULADO';
+  numeroFactura?: string | null;
+  fechaEmision?: string | null;
+  fechaEnvioFactura?: string | null;
+  fechaCobro?: string | null;
+  metodoCobro?: string | null;
+  comprobanteCobroUrl?: string | null;
+  observaciones?: string | null;
+  viajes?: Viaje[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface FacturacionPorArtItem {
@@ -758,5 +837,24 @@ export interface FacturacionArtResponse {
   resumen: FacturacionArtResumen;
   porArt: FacturacionPorArtItem[];
   viajes: any[];
+}
+
+export interface CrearViajeArtData {
+  artEmpresaId: string;
+  choferId: string;
+  vehiculoId?: string;
+  clienteNombre: string;
+  clienteTelefono?: string;
+  clienteDni?: string;
+  numeroSiniestro?: string;
+  origen: string;
+  destino: string;
+  fecha: string; // YYYY-MM-DD
+  horaSalidaChofer: string; // HH:mm
+  horaTurno: string; // HH:mm
+  distanciaKm?: number;
+  precio: number;
+  precioArt: number;
+  observaciones?: string;
 }
  

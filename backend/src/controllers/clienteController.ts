@@ -602,6 +602,9 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
     // Generar trackingToken único para compartir el viaje
     const trackingToken = crypto.randomBytes(16).toString('hex');
 
+    // Generar código PIN de 4 dígitos para validación de abordaje (estilo Uber)
+    const codigoPin = Math.floor(1000 + Math.random() * 9000).toString();
+
     let pagaConNum: number | null = null;
     let vueltoEstimadoNum: number | null = null;
     if (metodoPagoFinal === 'EFECTIVO' && pagaCon) {
@@ -628,6 +631,7 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
         origenDetallado: latitudOrigen && longitudOrigen ? `${latitudOrigen},${longitudOrigen}` : undefined,
         destinoDetallado: latitudDestino && longitudDestino ? `${latitudDestino},${longitudDestino}` : undefined,
         trackingToken,
+        codigoPin,
         metodoPago: metodoPagoFinal,
         pagaCon: pagaConNum,
         vueltoEstimado: vueltoEstimadoNum,

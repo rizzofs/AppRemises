@@ -6,6 +6,7 @@ import dotenv from 'dotenv';
 import { validationResult } from 'express-validator';
 import http from 'http';
 import { initSocket } from './lib/socket';
+import { iniciarServicioRecordatorioART } from './services/artReminderService';
 
 // Importar rutas
 import authRoutes from './routes/auth';
@@ -28,6 +29,9 @@ const server = http.createServer(app);
 
 // Inicializar sockets
 initSocket(server);
+
+// Iniciar monitoreo y recordatorio automático de salida para viajes de ART
+iniciarServicioRecordatorioART();
 
 const PORT = process.env.PORT || 3001;
 

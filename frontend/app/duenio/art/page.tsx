@@ -3,8 +3,8 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { artEmpresaService, remiseriaService } from '@/lib/api';
-import { ArtEmpresa, CreateArtEmpresaData, UpdateArtEmpresaData, FacturacionArtResponse } from '@/types';
+import { artEmpresaService, remiseriaService, choferService } from '@/lib/api';
+import { ArtEmpresa, CreateArtEmpresaData, UpdateArtEmpresaData, FacturacionArtResponse, CierreFacturacionArt } from '@/types';
 import {
   Briefcase,
   DollarSign,
@@ -32,7 +32,14 @@ import {
   MapPin,
   TrendingUp,
   ChevronRight,
-  Layers
+  Layers,
+  AlertTriangle,
+  RotateCcw,
+  Wrench,
+  ShieldCheck,
+  Check,
+  CheckCircle,
+  X
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
@@ -41,9 +48,10 @@ export default function ArtPage() {
   const router = useRouter();
 
   // Estados generales
-  const [activeTab, setActiveTab] = useState<'tarifas' | 'facturacion'>('tarifas');
+  const [activeTab, setActiveTab] = useState<'tarifas' | 'facturacion' | 'cierres'>('tarifas');
   const [loading, setLoading] = useState(true);
   const [artList, setArtList] = useState<ArtEmpresa[]>([]);
+  const [choferesList, setChoferesList] = useState<any[]>([]);
   const [remiseriaNombre, setRemiseriaNombre] = useState('Remises Bruno');
 
   // Modal Crear / Editar ART
@@ -64,6 +72,8 @@ export default function ArtPage() {
     choferValorKm: 1200,
     choferPrecioTramo: 3500,
     choferValorHoraEspera: 10000,
+    periodoFacturacion: 'MENSUAL',
+    diaCorteFacturacion: 1,
     observaciones: '',
     activo: true,
   });
@@ -85,6 +95,76 @@ export default function ArtPage() {
   const [facturacionData, setFacturacionData] = useState<FacturacionArtResponse | null>(null);
   const [loadingFacturacion, setLoadingFacturacion] = useState(false);
   const [searchViajeTerm, setSearchViajeTerm] = useState('');
+
+  // Estados para Reasignar Chofer antes de salir (Punto 1)
+  const [isModalReasignarOpen, setIsModalReasignarOpen] = useState(false);
+  const [viajeParaReasignar, setViajeParaReasignar] = useState<any | null>(null);
+  const [nuevoChoferId, setNuevoChoferId] = useState('');
+  const [motivoReasignacion, setMotivoReasignacion] = useState('Vehículo descompuesto / Avería');
+  const [savingReasignacion, setSavingReasignacion] = useState(false);
+
+  // Estados para Auxilio Mecánico / Trasbordo en viaje (Punto 2)
+  const [isModalAuxilioOpen, setIsModalAuxilioOpen] = useState(false);
+  const [viajeParaAuxilio, setViajeParaAuxilio] = useState<any | null>(null);
+  const [choferAuxilioId, setChoferAuxilioId] = useState('');
+  const [puntoTrasbordo, setPuntoTrasbordo] = useState('');
+  const [kmChoferInicial, setKmChoferInicial] = useState('');
+  const [savingAuxilio, setSavingAuxilio] = useState(false);
+
+  // Estados para Modificar / Anular Siniestro (Punto 3)
+  const [isModalSiniestroOpen, setIsModalSiniestroOpen] = useState(false);
+  const [viajeParaSiniestro, setViajeParaSiniestro] = useState<any | null>(null);
+  const [tipoAccionSiniestro, setTipoAccionSiniestro] = useState<'MODIFICAR' | 'ANULAR'>('MODIFICAR');
+  const [nuevoNumeroSiniestro, setNuevoNumeroSiniestro] = useState('');
+  const [motivoSiniestro, setMotivoSiniestro] = useState('');
+  const [savingSiniestro, setSavingSiniestro] = useState(false);
+
+  // Estados para Coordinación con el Pasajero (Punto 4)
+  const [isModalCoordinacionOpen, setIsModalCoordinacionOpen] = useState(false);
+  const [viajeParaCoordinacion, setViajeParaCoordinacion] = useState<any | null>(null);
+  const [estadoCoordinacionSeleccionado, setEstadoCoordinacionSeleccionado] = useState<string>('PENDIENTE_CONTACTO');
+  const [motivoRechazoPaciente, setMotivoRechazoPaciente] = useState('');
+  const [observacionesCoordinacion, setObservacionesCoordinacion] = useState('');
+  const [savingCoordinacion, setSavingCoordinacion] = useState(false);
+
+  // Estados para Peajes (Punto 6)
+  const [isModalPeajesOpen, setIsModalPeajesOpen] = useState(false);
+  const [viajeParaPeajes, setViajeParaPeajes] = useState<any | null>(null);
+  const [montoPeajesInput, setMontoPeajesInput] = useState('');
+  const [observacionesPeajeInput, setObservacionesPeajeInput] = useState('');
+  const [savingPeajes, setSavingPeajes] = useState(false);
+
+  // Estados para Cierres de Facturación y Cobranzas (Punto 7)
+  const [cierresList, setCierresList] = useState<CierreFacturacionArt[]>([]);
+  const [loadingCierres, setLoadingCierres] = useState(false);
+  const [filtroArtCierre, setFiltroArtCierre] = useState<string>('all');
+  const [filtroEstadoCierre, setFiltroEstadoCierre] = useState<string>('all');
+
+  // Modal Generar Cierre
+  const [isModalGenerarCierreOpen, setIsModalGenerarCierreOpen] = useState(false);
+  const [artCierreId, setArtCierreId] = useState('');
+  const [fechaDesdeCierre, setFechaDesdeCierre] = useState('');
+  const [fechaHastaCierre, setFechaHastaCierre] = useState('');
+  const [observacionesCierre, setObservacionesCierre] = useState('');
+  const [savingGenerarCierre, setSavingGenerarCierre] = useState(false);
+
+  // Modal Registrar Factura
+  const [isModalRegistrarFacturaOpen, setIsModalRegistrarFacturaOpen] = useState(false);
+  const [cierreParaFactura, setCierreParaFactura] = useState<CierreFacturacionArt | null>(null);
+  const [numeroFacturaInput, setNumeroFacturaInput] = useState('');
+  const [fechaEmisionInput, setFechaEmisionInput] = useState('');
+  const [fechaEnvioFacturaInput, setFechaEnvioFacturaInput] = useState('');
+  const [observacionesFacturaInput, setObservacionesFacturaInput] = useState('');
+  const [savingFactura, setSavingFactura] = useState(false);
+
+  // Modal Registrar Cobro
+  const [isModalMarcarCobradoOpen, setIsModalMarcarCobradoOpen] = useState(false);
+  const [cierreParaCobrado, setCierreParaCobrado] = useState<CierreFacturacionArt | null>(null);
+  const [fechaCobroInput, setFechaCobroInput] = useState('');
+  const [metodoCobroInput, setMetodoCobroInput] = useState('TRANSFERENCIA');
+  const [comprobanteCobroInput, setComprobanteCobroInput] = useState('');
+  const [observacionesCobroInput, setObservacionesCobroInput] = useState('');
+  const [savingCobro, setSavingCobro] = useState(false);
 
   // Proteger ruta
   useEffect(() => {
@@ -133,13 +213,14 @@ export default function ArtPage() {
     }
   };
 
-  // Cargar lista de ARTs y nombre de remisería
+  // Cargar lista de ARTs, choferes y nombre de remisería
   const cargarDatos = async () => {
     try {
       setLoading(true);
-      const [artRes, remRes] = await Promise.all([
+      const [artRes, remRes, choferRes] = await Promise.all([
         artEmpresaService.getAll(),
-        remiseriaService.getAll()
+        remiseriaService.getAll(),
+        choferService.getAll()
       ]);
 
       if (artRes.success && artRes.data) {
@@ -148,6 +229,9 @@ export default function ArtPage() {
       if (remRes.success && remRes.data && remRes.data.length > 0) {
         const miRem = remRes.data[0];
         setRemiseriaNombre(miRem.nombreFantasia || 'Remises Bruno');
+      }
+      if (choferRes.success && choferRes.data) {
+        setChoferesList(choferRes.data.filter((c: any) => c.estado === 'ACTIVO'));
       }
     } catch (error) {
       console.error('Error cargando ARTs:', error);
@@ -185,8 +269,10 @@ export default function ArtPage() {
   useEffect(() => {
     if (activeTab === 'facturacion') {
       cargarFacturacion();
+    } else if (activeTab === 'cierres') {
+      cargarCierres();
     }
-  }, [activeTab, selectedArtFilter, fechaDesde, fechaHasta, estadoViajeFiltro]);
+  }, [activeTab, selectedArtFilter, fechaDesde, fechaHasta, estadoViajeFiltro, filtroArtCierre, filtroEstadoCierre]);
 
   // Manejo de Modal de Creación / Edición
   const handleAbrirModalCrear = () => {
@@ -205,6 +291,8 @@ export default function ArtPage() {
       choferValorKm: 1200,
       choferPrecioTramo: 3500,
       choferValorHoraEspera: 10000,
+      periodoFacturacion: 'MENSUAL',
+      diaCorteFacturacion: 1,
       observaciones: '',
       activo: true,
     });
@@ -227,6 +315,8 @@ export default function ArtPage() {
       choferValorKm: art.choferValorKm ?? 1200,
       choferPrecioTramo: art.choferPrecioTramo ?? 3500,
       choferValorHoraEspera: art.choferValorHoraEspera ?? 10000,
+      periodoFacturacion: art.periodoFacturacion || 'MENSUAL',
+      diaCorteFacturacion: art.diaCorteFacturacion ?? 1,
       observaciones: art.observaciones || '',
       activo: art.activo,
     });
@@ -323,6 +413,362 @@ export default function ArtPage() {
       toast.error('Error de red al actualizar el viaje');
     } finally {
       setGuardandoViajeArt(false);
+    }
+  };
+
+  // Handler Reasignar Chofer (Punto 1)
+  const handleAbrirReasignar = (viaje: any) => {
+    setViajeParaReasignar(viaje);
+    setNuevoChoferId('');
+    setMotivoReasignacion('Vehículo descompuesto / Avería');
+    setIsModalReasignarOpen(true);
+  };
+
+  const handleGuardarReasignar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!viajeParaReasignar || !nuevoChoferId) {
+      toast.error('Seleccioná el nuevo chofer');
+      return;
+    }
+    try {
+      setSavingReasignacion(true);
+      const res = await artEmpresaService.reasignarChofer(viajeParaReasignar.id, {
+        nuevoChoferId,
+        motivo: motivoReasignacion,
+      });
+      if (res.success) {
+        toast.success('Viaje reasignado correctamente al nuevo chofer');
+        setIsModalReasignarOpen(false);
+        cargarFacturacion();
+      } else {
+        toast.error(res.message || 'Error al reasignar chofer');
+      }
+    } catch (error: any) {
+      toast.error('Error al reasignar chofer');
+    } finally {
+      setSavingReasignacion(false);
+    }
+  };
+
+  // Handler Auxilio Mecánico / Trasbordo en viaje (Punto 2)
+  const handleAbrirAuxilio = (viaje: any) => {
+    setViajeParaAuxilio(viaje);
+    setChoferAuxilioId('');
+    setPuntoTrasbordo('');
+    setKmChoferInicial(viaje.distanciaKmConPasajero ? String(Math.round(viaje.distanciaKmConPasajero / 2)) : '');
+    setIsModalAuxilioOpen(true);
+  };
+
+  const handleGuardarAuxilio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!viajeParaAuxilio || !choferAuxilioId) {
+      toast.error('Seleccioná el chofer de auxilio / trasbordo');
+      return;
+    }
+    try {
+      setSavingAuxilio(true);
+      const res = await artEmpresaService.auxilioMecanico(viajeParaAuxilio.id, {
+        nuevoChoferId: choferAuxilioId,
+        puntoTrasbordo: puntoTrasbordo.trim() || 'En ruta',
+        kmChoferInicial: kmChoferInicial ? parseFloat(kmChoferInicial) : undefined,
+      });
+      if (res.success) {
+        toast.success('Auxilio mecánico activado. Viaje transferido al nuevo móvil.');
+        setIsModalAuxilioOpen(false);
+        cargarFacturacion();
+      } else {
+        toast.error(res.message || 'Error al procesar auxilio');
+      }
+    } catch (error: any) {
+      toast.error('Error al registrar auxilio');
+    } finally {
+      setSavingAuxilio(false);
+    }
+  };
+
+  // Handler Modificar / Anular Siniestro (Punto 3)
+  const handleAbrirSiniestro = (viaje: any, tipo: 'MODIFICAR' | 'ANULAR') => {
+    setViajeParaSiniestro(viaje);
+    setTipoAccionSiniestro(tipo);
+    setNuevoNumeroSiniestro(viaje.numeroSiniestro || '');
+    setMotivoSiniestro('');
+    setIsModalSiniestroOpen(true);
+  };
+
+  const handleGuardarSiniestro = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!viajeParaSiniestro) return;
+    try {
+      setSavingSiniestro(true);
+      if (tipoAccionSiniestro === 'MODIFICAR') {
+        if (!nuevoNumeroSiniestro.trim()) {
+          toast.error('Ingresá el nuevo número de siniestro');
+          return;
+        }
+        const res = await artEmpresaService.modificarSiniestro(viajeParaSiniestro.id, {
+          nuevoNumeroSiniestro: nuevoNumeroSiniestro.trim(),
+          motivo: motivoSiniestro.trim() || 'Corrección de número de siniestro',
+        });
+        if (res.success) {
+          toast.success('Siniestro actualizado con éxito');
+          setIsModalSiniestroOpen(false);
+          cargarFacturacion();
+        } else {
+          toast.error(res.message || 'Error al modificar siniestro');
+        }
+      } else {
+        const res = await artEmpresaService.anularSiniestro(viajeParaSiniestro.id, {
+          motivo: motivoSiniestro.trim() || 'Siniestro anulado por la ART',
+          numeroSiniestroNuevo: nuevoNumeroSiniestro.trim() || undefined,
+        });
+        if (res.success) {
+          toast.success('Viaje de siniestro anulado');
+          setIsModalSiniestroOpen(false);
+          cargarFacturacion();
+        } else {
+          toast.error(res.message || 'Error al anular siniestro');
+        }
+      }
+    } catch (error: any) {
+      toast.error('Error al procesar siniestro');
+    } finally {
+      setSavingSiniestro(false);
+    }
+  };
+
+  // Handler Coordinación con Pasajero (Punto 4)
+  const handleAbrirCoordinacion = (viaje: any) => {
+    setViajeParaCoordinacion(viaje);
+    setEstadoCoordinacionSeleccionado(viaje.estadoCoordinacion || 'PENDIENTE_CONTACTO');
+    setMotivoRechazoPaciente(viaje.motivoRechazoPaciente || '');
+    setObservacionesCoordinacion('');
+    setIsModalCoordinacionOpen(true);
+  };
+
+  const handleGuardarCoordinacion = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!viajeParaCoordinacion) return;
+    try {
+      setSavingCoordinacion(true);
+      const res = await artEmpresaService.actualizarCoordinacionPaciente(viajeParaCoordinacion.id, {
+        estadoCoordinacion: estadoCoordinacionSeleccionado as any,
+        motivoRechazo: estadoCoordinacionSeleccionado === 'RECHAZADO_POR_PACIENTE' ? (motivoRechazoPaciente.trim() || 'Pasajero no desea viajar') : undefined,
+        observaciones: observacionesCoordinacion.trim() || undefined,
+      });
+      if (res.success) {
+        toast.success('Estado de coordinación actualizado');
+        setIsModalCoordinacionOpen(false);
+        cargarFacturacion();
+      } else {
+        toast.error(res.message || 'Error al actualizar coordinación');
+      }
+    } catch (error: any) {
+      toast.error('Error al actualizar coordinación');
+    } finally {
+      setSavingCoordinacion(false);
+    }
+  };
+
+  // Handler Peajes (Punto 6)
+  const handleAbrirPeajes = (viaje: any) => {
+    setViajeParaPeajes(viaje);
+    setMontoPeajesInput(viaje.montoPeajes ? String(viaje.montoPeajes) : '');
+    setObservacionesPeajeInput(viaje.observacionesPeaje || '');
+    setIsModalPeajesOpen(true);
+  };
+
+  const handleGuardarPeajes = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!viajeParaPeajes) return;
+    try {
+      setSavingPeajes(true);
+      const monto = parseFloat(montoPeajesInput) || 0;
+      const res = await artEmpresaService.actualizarPeajes(viajeParaPeajes.id, {
+        montoPeajes: monto,
+        observacionesPeaje: observacionesPeajeInput.trim() || undefined,
+      });
+      if (res.success) {
+        toast.success('Peajes actualizados correctamente');
+        setIsModalPeajesOpen(false);
+        cargarFacturacion();
+      } else {
+        toast.error(res.message || 'Error al actualizar peajes');
+      }
+    } catch (error: any) {
+      toast.error('Error al actualizar peajes');
+    } finally {
+      setSavingPeajes(false);
+    }
+  };
+
+  // Handler Periodo Actual ART (Punto 5)
+  const aplicarPeriodoActualArt = async () => {
+    if (selectedArtFilter === 'all') {
+      toast.error('Seleccioná primero una ART específica en el filtro');
+      return;
+    }
+    try {
+      const res = await artEmpresaService.getPeriodoActual(selectedArtFilter);
+      if (res.success && res.data) {
+        setFechaDesde(res.data.fechaDesde);
+        setFechaHasta(res.data.fechaHasta);
+        setPeriodoFiltro('personalizado');
+        toast.success(`Rango ajustado al ciclo ${res.data.periodoTipo.toLowerCase()} de la ART (${res.data.fechaDesde} al ${res.data.fechaHasta})`);
+      } else {
+        toast.error(res.message || 'No se pudo obtener el ciclo de la ART');
+      }
+    } catch (error: any) {
+      toast.error('Error al consultar ciclo de la ART');
+    }
+  };
+
+  // Cierres Handlers (Punto 7)
+  const cargarCierres = async () => {
+    try {
+      setLoadingCierres(true);
+      const params: any = {};
+      if (filtroArtCierre !== 'all') params.artEmpresaId = filtroArtCierre;
+      if (filtroEstadoCierre !== 'all') params.estado = filtroEstadoCierre;
+      const res = await artEmpresaService.getCierresFacturacion(params);
+      if (res.success && res.data) {
+        setCierresList(res.data);
+      }
+    } catch (error) {
+      console.error('Error al cargar cierres:', error);
+    } finally {
+      setLoadingCierres(false);
+    }
+  };
+
+  const handleAbrirModalGenerarCierre = () => {
+    if (selectedArtFilter === 'all') {
+      toast.error('Seleccioná una ART específica para generar el cierre');
+      return;
+    }
+    setArtCierreId(selectedArtFilter);
+    setFechaDesdeCierre(fechaDesde);
+    setFechaHastaCierre(fechaHasta);
+    setObservacionesCierre('');
+    setIsModalGenerarCierreOpen(true);
+  };
+
+  const handleGenerarCierre = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!artCierreId || !fechaDesdeCierre || !fechaHastaCierre) {
+      toast.error('Completá la ART y el rango de fechas');
+      return;
+    }
+    try {
+      setSavingGenerarCierre(true);
+      const res = await artEmpresaService.generarCierreFacturacion({
+        artEmpresaId: artCierreId,
+        fechaDesde: fechaDesdeCierre,
+        fechaHasta: fechaHastaCierre,
+        observaciones: observacionesCierre.trim() || undefined,
+      });
+      if (res.success) {
+        toast.success(res.message || 'Cierre de facturación generado exitosamente');
+        setIsModalGenerarCierreOpen(false);
+        setActiveTab('cierres');
+        cargarCierres();
+      } else {
+        toast.error(res.message || 'Error al generar cierre');
+      }
+    } catch (error: any) {
+      toast.error('Error al generar cierre de facturación');
+    } finally {
+      setSavingGenerarCierre(false);
+    }
+  };
+
+  const handleAbrirRegistrarFactura = (cierre: CierreFacturacionArt) => {
+    setCierreParaFactura(cierre);
+    setNumeroFacturaInput(cierre.numeroFactura || '');
+    setFechaEmisionInput(cierre.fechaEmision ? cierre.fechaEmision.split('T')[0] : '');
+    setFechaEnvioFacturaInput(cierre.fechaEnvioFactura ? cierre.fechaEnvioFactura.split('T')[0] : '');
+    setObservacionesFacturaInput(cierre.observaciones || '');
+    setIsModalRegistrarFacturaOpen(true);
+  };
+
+  const handleGuardarFacturaCierre = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cierreParaFactura || !numeroFacturaInput.trim()) {
+      toast.error('Ingresá el número de factura emitida');
+      return;
+    }
+    try {
+      setSavingFactura(true);
+      const res = await artEmpresaService.registrarFacturaCierre(cierreParaFactura.id, {
+        numeroFactura: numeroFacturaInput.trim(),
+        fechaEmision: fechaEmisionInput,
+        fechaEnvioFactura: fechaEnvioFacturaInput,
+        observaciones: observacionesFacturaInput.trim() || undefined,
+      });
+      if (res.success) {
+        toast.success('Factura registrada y agendada exitosamente');
+        setIsModalRegistrarFacturaOpen(false);
+        cargarCierres();
+      } else {
+        toast.error(res.message || 'Error al registrar factura');
+      }
+    } catch (error: any) {
+      toast.error('Error al registrar factura');
+    } finally {
+      setSavingFactura(false);
+    }
+  };
+
+  const handleAbrirMarcarCobrado = (cierre: CierreFacturacionArt) => {
+    setCierreParaCobrado(cierre);
+    setFechaCobroInput(cierre.fechaCobro ? cierre.fechaCobro.split('T')[0] : '');
+    setMetodoCobroInput(cierre.metodoCobro || 'TRANSFERENCIA');
+    setComprobanteCobroInput(cierre.comprobanteCobroUrl || '');
+    setObservacionesCobroInput(cierre.observaciones || '');
+    setIsModalMarcarCobradoOpen(true);
+  };
+
+  const handleGuardarCobroCierre = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cierreParaCobrado || !fechaCobroInput) {
+      toast.error('Ingresá la fecha de cobro');
+      return;
+    }
+    try {
+      setSavingCobro(true);
+      const res = await artEmpresaService.marcarCierreCobrado(cierreParaCobrado.id, {
+        fechaCobro: fechaCobroInput,
+        metodoCobro: metodoCobroInput,
+        comprobanteCobroUrl: comprobanteCobroInput.trim() || undefined,
+        observaciones: observacionesCobroInput.trim() || undefined,
+      });
+      if (res.success) {
+        toast.success('¡Cierre marcado como COBRADO!');
+        setIsModalMarcarCobradoOpen(false);
+        cargarCierres();
+      } else {
+        toast.error(res.message || 'Error al registrar cobro');
+      }
+    } catch (error: any) {
+      toast.error('Error al registrar cobro');
+    } finally {
+      setSavingCobro(false);
+    }
+  };
+
+  const handleAnularCierre = async (cierre: CierreFacturacionArt) => {
+    if (!window.confirm(`¿Estás seguro de anular el cierre #${cierre.id.slice(0, 8)}? Los viajes volverán a quedar disponibles para un nuevo cierre.`)) {
+      return;
+    }
+    try {
+      const res = await artEmpresaService.anularCierreFacturacion(cierre.id);
+      if (res.success) {
+        toast.success('Cierre anulado y viajes liberados');
+        cargarCierres();
+      } else {
+        toast.error(res.message || 'Error al anular cierre');
+      }
+    } catch (error: any) {
+      toast.error('Error al anular cierre');
     }
   };
 
@@ -518,15 +964,32 @@ export default function ArtPage() {
           onClick={() => setActiveTab('facturacion')}
           className={`flex items-center gap-2 py-4 px-4 font-semibold text-sm border-b-2 transition-all ${
             activeTab === 'facturacion'
-              ? 'border-primary-600 text-primary-600'
+              ? 'border-primary-600 text-primary-600 font-bold'
               : 'border-transparent text-slate-500 hover:text-slate-800'
           }`}
         >
           <FileText className="w-4 h-4" />
-          Facturación y Liquidación ART
+          Facturación y Viajes ART
           {facturacionData?.resumen?.totalViajes !== undefined && (
             <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs bg-primary-50 text-primary-700 font-medium">
               {facturacionData.resumen.totalViajes} viajes
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('cierres')}
+          className={`flex items-center gap-2 py-4 px-4 font-semibold text-sm border-b-2 transition-all ${
+            activeTab === 'cierres'
+              ? 'border-indigo-600 text-indigo-700 font-bold'
+              : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <ShieldCheck className="w-4 h-4 text-indigo-600" />
+          Cierres y Cobranzas
+          {cierresList.length > 0 && (
+            <span className="ml-1.5 px-2 py-0.5 rounded-full text-xs bg-indigo-100 text-indigo-800 font-bold">
+              {cierresList.length}
             </span>
           )}
         </button>
@@ -853,6 +1316,17 @@ export default function ArtPage() {
                 >
                   Mes Anterior
                 </button>
+
+                {selectedArtFilter !== 'all' && (
+                  <button
+                    onClick={aplicarPeriodoActualArt}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-100 text-amber-900 hover:bg-amber-200 transition-colors flex items-center gap-1 shadow-xs"
+                    title="Ajustar fechas según el ciclo (semanal, quincenal, mensual) de esta ART"
+                  >
+                    <Calendar className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Ciclo Actual ART</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -939,7 +1413,7 @@ export default function ArtPage() {
                 />
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={handleExportarCSV}
                   className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors"
@@ -954,12 +1428,21 @@ export default function ArtPage() {
                   <Printer className="w-4 h-4" />
                   Imprimir Detalle Factura
                 </button>
+                {selectedArtFilter !== 'all' && (
+                  <button
+                    onClick={handleAbrirModalGenerarCierre}
+                    className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-sm shadow-indigo-200 transition-all active:scale-95"
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Generar Cierre Facturación</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
 
           {/* Tarjetas KPI del Período para Facturación y Ganancias */}
-          <div className="no-print grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <div className="no-print grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
             {/* Facturación Total ART */}
             <div className="bg-white p-5 rounded-2xl border border-emerald-200/80 shadow-xs bg-linear-to-br from-white to-emerald-50/20">
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
@@ -987,6 +1470,21 @@ export default function ArtPage() {
               </div>
               <span className="text-[11px] text-slate-400 mt-1 block">
                 Liquidación de los móviles
+              </span>
+            </div>
+
+            {/* Total Peajes Choferes */}
+            <div className="bg-white p-5 rounded-2xl border border-amber-200/80 shadow-xs bg-linear-to-br from-white to-amber-50/20">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
+                Total Peajes Informados
+              </span>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-amber-600">
+                  ${(facturacionData?.resumen?.totalPeajes || 0).toLocaleString('es-AR')}
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-400 mt-1 block">
+                Reembolso chofer / Sumado a ART
               </span>
             </div>
 
@@ -1190,29 +1688,96 @@ export default function ArtPage() {
                   {viajesFiltrados.map((viaje: any) => {
                     const fecha = new Date(viaje.fecha);
                     const esperaMin = Math.round((viaje.tiempoEsperaSegundos || 0) / 60);
-                    const facturaArt = Number(viaje.precioFacturaArt ?? viaje.precioArt ?? viaje.precio ?? 0);
-                    const pagaChofer = Number(viaje.pagaChofer ?? viaje.precio ?? 0);
+                    const peajes = Number(viaje.montoPeajes || 0);
+                    const facturaArt = Number(viaje.precioFacturaArt ?? viaje.precioArt ?? viaje.precio ?? 0) + peajes;
+                    const pagaChofer = Number(viaje.pagaChofer ?? viaje.precio ?? 0) + peajes;
                     const ganancia = Number(viaje.gananciaNeta ?? Math.max(0, facturaArt - pagaChofer));
 
                     return (
-                      <div key={viaje.id} className="p-4 space-y-2.5 bg-white hover:bg-slate-50/50 transition-colors">
+                      <div key={viaje.id} className="p-4 space-y-3 bg-white hover:bg-slate-50/50 transition-colors">
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex flex-wrap items-center gap-1.5">
                               <span className="font-bold text-slate-900 text-sm">{viaje.artEmpresa?.nombre || 'Sin ART'}</span>
-                              {viaje.numeroSiniestro && (
-                                <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-blue-50 text-blue-700 border border-blue-200">
-                                  #{viaje.numeroSiniestro}
-                                </span>
+                              {viaje.numeroSiniestro ? (
+                                <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-blue-50 text-blue-700 border border-blue-200">
+                                  <span>#{viaje.numeroSiniestro}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAbrirSiniestro(viaje, 'MODIFICAR')}
+                                    className="hover:text-blue-900"
+                                    title="Modificar número de siniestro"
+                                  >
+                                    <Edit className="w-2.5 h-2.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAbrirSiniestro(viaje, 'ANULAR')}
+                                    className="text-rose-500 hover:text-rose-700 font-bold"
+                                    title="Anular viaje de siniestro"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAbrirSiniestro(viaje, 'MODIFICAR')}
+                                  className="text-[10px] text-blue-600 underline font-medium"
+                                >
+                                  + Siniestro
+                                </button>
                               )}
                             </div>
                             <p className="text-[11px] text-slate-400 mt-0.5">
                               {fecha.toLocaleDateString('es-AR')} a las {fecha.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })} hs
                             </p>
                           </div>
-                          <span className="text-sm font-extrabold text-emerald-700">
-                            ${facturaArt.toLocaleString('es-AR')}
-                          </span>
+                          <div className="text-right">
+                            <span className="text-sm font-black text-emerald-700 block">
+                              ${facturaArt.toLocaleString('es-AR')}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase inline-block mt-0.5 ${
+                              viaje.estado === 'CANCELADO'
+                                ? 'bg-rose-50 text-rose-700'
+                                : viaje.estado === 'COMPLETADO'
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : 'bg-amber-50 text-amber-700'
+                            }`}>
+                              {viaje.estado}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Estado de Coordinación y Auxilio en Móvil */}
+                        <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                          <button
+                            type="button"
+                            onClick={() => handleAbrirCoordinacion(viaje)}
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-bold border transition-colors ${
+                              viaje.estadoCoordinacion === 'CONFIRMADO'
+                                ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                : viaje.estadoCoordinacion === 'RECHAZADO_POR_PACIENTE'
+                                ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                : viaje.estadoCoordinacion === 'NO_RESPONDE'
+                                ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                : 'bg-slate-100 text-slate-700 border-slate-300'
+                            }`}
+                          >
+                            {viaje.estadoCoordinacion === 'CONFIRMADO'
+                              ? '✓ Pasajero Confirmó'
+                              : viaje.estadoCoordinacion === 'RECHAZADO_POR_PACIENTE'
+                              ? `✕ Pasajero Desiste ${viaje.motivoRechazoPaciente ? `(${viaje.motivoRechazoPaciente})` : ''}`
+                              : viaje.estadoCoordinacion === 'NO_RESPONDE'
+                              ? '⚠️ No Contesta'
+                              : '📞 Coordinar Pasajero'}
+                          </button>
+
+                          {viaje.auxilioMecanico && (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+                              🚨 Auxilio en: {viaje.puntoTrasbordo || 'Ruta'}
+                            </span>
+                          )}
                         </div>
 
                         <div className="text-xs text-slate-700">
@@ -1225,10 +1790,20 @@ export default function ArtPage() {
                         </div>
 
                         {/* Desglose Financiero */}
-                        <div className="grid grid-cols-3 gap-2 text-center text-xs bg-slate-50 p-2 rounded-xl border border-slate-100">
+                        <div className="grid grid-cols-4 gap-2 text-center text-xs bg-slate-50 p-2 rounded-xl border border-slate-100">
                           <div>
-                            <span className="text-[10px] text-slate-400 block">Km / Espera</span>
-                            <span className="font-semibold text-slate-800">{Number(viaje.distanciaKm || 0).toFixed(1)} km / {esperaMin}m</span>
+                            <span className="text-[10px] text-slate-400 block">Km/Espera</span>
+                            <span className="font-semibold text-slate-800">{Number(viaje.distanciaKmConPasajero || viaje.distanciaKm || 0).toFixed(1)}k/{esperaMin}m</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] text-amber-700 block">Peajes</span>
+                            <button
+                              type="button"
+                              onClick={() => handleAbrirPeajes(viaje)}
+                              className="font-bold text-amber-800 hover:underline"
+                            >
+                              ${peajes.toLocaleString('es-AR')}
+                            </button>
                           </div>
                           <div>
                             <span className="text-[10px] text-blue-600 block">Paga Chofer</span>
@@ -1240,16 +1815,40 @@ export default function ArtPage() {
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-1">
-                          <span className="text-[11px] text-slate-400">
-                            Chofer: <strong className="text-slate-600">{viaje.chofer ? `${viaje.chofer.nombre} ${viaje.chofer.apellido}` : 'Sin chofer'}</strong> ({viaje.vehiculo?.patente || 'S/D'})
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 text-xs">
+                          <span className="text-[11px] text-slate-500">
+                            Chofer: <strong>{viaje.chofer ? `${viaje.chofer.nombre} ${viaje.chofer.apellido}` : 'Sin chofer'}</strong>
                           </span>
-                          <button
-                            onClick={() => abrirModalEditarViajeArt(viaje)}
-                            className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors"
-                          >
-                            Editar ART
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            {viaje.estado !== 'COMPLETADO' && viaje.estado !== 'CANCELADO' && (
+                              <button
+                                type="button"
+                                onClick={() => handleAbrirReasignar(viaje)}
+                                className="px-2 py-1 rounded-lg bg-amber-50 text-amber-800 font-bold text-[10px] border border-amber-200"
+                                title="Reasignar por rotura u otro chofer"
+                              >
+                                🔁 Reasignar
+                              </button>
+                            )}
+
+                            {(viaje.estado === 'EN_CAMINO' || viaje.estado === 'EN_CURSO') && (
+                              <button
+                                type="button"
+                                onClick={() => handleAbrirAuxilio(viaje)}
+                                className="px-2 py-1 rounded-lg bg-rose-50 text-rose-800 font-bold text-[10px] border border-rose-200"
+                                title="Auxilio mecánico y trasbordo"
+                              >
+                                🚨 Auxilio
+                              </button>
+                            )}
+
+                            <button
+                              onClick={() => abrirModalEditarViajeArt(viaje)}
+                              className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors"
+                            >
+                              Editar ART
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -1263,22 +1862,25 @@ export default function ArtPage() {
                     <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider text-[11px]">
                       <th className="py-3 px-4">Fecha / Hora</th>
                       <th className="py-3 px-4">ART / Siniestro</th>
+                      <th className="py-3 px-4 text-center">Coordinación</th>
                       <th className="py-3 px-4">Pasajero / Paciente</th>
                       <th className="py-3 px-4">Recorrido</th>
                       <th className="py-3 px-4">Móvil / Chofer</th>
                       <th className="py-3 px-3 text-center">Km / Espera</th>
+                      <th className="py-3 px-3 text-right text-amber-700">Peajes ($)</th>
                       <th className="py-3 px-4 text-right text-emerald-700">Factura ART ($)</th>
                       <th className="py-3 px-4 text-right text-blue-700">Paga Chofer ($)</th>
                       <th className="py-3 px-4 text-right text-indigo-700">Ganancia Neta ($)</th>
-                      <th className="py-3 px-4 text-center no-print">Acción</th>
+                      <th className="py-3 px-4 text-center no-print">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {viajesFiltrados.map((viaje: any) => {
                       const fecha = new Date(viaje.fecha);
                       const esperaMin = Math.round((viaje.tiempoEsperaSegundos || 0) / 60);
-                      const facturaArt = Number(viaje.precioFacturaArt ?? viaje.precioArt ?? viaje.precio ?? 0);
-                      const pagaChofer = Number(viaje.pagaChofer ?? viaje.precio ?? 0);
+                      const peajes = Number(viaje.montoPeajes || 0);
+                      const facturaArt = Number(viaje.precioFacturaArt ?? viaje.precioArt ?? viaje.precio ?? 0) + peajes;
+                      const pagaChofer = Number(viaje.pagaChofer ?? viaje.precio ?? 0) + peajes;
                       const ganancia = Number(viaje.gananciaNeta ?? Math.max(0, facturaArt - pagaChofer));
 
                       return (
@@ -1294,17 +1896,67 @@ export default function ArtPage() {
                           </td>
 
                           {/* ART / Siniestro */}
-                          <td className="py-3 px-4">
+                          <td className="py-3 px-4 whitespace-nowrap">
                             <span className="font-bold text-slate-900 block">
                               {viaje.artEmpresa?.nombre || 'Sin ART'}
                             </span>
                             {viaje.numeroSiniestro ? (
-                              <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-blue-50 text-blue-700 border border-blue-200 mt-0.5">
-                                Siniestro: {viaje.numeroSiniestro}
-                              </span>
+                              <div className="flex items-center gap-1 mt-0.5">
+                                <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-mono bg-blue-50 text-blue-700 border border-blue-200">
+                                  #{viaje.numeroSiniestro}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAbrirSiniestro(viaje, 'MODIFICAR')}
+                                  className="text-slate-400 hover:text-blue-600 p-0.5"
+                                  title="Corregir N° de Siniestro"
+                                >
+                                  <Edit className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleAbrirSiniestro(viaje, 'ANULAR')}
+                                  className="text-rose-400 hover:text-rose-600 font-bold p-0.5"
+                                  title="Anular Siniestro / Caído"
+                                >
+                                  ✕
+                                </button>
+                              </div>
                             ) : (
-                              <span className="text-[10px] text-slate-400 block">-</span>
+                              <button
+                                type="button"
+                                onClick={() => handleAbrirSiniestro(viaje, 'MODIFICAR')}
+                                className="text-[10px] text-blue-600 underline font-medium"
+                              >
+                                + Asignar Siniestro
+                              </button>
                             )}
+                          </td>
+
+                          {/* Coordinación con Pasajero */}
+                          <td className="py-3 px-4 text-center whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => handleAbrirCoordinacion(viaje)}
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
+                                viaje.estadoCoordinacion === 'CONFIRMADO'
+                                  ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                                  : viaje.estadoCoordinacion === 'RECHAZADO_POR_PACIENTE'
+                                  ? 'bg-rose-100 text-rose-800 border-rose-300'
+                                  : viaje.estadoCoordinacion === 'NO_RESPONDE'
+                                  ? 'bg-amber-100 text-amber-800 border-amber-300'
+                                  : 'bg-slate-100 text-slate-700 border-slate-300'
+                              }`}
+                              title="Clic para coordinar llamado o registrar desistimiento"
+                            >
+                              {viaje.estadoCoordinacion === 'CONFIRMADO'
+                                ? '✓ Confirmado'
+                                : viaje.estadoCoordinacion === 'RECHAZADO_POR_PACIENTE'
+                                ? '✕ Desiste'
+                                : viaje.estadoCoordinacion === 'NO_RESPONDE'
+                                ? '⚠️ No Contesta'
+                                : '⏳ Coordinar'}
+                            </button>
                           </td>
 
                           {/* Pasajero */}
@@ -1330,6 +1982,11 @@ export default function ArtPage() {
                               <p className="text-slate-600 truncate" title={viaje.destino}>
                                 <span className="text-red-500 font-bold">D:</span> {viaje.destino}
                               </p>
+                              {viaje.auxilioMecanico && (
+                                <p className="text-[10px] text-rose-700 font-bold bg-rose-50 px-1 rounded">
+                                  🚨 Trasbordo en: {viaje.puntoTrasbordo || 'Ruta'}
+                                </p>
+                              )}
                             </div>
                           </td>
 
@@ -1361,6 +2018,19 @@ export default function ArtPage() {
                             )}
                           </td>
 
+                          {/* Peajes */}
+                          <td className="py-3 px-3 text-right whitespace-nowrap">
+                            <button
+                              type="button"
+                              onClick={() => handleAbrirPeajes(viaje)}
+                              className="font-bold text-amber-800 hover:text-amber-950 px-1.5 py-0.5 rounded hover:bg-amber-50"
+                              title="Clic para registrar o ajustar peajes informados por el chofer"
+                            >
+                              ${peajes.toLocaleString('es-AR')}
+                              <Edit className="w-2.5 h-2.5 inline ml-1 text-slate-400" />
+                            </button>
+                          </td>
+
                           {/* Factura ART */}
                           <td className="py-3 px-4 text-right whitespace-nowrap">
                             <span className="text-sm font-bold text-emerald-600">
@@ -1384,13 +2054,39 @@ export default function ArtPage() {
 
                           {/* Acciones */}
                           <td className="py-3 px-4 text-center no-print whitespace-nowrap">
-                            <button
-                              onClick={() => abrirModalEditarViajeArt(viaje)}
-                              className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold transition-colors"
-                              title="Reasignar ART o número de siniestro"
-                            >
-                              Editar ART
-                            </button>
+                            <div className="flex items-center justify-center gap-1.5">
+                              {viaje.estado !== 'COMPLETADO' && viaje.estado !== 'CANCELADO' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAbrirReasignar(viaje)}
+                                  className="px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 text-[11px] font-bold border border-amber-200 transition-colors"
+                                  title="Reasignar a otro chofer si se rompió el vehículo antes de salir"
+                                >
+                                  <RotateCcw className="w-3 h-3 inline mr-0.5" />
+                                  Reasignar
+                                </button>
+                              )}
+
+                              {(viaje.estado === 'EN_CAMINO' || viaje.estado === 'EN_CURSO') && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAbrirAuxilio(viaje)}
+                                  className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-800 text-[11px] font-bold border border-rose-200 transition-colors"
+                                  title="Auxilio mecánico y trasbordo de pasajero en viaje"
+                                >
+                                  <Wrench className="w-3 h-3 inline mr-0.5" />
+                                  Auxilio
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => abrirModalEditarViajeArt(viaje)}
+                                className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold transition-colors"
+                                title="Editar ART o recalcular tarifa"
+                              >
+                                Editar ART
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -1399,11 +2095,14 @@ export default function ArtPage() {
                   {/* Pie de tabla con totales */}
                   <tfoot>
                     <tr className="bg-slate-50 border-t-2 border-slate-300 font-bold text-slate-900">
-                      <td colSpan={5} className="py-3 px-4 text-right">
+                      <td colSpan={6} className="py-3 px-4 text-right">
                         TOTALES DEL PERÍODO:
                       </td>
                       <td className="py-3 px-3 text-center whitespace-nowrap">
                         {facturacionData?.resumen?.totalKm || 0} km
+                      </td>
+                      <td className="py-3 px-3 text-right text-amber-800 whitespace-nowrap">
+                        ${(facturacionData?.resumen?.totalPeajes || 0).toLocaleString('es-AR')}
                       </td>
                       <td className="py-3 px-4 text-right text-base text-emerald-700 whitespace-nowrap">
                         ${(facturacionData?.resumen?.totalFacturado || 0).toLocaleString('es-AR')}
@@ -1421,6 +2120,338 @@ export default function ArtPage() {
               </div>
             </>
           )}
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* PESTAÑA 3: CIERRES DE FACTURACIÓN Y COBRANZAS ART              */}
+      {/* ============================================================== */}
+      {activeTab === 'cierres' && (
+        <div className="space-y-6">
+          {/* Header y Filtros */}
+          <div className="no-print bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-indigo-600" />
+                  Cierres de Facturación y Control de Cobranzas
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Llevá el control riguroso de cada período cerrado, número de factura emitida, fecha de envío a la aseguradora y estado del cobro.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    if (selectedArtFilter !== 'all') {
+                      handleAbrirModalGenerarCierre();
+                    } else {
+                      setActiveTab('facturacion');
+                      toast('Seleccioná la ART y el período para generar el cierre', { icon: 'ℹ️' });
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs shadow-sm shadow-indigo-200 transition-all active:scale-95"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Nuevo Cierre de Facturación</span>
+                </button>
+                <button
+                  onClick={cargarCierres}
+                  disabled={loadingCierres}
+                  className="p-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors"
+                  title="Actualizar cierres"
+                >
+                  <RefreshCw className={`w-4 h-4 ${loadingCierres ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+            </div>
+
+            {/* Filtros de ART y Estado */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-slate-100">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Filtrar por ART
+                </label>
+                <select
+                  value={filtroArtCierre}
+                  onChange={(e) => setFiltroArtCierre(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="all">Todas las Aseguradoras</option>
+                  {artList.map((art) => (
+                    <option key={art.id} value={art.id}>
+                      {art.nombre} {art.cuit ? `(${art.cuit})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Estado del Cierre
+                </label>
+                <select
+                  value={filtroEstadoCierre}
+                  onChange={(e) => setFiltroEstadoCierre(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="all">Todos los Estados</option>
+                  <option value="PENDIENTE_FACTURAR">Pendiente de Facturar</option>
+                  <option value="FACTURA_EMITIDA">Factura Emitida y Enviada</option>
+                  <option value="COBRADO">Cobrado con Éxito</option>
+                  <option value="ANULADO">Anulado</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Tarjetas KPI de Cierres */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider block">
+                Total Facturado en Cierres
+              </span>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-slate-900">
+                  ${cierresList
+                    .filter(c => c.estado !== 'ANULADO')
+                    .reduce((acc, c) => acc + (Number(c.totalFacturadoArt) || 0), 0)
+                    .toLocaleString('es-AR')}
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-400 mt-1 block">
+                {cierresList.filter(c => c.estado !== 'ANULADO').length} cierres registrados
+              </span>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-emerald-200 shadow-xs bg-linear-to-br from-white to-emerald-50/20">
+              <span className="text-xs font-semibold text-emerald-800 uppercase tracking-wider block">
+                Total Cobrado
+              </span>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-emerald-600">
+                  ${cierresList
+                    .filter(c => c.estado === 'COBRADO')
+                    .reduce((acc, c) => acc + (Number(c.totalFacturadoArt) || 0), 0)
+                    .toLocaleString('es-AR')}
+                </span>
+              </div>
+              <span className="text-[11px] text-emerald-600 font-medium mt-1 block">
+                Cobranzas efectivas ingresadas
+              </span>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-amber-200 shadow-xs bg-linear-to-br from-white to-amber-50/20">
+              <span className="text-xs font-semibold text-amber-800 uppercase tracking-wider block">
+                Pendiente de Cobro
+              </span>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-amber-600">
+                  ${cierresList
+                    .filter(c => c.estado === 'PENDIENTE_FACTURAR' || c.estado === 'FACTURA_EMITIDA')
+                    .reduce((acc, c) => acc + (Number(c.totalFacturadoArt) || 0), 0)
+                    .toLocaleString('es-AR')}
+                </span>
+              </div>
+              <span className="text-[11px] text-amber-700 font-medium mt-1 block">
+                En curso o a la espera de pago
+              </span>
+            </div>
+
+            <div className="bg-white p-5 rounded-2xl border border-indigo-200 shadow-xs bg-linear-to-br from-white to-indigo-50/20">
+              <span className="text-xs font-semibold text-indigo-800 uppercase tracking-wider block">
+                Ganancia Neta en Cierres
+              </span>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-2xl font-black text-indigo-600">
+                  ${cierresList
+                    .filter(c => c.estado !== 'ANULADO')
+                    .reduce((acc, c) => acc + (Number(c.margenGanancia) || 0), 0)
+                    .toLocaleString('es-AR')}
+                </span>
+              </div>
+              <span className="text-[11px] text-indigo-600 font-medium mt-1 block">
+                Margen neto remisería
+              </span>
+            </div>
+          </div>
+
+          {/* Listado de Cierres */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+            {loadingCierres ? (
+              <div className="p-12 text-center text-slate-400">
+                <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-indigo-500" />
+                <p className="text-sm">Cargando cierres de facturación...</p>
+              </div>
+            ) : cierresList.length === 0 ? (
+              <div className="p-12 text-center text-slate-400 space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-slate-100 text-slate-500 mx-auto flex items-center justify-center">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <h4 className="font-bold text-slate-700 text-sm">No hay cierres de facturación registrados</h4>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  Generá un cierre desde la pestaña "Facturación y Viajes ART" para congelar los viajes del período y gestionar el cobro a la aseguradora.
+                </p>
+                <button
+                  onClick={() => setActiveTab('facturacion')}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 text-white text-xs font-semibold hover:bg-indigo-700"
+                >
+                  Ir a Facturación
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase font-semibold">
+                      <th className="py-3 px-4">ART / Aseguradora</th>
+                      <th className="py-3 px-4">Período Cerrado</th>
+                      <th className="py-3 px-4 text-center">Viajes / Km</th>
+                      <th className="py-3 px-4 text-right">Peajes</th>
+                      <th className="py-3 px-4 text-right">Total Factura</th>
+                      <th className="py-3 px-4 text-right">Paga Choferes</th>
+                      <th className="py-3 px-4 text-right">Ganancia</th>
+                      <th className="py-3 px-4 text-center">Estado</th>
+                      <th className="py-3 px-4">Datos Factura & Cobranza</th>
+                      <th className="py-3 px-4 text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {cierresList.map((cierre) => {
+                      const fDesdeLegible = cierre.fechaDesde ? new Date(cierre.fechaDesde).toLocaleDateString('es-AR') : '—';
+                      const fHastaLegible = cierre.fechaHasta ? new Date(cierre.fechaHasta).toLocaleDateString('es-AR') : '—';
+
+                      return (
+                        <tr key={cierre.id} className="hover:bg-slate-50/70 transition-colors">
+                          <td className="py-3 px-4 font-bold text-slate-900 whitespace-nowrap">
+                            <div className="flex items-center gap-1.5">
+                              <Building2 className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                              <span>{cierre.artEmpresa?.nombre || 'ART'}</span>
+                            </div>
+                            {cierre.artEmpresa?.cuit && (
+                              <span className="text-[10px] text-slate-400 font-mono block pl-5">
+                                CUIT: {cierre.artEmpresa.cuit}
+                              </span>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <span className="font-semibold text-slate-800 block">
+                              {fDesdeLegible} al {fHastaLegible}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-medium capitalize">
+                              Ciclo {cierre.periodoTipo.toLowerCase()}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-4 text-center whitespace-nowrap">
+                            <span className="font-bold text-slate-800">{cierre.totalViajes}</span>
+                            <span className="text-[10px] text-slate-400 block">{cierre.totalKm} km</span>
+                          </td>
+
+                          <td className="py-3 px-4 text-right font-medium text-amber-700 whitespace-nowrap">
+                            ${Number(cierre.totalPeajes || 0).toLocaleString('es-AR')}
+                          </td>
+
+                          <td className="py-3 px-4 text-right font-black text-emerald-700 text-sm whitespace-nowrap">
+                            ${Number(cierre.totalFacturadoArt || 0).toLocaleString('es-AR')}
+                          </td>
+
+                          <td className="py-3 px-4 text-right font-semibold text-blue-700 whitespace-nowrap">
+                            ${Number(cierre.totalPagaChoferes || 0).toLocaleString('es-AR')}
+                          </td>
+
+                          <td className="py-3 px-4 text-right font-black text-indigo-700 whitespace-nowrap">
+                            ${Number(cierre.margenGanancia || 0).toLocaleString('es-AR')}
+                          </td>
+
+                          <td className="py-3 px-4 text-center whitespace-nowrap">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider inline-block ${
+                              cierre.estado === 'COBRADO'
+                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                : cierre.estado === 'FACTURA_EMITIDA'
+                                ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                                : cierre.estado === 'ANULADO'
+                                ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                : 'bg-amber-100 text-amber-800 border border-amber-300'
+                            }`}>
+                              {cierre.estado === 'COBRADO'
+                                ? '✓ Cobrado'
+                                : cierre.estado === 'FACTURA_EMITIDA'
+                                ? 'Factura Emitida'
+                                : cierre.estado === 'ANULADO'
+                                ? 'Anulado'
+                                : 'Pendiente Factura'}
+                            </span>
+                          </td>
+
+                          <td className="py-3 px-4 text-[11px] text-slate-600 min-w-[200px]">
+                            {cierre.numeroFactura ? (
+                              <div className="space-y-0.5">
+                                <p className="font-bold text-slate-900">
+                                  📄 Fac. {cierre.numeroFactura}
+                                </p>
+                                <p className="text-[10px] text-slate-500">
+                                  {cierre.fechaEmision && `Emitida: ${new Date(cierre.fechaEmision).toLocaleDateString('es-AR')}`}
+                                  {cierre.fechaEnvioFactura && ` • Enviada: ${new Date(cierre.fechaEnvioFactura).toLocaleDateString('es-AR')}`}
+                                </p>
+                              </div>
+                            ) : (
+                              <span className="text-slate-400 italic">Sin factura registrada</span>
+                            )}
+
+                            {cierre.fechaCobro && (
+                              <p className="text-[10px] text-emerald-700 font-bold mt-1">
+                                💰 Cobrado: {new Date(cierre.fechaCobro).toLocaleDateString('es-AR')} ({cierre.metodoCobro || 'Transferencia'})
+                              </p>
+                            )}
+                          </td>
+
+                          <td className="py-3 px-4 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {cierre.estado !== 'COBRADO' && cierre.estado !== 'ANULADO' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAbrirRegistrarFactura(cierre)}
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 transition-colors"
+                                  title="Registrar número de factura y fecha de envío a la ART"
+                                >
+                                  📄 {cierre.numeroFactura ? 'Editar Factura' : 'Reg. Factura'}
+                                </button>
+                              )}
+
+                              {cierre.estado !== 'COBRADO' && cierre.estado !== 'ANULADO' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAbrirMarcarCobrado(cierre)}
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 transition-colors"
+                                  title="Marcar este período como cobrado por la ART"
+                                >
+                                  💰 Cobrado
+                                </button>
+                              )}
+
+                              {cierre.estado !== 'COBRADO' && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAnularCierre(cierre)}
+                                  className="p-1 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                  title="Anular Cierre y liberar viajes"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1718,6 +2749,54 @@ export default function ArtPage() {
                 )}
               </div>
 
+              {/* CICLO DE FACTURACIÓN DE LA ART */}
+              <div className="p-4 rounded-2xl bg-indigo-50/60 border border-indigo-200 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-indigo-700" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-900">
+                    Ciclo de Cierre y Facturación de la ART
+                  </span>
+                </div>
+                <p className="text-xs text-indigo-700">
+                  Configurá la periodicidad con la que esta aseguradora exige el envío de la facturación y cierre de cuenta.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Frecuencia de Cierre *
+                    </label>
+                    <select
+                      value={formData.periodoFacturacion || 'MENSUAL'}
+                      onChange={(e) => setFormData({ ...formData, periodoFacturacion: e.target.value as any })}
+                      className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="SEMANAL">Semanal (Cierre cada 7 días)</option>
+                      <option value="QUINCENAL">Quincenal (Día 1 al 15 y 16 a fin de mes)</option>
+                      <option value="MENSUAL">Mensual (Mes calendario completo)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1">
+                      Día de Corte / Vencimiento
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="31"
+                      value={formData.diaCorteFacturacion ?? 1}
+                      onChange={(e) => setFormData({ ...formData, diaCorteFacturacion: parseInt(e.target.value) || 1 })}
+                      placeholder="Ej: 1 o 15"
+                      className="w-full px-3 py-2 bg-white border border-indigo-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <span className="text-[10px] text-slate-400 block mt-1">
+                      Día del mes o semana en que se genera la liquidación
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               {/* Observaciones y Estado */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1">
@@ -1846,6 +2925,973 @@ export default function ArtPage() {
                 {guardandoViajeArt ? 'Guardando...' : 'Confirmar'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 1: REASIGNAR CHOFER ANTES DE SALIR (Punto 1)            */}
+      {/* ============================================================== */}
+      {isModalReasignarOpen && viajeParaReasignar && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700">
+                  <Car className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Reasignar Chofer (Antes de Salir)</h3>
+                  <p className="text-xs text-slate-500">Avería o indisponibilidad previa a la salida</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsModalReasignarOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Ficha Resumen del Viaje */}
+            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200/70 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Pasajero / Paciente:</span>
+                <span className="font-semibold text-slate-800">{viajeParaReasignar.clienteNombre || viajeParaReasignar.nombrePasajero || 'Sin especificar'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">ART:</span>
+                <span className="font-semibold text-primary-700">{viajeParaReasignar.artEmpresa?.nombre || 'ART'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Trayecto:</span>
+                <span className="font-medium text-slate-700 truncate max-w-[260px]">{viajeParaReasignar.origen} &rarr; {viajeParaReasignar.destino}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Chofer asignado actual:</span>
+                <span className="font-semibold text-amber-800">
+                  {viajeParaReasignar.chofer ? `${viajeParaReasignar.chofer.nombre} ${viajeParaReasignar.chofer.apellido}` : 'Sin chofer'}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleGuardarReasignar} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nuevo Chofer a Asignar <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={nuevoChoferId}
+                  onChange={(e) => setNuevoChoferId(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-primary-500"
+                  required
+                >
+                  <option value="">-- Seleccionar chofer disponible --</option>
+                  {choferesList
+                    .filter((c: any) => c.id !== viajeParaReasignar.choferId)
+                    .map((c: any) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nombre} {c.apellido} ({c.autoModelo || 'Vehículo'} {c.autoPatente ? `- ${c.autoPatente}` : ''})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Motivo de la reasignación
+                </label>
+                <input
+                  type="text"
+                  value={motivoReasignacion}
+                  onChange={(e) => setMotivoReasignacion(e.target.value)}
+                  placeholder="Ej: Vehículo averiado, pinchadura de neumático, imprevisto..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white"
+                />
+              </div>
+
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  El chofer anterior será desvinculado de este viaje y el nuevo chofer recibirá la notificación inmediata en su celular para iniciar el recorrido.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsModalReasignarOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingReasignacion || !nuevoChoferId}
+                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                >
+                  {savingReasignacion ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Reasignando...
+                    </>
+                  ) : (
+                    'Confirmar Reasignación'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 2: AUXILIO MECÁNICO / TRASBORDO EN VIAJE (Punto 2)       */}
+      {/* ============================================================== */}
+      {isModalAuxilioOpen && viajeParaAuxilio && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-red-100 flex items-center justify-center text-red-600">
+                  <Wrench className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Auxilio Mecánico en Viaje</h3>
+                  <p className="text-xs text-slate-500">Enviar móvil de relevo y registrar trasbordo</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsModalAuxilioOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Ficha Resumen del Viaje */}
+            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200/70 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Paciente a bordo:</span>
+                <span className="font-semibold text-slate-800">{viajeParaAuxilio.clienteNombre || viajeParaAuxilio.nombrePasajero}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Chofer averiado:</span>
+                <span className="font-semibold text-red-700">
+                  {viajeParaAuxilio.chofer ? `${viajeParaAuxilio.chofer.nombre} ${viajeParaAuxilio.chofer.apellido}` : 'Sin chofer'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Trayecto planificado:</span>
+                <span className="font-medium text-slate-700 truncate max-w-[260px]">{viajeParaAuxilio.origen} &rarr; {viajeParaAuxilio.destino}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleGuardarAuxilio} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Móvil / Chofer que acude al auxilio <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={choferAuxilioId}
+                  onChange={(e) => setChoferAuxilioId(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 focus:bg-white focus:ring-2 focus:ring-primary-500"
+                  required
+                >
+                  <option value="">-- Seleccionar chofer de relevo --</option>
+                  {choferesList
+                    .filter((c: any) => c.id !== viajeParaAuxilio.choferId)
+                    .map((c: any) => (
+                      <option key={c.id} value={c.id}>
+                        {c.nombre} {c.apellido} ({c.autoModelo || 'Vehículo'} {c.autoPatente ? `- ${c.autoPatente}` : ''})
+                      </option>
+                    ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Punto de encuentro / Trasbordo
+                </label>
+                <input
+                  type="text"
+                  value={puntoTrasbordo}
+                  onChange={(e) => setPuntoTrasbordo(e.target.value)}
+                  placeholder="Ej: Autopista La Plata Km 24 / Estación YPF Mitre y Av. Belgrano"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Km recorridos por el 1° chofer antes de la falla (aprox.)
+                </label>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  value={kmChoferInicial}
+                  onChange={(e) => setKmChoferInicial(e.target.value)}
+                  placeholder="Ej: 14.2"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white"
+                />
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  Sirve para liquidar los kilómetros proporcionales a cada móvil según el tramo realizado.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsModalAuxilioOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingAuxilio || !choferAuxilioId}
+                  className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                >
+                  {savingAuxilio ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Activando Auxilio...
+                    </>
+                  ) : (
+                    'Confirmar Trasbordo'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 3: MODIFICAR / ANULAR SINIESTRO (Punto 3)                */}
+      {/* ============================================================== */}
+      {isModalSiniestroOpen && viajeParaSiniestro && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${tipoAccionSiniestro === 'MODIFICAR' ? 'bg-indigo-100 text-indigo-600' : 'bg-rose-100 text-rose-600'}`}>
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    {tipoAccionSiniestro === 'MODIFICAR' ? 'Corregir N° de Siniestro' : 'Anular Siniestro / Emiten Nuevo'}
+                  </h3>
+                  <p className="text-xs text-slate-500">Gestión de inconsistencias enviadas por la ART</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsModalSiniestroOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Selector de modo: Modificar vs Anular */}
+            <div className="flex gap-2 p-1 bg-slate-100 rounded-xl">
+              <button
+                type="button"
+                onClick={() => setTipoAccionSiniestro('MODIFICAR')}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                  tipoAccionSiniestro === 'MODIFICAR'
+                    ? 'bg-white text-indigo-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Corregir Tipeo
+              </button>
+              <button
+                type="button"
+                onClick={() => setTipoAccionSiniestro('ANULAR')}
+                className={`flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${
+                  tipoAccionSiniestro === 'ANULAR'
+                    ? 'bg-white text-rose-700 shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Anular Siniestro
+              </button>
+            </div>
+
+            {/* Ficha Resumen */}
+            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200/70 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Siniestro actual:</span>
+                <span className="font-bold text-slate-900 font-mono">{viajeParaSiniestro.numeroSiniestro || 'Sin registrar'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">ART:</span>
+                <span className="font-semibold text-primary-700">{viajeParaSiniestro.artEmpresa?.nombre || 'ART'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Paciente:</span>
+                <span className="font-semibold text-slate-800">{viajeParaSiniestro.clienteNombre || viajeParaSiniestro.nombrePasajero}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleGuardarSiniestro} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  {tipoAccionSiniestro === 'MODIFICAR' ? 'Nuevo Número de Siniestro *' : 'Nuevo Siniestro emitido de reemplazo (opcional)'}
+                </label>
+                <input
+                  type="text"
+                  value={nuevoNumeroSiniestro}
+                  onChange={(e) => setNuevoNumeroSiniestro(e.target.value)}
+                  placeholder="Ej: ART-2025-88421"
+                  required={tipoAccionSiniestro === 'MODIFICAR'}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white focus:ring-2 focus:ring-primary-500 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Motivo o justificación de la ART
+                </label>
+                <input
+                  type="text"
+                  value={motivoSiniestro}
+                  onChange={(e) => setMotivoSiniestro(e.target.value)}
+                  placeholder={tipoAccionSiniestro === 'MODIFICAR' ? "Ej: Error de tipeo en dígito verificador" : "Ej: Anulado por ART por cambio de prestador o error de emisión"}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsModalSiniestroOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingSiniestro}
+                  className={`px-4 py-2 rounded-xl text-white text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 shadow-sm ${
+                    tipoAccionSiniestro === 'MODIFICAR' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-rose-600 hover:bg-rose-700'
+                  }`}
+                >
+                  {savingSiniestro ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Procesando...
+                    </>
+                  ) : (
+                    tipoAccionSiniestro === 'MODIFICAR' ? 'Guardar Corrección' : 'Anular Siniestro'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 4: COORDINACIÓN CON PASAJERO (Punto 4)                   */}
+      {/* ============================================================== */}
+      {isModalCoordinacionOpen && viajeParaCoordinacion && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+                  <Phone className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Coordinación con el Pasajero</h3>
+                  <p className="text-xs text-slate-500">Llamada previa de confirmación o rechazo del paciente</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsModalCoordinacionOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Ficha Resumen */}
+            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200/70 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Paciente:</span>
+                <span className="font-semibold text-slate-800">{viajeParaCoordinacion.clienteNombre || viajeParaCoordinacion.nombrePasajero}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Teléfono:</span>
+                <span className="font-mono font-semibold text-primary-700">{viajeParaCoordinacion.telefonoPasajero || viajeParaCoordinacion.telefonoCliente || 'No registrado'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Recorrido:</span>
+                <span className="font-medium text-slate-700 truncate max-w-[260px]">{viajeParaCoordinacion.origen} &rarr; {viajeParaCoordinacion.destino}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleGuardarCoordinacion} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Resultado del Contacto <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={estadoCoordinacionSeleccionado}
+                  onChange={(e) => setEstadoCoordinacionSeleccionado(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-primary-500"
+                >
+                  <option value="PENDIENTE_CONTACTO">🟡 Pendiente de contacto (Aún no se llamó)</option>
+                  <option value="CONFIRMADO">🟢 Confirmado (El paciente acepta y espera el móvil)</option>
+                  <option value="NO_RESPONDE">🟠 No responde al llamado telefónico</option>
+                  <option value="RECHAZADO_POR_PACIENTE">🔴 Rechazado por el paciente (No quiere viajar)</option>
+                </select>
+              </div>
+
+              {estadoCoordinacionSeleccionado === 'RECHAZADO_POR_PACIENTE' && (
+                <div className="space-y-2 p-3 bg-red-50 rounded-xl border border-red-200 animate-in fade-in duration-200">
+                  <label className="block text-xs font-semibold text-red-800">
+                    Motivo por el cual no desea viajar <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={motivoRechazoPaciente}
+                    onChange={(e) => setMotivoRechazoPaciente(e.target.value)}
+                    placeholder="Ej: Fue por sus propios medios / Se siente indispuesto / Canceló turno médico"
+                    className="w-full px-3 py-2 bg-white border border-red-300 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-red-400"
+                    required
+                  />
+                  <p className="text-[11px] text-red-700 leading-tight">
+                    El viaje pasará a estado <strong>CANCELADO</strong> con causa justificada para que la remisería pueda facturar el intento si corresponde según el convenio con la ART.
+                  </p>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Observaciones / Notas de la llamada
+                </label>
+                <textarea
+                  value={observacionesCoordinacion}
+                  onChange={(e) => setObservacionesCoordinacion(e.target.value)}
+                  rows={2}
+                  placeholder="Detalles hablados con el paciente o familiar..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsModalCoordinacionOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingCoordinacion}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                >
+                  {savingCoordinacion ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Guardando...
+                    </>
+                  ) : (
+                    'Guardar Coordinación'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 5: PEAJES DEL VIAJE (Punto 6)                            */}
+      {/* ============================================================== */}
+      {isModalPeajesOpen && viajeParaPeajes && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-md w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center text-amber-700">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Peajes Pagados por Chofer</h3>
+                  <p className="text-xs text-slate-500">Reembolso al móvil y cargo a la ART</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsModalPeajesOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Ficha Resumen */}
+            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200/70 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Chofer:</span>
+                <span className="font-semibold text-slate-800">
+                  {viajeParaPeajes.chofer ? `${viajeParaPeajes.chofer.nombre} ${viajeParaPeajes.chofer.apellido}` : 'Sin chofer'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Paciente:</span>
+                <span className="font-semibold text-slate-800">{viajeParaPeajes.clienteNombre || viajeParaPeajes.nombrePasajero}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">ART:</span>
+                <span className="font-semibold text-primary-700">{viajeParaPeajes.artEmpresa?.nombre || 'ART'}</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleGuardarPeajes} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Monto Total de Peajes ($) <span className="text-red-500">*</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 text-slate-400 font-bold">$</span>
+                  <input
+                    type="number"
+                    step="50"
+                    min="0"
+                    value={montoPeajesInput}
+                    onChange={(e) => setMontoPeajesInput(e.target.value)}
+                    placeholder="0"
+                    required
+                    className="w-full pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-base font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-primary-500"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Detalle de cabinas / Comprobante
+                </label>
+                <input
+                  type="text"
+                  value={observacionesPeajeInput}
+                  onChange={(e) => setObservacionesPeajeInput(e.target.value)}
+                  placeholder="Ej: Peaje Dock Sud + Hudson ida y vuelta"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white"
+                />
+              </div>
+
+              <div className="p-3 bg-blue-50 rounded-xl border border-blue-100 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-blue-800 leading-relaxed">
+                  Este importe se sumará automáticamente a la <strong>liquidación a pagar al chofer</strong> y a la <strong>facturación final remitida a la ART</strong>.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsModalPeajesOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingPeajes}
+                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                >
+                  {savingPeajes ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Guardando...
+                    </>
+                  ) : (
+                    'Guardar Peajes'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 6: GENERAR CIERRE DE FACTURACIÓN (Punto 7)               */}
+      {/* ============================================================== */}
+      {isModalGenerarCierreOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-primary-100 flex items-center justify-center text-primary-600">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Generar Cierre de Facturación</h3>
+                  <p className="text-xs text-slate-500">Consolidar viajes del periodo para facturar a la ART</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsModalGenerarCierreOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleGenerarCierre} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  ART / Empresa Aseguradora <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={artCierreId}
+                  onChange={(e) => setArtCierreId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white"
+                  required
+                >
+                  <option value="">-- Seleccionar ART --</option>
+                  {artList.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.nombre} (Corte: {a.periodoFacturacion || 'MENSUAL'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Fecha Desde <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={fechaDesdeCierre}
+                    onChange={(e) => setFechaDesdeCierre(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Fecha Hasta <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={fechaHastaCierre}
+                    onChange={(e) => setFechaHastaCierre(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Observaciones internas del periodo
+                </label>
+                <textarea
+                  value={observacionesCierre}
+                  onChange={(e) => setObservacionesCierre(e.target.value)}
+                  rows={2}
+                  placeholder="Ej: Cierre 1ra quincena de mes. Se incluyen viajes de traslado con peajes..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white"
+                />
+              </div>
+
+              <div className="p-3 bg-primary-50 rounded-xl border border-primary-100 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-primary-600 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-primary-800 leading-relaxed">
+                  El sistema calculará automáticamente el monto facturado a la ART, las liquidaciones a los choferes y los peajes, generando el registro oficial de cierre pendiente de cobro.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsModalGenerarCierreOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingGenerarCierre || !artCierreId || !fechaDesdeCierre || !fechaHastaCierre}
+                  className="px-4 py-2 rounded-xl bg-primary-600 hover:bg-primary-700 text-white text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                >
+                  {savingGenerarCierre ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Generando Cierre...
+                    </>
+                  ) : (
+                    'Generar Cierre Ahora'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 7: REGISTRAR FACTURA EMITIDA (Punto 7)                   */}
+      {/* ============================================================== */}
+      {isModalRegistrarFacturaOpen && cierreParaFactura && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-blue-100 flex items-center justify-center text-blue-600">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Registrar Factura Emitida</h3>
+                  <p className="text-xs text-slate-500">Control de envío y vencimiento con la ART</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsModalRegistrarFacturaOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Ficha Resumen Cierre */}
+            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200/70 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Cierre:</span>
+                <span className="font-bold text-slate-900 font-mono">#{cierreParaFactura.id.slice(0, 8)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">ART:</span>
+                <span className="font-semibold text-primary-700">{cierreParaFactura.artEmpresa?.nombre || 'ART'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Total a Facturar:</span>
+                <span className="font-bold text-emerald-700 text-sm">
+                  ${Number(cierreParaFactura.totalFacturadoArt || 0).toLocaleString('es-AR')}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Cantidad de Viajes:</span>
+                <span className="font-semibold text-slate-800">{cierreParaFactura.totalViajes} servicios</span>
+              </div>
+            </div>
+
+            <form onSubmit={handleGuardarFacturaCierre} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Número de Factura Emitida <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={numeroFacturaInput}
+                  onChange={(e) => setNumeroFacturaInput(e.target.value)}
+                  placeholder="Ej: A-0001-00045231 o FACT-88192"
+                  required
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500 font-mono"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Fecha de Emisión
+                  </label>
+                  <input
+                    type="date"
+                    value={fechaEmisionInput}
+                    onChange={(e) => setFechaEmisionInput(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Fecha de Envío a la ART
+                  </label>
+                  <input
+                    type="date"
+                    value={fechaEnvioFacturaInput}
+                    onChange={(e) => setFechaEnvioFacturaInput(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Observaciones / Notas de facturación
+                </label>
+                <textarea
+                  value={observacionesFacturaInput}
+                  onChange={(e) => setObservacionesFacturaInput(e.target.value)}
+                  rows={2}
+                  placeholder="Ej: Enviada por portal de proveedores / Enviada a facturacion@art.com..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsModalRegistrarFacturaOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingFactura || !numeroFacturaInput.trim()}
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                >
+                  {savingFactura ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Registrando...
+                    </>
+                  ) : (
+                    'Agendar y Guardar Factura'
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 8: REGISTRAR COBRO DEL CIERRE (Punto 7)                  */}
+      {/* ============================================================== */}
+      {isModalMarcarCobradoOpen && cierreParaCobrado && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-lg w-full border border-slate-200 shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700">
+                  <CheckCircle2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Registrar Cobranza de la ART</h3>
+                  <p className="text-xs text-slate-500">Marcar cierre como cobrado e ingresar datos bancarios</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsModalMarcarCobradoOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Ficha Resumen Cierre */}
+            <div className="bg-slate-50 rounded-2xl p-3 border border-slate-200/70 text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Factura / Cierre:</span>
+                <span className="font-bold text-slate-900 font-mono">{cierreParaCobrado.numeroFactura || '#' + cierreParaCobrado.id.slice(0, 8)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">ART:</span>
+                <span className="font-semibold text-primary-700">{cierreParaCobrado.artEmpresa?.nombre || 'ART'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Monto Cobrado:</span>
+                <span className="font-bold text-emerald-700 text-sm">
+                  ${Number(cierreParaCobrado.totalFacturadoArt || 0).toLocaleString('es-AR')}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleGuardarCobroCierre} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Fecha de Cobro / Acreditación <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={fechaCobroInput}
+                    onChange={(e) => setFechaCobroInput(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Método de Pago <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={metodoCobroInput}
+                    onChange={(e) => setMetodoCobroInput(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:bg-white"
+                  >
+                    <option value="TRANSFERENCIA">Transferencia Bancaria</option>
+                    <option value="ECHEQ">E-Cheq</option>
+                    <option value="CHEQUE">Cheque Físico</option>
+                    <option value="DEBITO_AUTOMATICO">Débito Automático</option>
+                    <option value="EFECTIVO">Efectivo</option>
+                    <option value="OTRO">Otro Medio</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  N° Comprobante / Orden de Pago (OP)
+                </label>
+                <input
+                  type="text"
+                  value={comprobanteCobroInput}
+                  onChange={(e) => setComprobanteCobroInput(e.target.value)}
+                  placeholder="Ej: OP-992384 o Ref. Transferencia 10293847"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Observaciones de Cobro
+                </label>
+                <textarea
+                  value={observacionesCobroInput}
+                  onChange={(e) => setObservacionesCobroInput(e.target.value)}
+                  rows={2}
+                  placeholder="Detalles sobre retenciones impositivas, cuenta de acreditación, etc."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-800 focus:bg-white"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setIsModalMarcarCobradoOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingCobro || !fechaCobroInput}
+                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                >
+                  {savingCobro ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Registrando Cobro...
+                    </>
+                  ) : (
+                    'Confirmar Cobro'
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { prisma } from '../lib/prisma';
 import { AuthenticatedRequest } from '../types';
 import bcrypt from 'bcryptjs';
+import { evaluarDocumentacionChoferYVehiculo, emitirAlertaDocumentacionSiCorresponde } from '../services/documentacionService';
 
 // ============================================================================
 // SISTEMA DE TABLAS (COLA FIFO) + DESPACHO POR PROXIMIDAD (A POCAS CUADRAS)
@@ -514,9 +515,17 @@ export const choferController = {
         });
       }
 
+      // Evaluar documentación si se asoció vehículo en el alta
+      let resumenDocumentacion = null;
+      if (vehiculoId) {
+        resumenDocumentacion = await emitirAlertaDocumentacionSiCorresponde(result.id, remiseriaId);
+      }
+
       res.status(201).json({
         success: true,
         data: result,
+        resumenDocumentacion,
+        alertasVencimiento: resumenDocumentacion?.alertas || [],
         message: 'Chofer creado exitosamente. Contraseña temporal: DNI',
       });
     } catch (error) {
@@ -694,9 +703,17 @@ export const choferController = {
         });
       }
 
+      // Si se actualizó vehículo o vencimiento de licencia, re-evaluar y alertar
+      let resumenDocumentacion = null;
+      if (vehiculoId !== undefined || vtoLicencia !== undefined) {
+        resumenDocumentacion = await emitirAlertaDocumentacionSiCorresponde(chofer.id, chofer.remiseriaId);
+      }
+
       res.json({
         success: true,
         data: chofer,
+        resumenDocumentacion,
+        alertasVencimiento: resumenDocumentacion?.alertas || [],
         message: 'Chofer actualizado exitosamente',
       });
     } catch (error) {
@@ -1054,6 +1071,8 @@ export const choferController = {
           paradaVirtualIngreso: true,
           remiseriaId: true,
           vehiculoId: true,
+          categoriaLicencia: true,
+          vtoLicencia: true,
           updatedAt: true,
           vehiculo: {
             select: {
@@ -1062,6 +1081,9 @@ export const choferController = {
               marca: true,
               modelo: true,
               color: true,
+              vtoVtv: true,
+              vtoMatafuego: true,
+              vtoSeguro: true,
             },
           },
           remiseria: {
@@ -1089,9 +1111,10 @@ export const choferController = {
           prisma.viaje.findFirst({
             where: {
               choferId: chofer.id,
-              estado: {
-                in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'],
-              },
+              OR: [
+                { estado: { in: ['EN_CAMINO', 'EN_CURSO'] } },
+                { estado: 'ACEPTADO', artEmpresaId: null }
+              ]
             },
             include: {
               cliente: {
@@ -1422,6 +1445,29 @@ export const choferController = {
         }
       }
 
+      // Buscar viajes programados de ART/Empresa asignados a este chofer (en cola de espera)
+      const hace24hs = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+      const viajesProgramados = await prisma.viaje.findMany({
+        where: {
+          choferId: chofer.id,
+          artEmpresaId: { not: null },
+          estado: { in: ['ACEPTADO', 'PENDIENTE'] },
+          fecha: { gte: hace24hs }
+        },
+        include: {
+          artEmpresa: true,
+          vehiculo: true,
+          cliente: true
+        },
+        orderBy: {
+          fecha: 'asc'
+        }
+      });
+
+      // Evaluar estado de vencimientos de documentación
+      const documentacion = evaluarDocumentacionChoferYVehiculo(chofer, chofer.vehiculo);
+
       res.json({
         success: true,
         data: {
@@ -1433,9 +1479,11 @@ export const choferController = {
             puestoEnTabla,
             totalEnTabla,
           },
+          documentacion,
           viajeActual,
           viajesDisponibles,
           viajeEnColaTabla,
+          viajesProgramados,
           turnoActivo,
           enPausa,
           motivoPausa,
@@ -1484,7 +1532,10 @@ export const choferController = {
         const viajeActivo = await prisma.viaje.findFirst({
           where: {
             choferId,
-            estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] }
+            OR: [
+              { estado: { in: ['EN_CAMINO', 'EN_CURSO'] } },
+              { estado: 'ACEPTADO', artEmpresaId: null }
+            ]
           }
         });
         if (viajeActivo) {
@@ -1881,6 +1932,27 @@ export const choferController = {
         });
       }
 
+      // Validación de Código PIN de 4 dígitos para iniciar viaje (estilo Uber)
+      // Aplica cuando el viaje tiene codigoPin (solicitado por app de cliente) y el chofer intenta pasar a 'EN_CURSO'
+      if (estado === 'EN_CURSO' && viaje.codigoPin) {
+        const pinEnviado = String(req.body.pin || req.body.codigoPin || '').trim();
+        if (!pinEnviado) {
+          return res.status(400).json({
+            success: false,
+            requierePin: true,
+            message: 'Este viaje requiere el código PIN de 4 dígitos que figura en la pantalla del pasajero.',
+          });
+        }
+        if (pinEnviado !== viaje.codigoPin) {
+          return res.status(400).json({
+            success: false,
+            requierePin: true,
+            pinIncorrecto: true,
+            message: 'Código PIN incorrecto. Pedile al pasajero que te dicte los 4 números que figuran en su pantalla.',
+          });
+        }
+      }
+
       const distCon = distanciaKmConPasajero !== undefined ? parseFloat(distanciaKmConPasajero) : undefined;
       const distSin = distanciaKmSinPasajero !== undefined ? parseFloat(distanciaKmSinPasajero) : undefined;
 
@@ -1893,6 +1965,15 @@ export const choferController = {
       }
       if (metodoPago && ['EFECTIVO', 'TRANSFERENCIA'].includes(metodoPago)) {
         updateData.metodoPago = metodoPago;
+      }
+
+      // Peajes abonados durante el viaje reportados al finalizar
+      if (req.body.montoPeajes !== undefined) {
+        const peajes = parseFloat(req.body.montoPeajes) || 0;
+        updateData.montoPeajes = peajes;
+        if (req.body.observacionesPeaje) {
+          updateData.observacionesPeaje = String(req.body.observacionesPeaje).trim();
+        }
       }
 
       // Si el chofer recalcula la tarifa por desvío/km reales recorridos
@@ -3488,9 +3569,17 @@ export const choferController = {
         });
       }
 
+      // Evaluar y notificar en la app del chofer si se le asignó un vehículo al aprobar
+      let resumenDocumentacion = null;
+      if (vehiculoId) {
+        resumenDocumentacion = await emitirAlertaDocumentacionSiCorresponde(updatedChofer.id, updatedChofer.remiseriaId);
+      }
+
       res.json({
         success: true,
         data: updatedChofer,
+        resumenDocumentacion,
+        alertasVencimiento: resumenDocumentacion?.alertas || [],
         message: `Chofer ${updatedChofer.nombre} ${updatedChofer.apellido} aprobado exitosamente.`,
       });
     } catch (error) {
@@ -3622,11 +3711,18 @@ export const choferController = {
     }
   },
 
-  // Permitir al chofer actualizar su perfil (vehículo asignado, foto de perfil)
+  // Permitir al chofer actualizar su perfil (vehículo asignado, foto de perfil, fechas de vencimiento de documentación)
   async updateMiPerfil(req: AuthenticatedRequest, res: Response) {
     try {
       const { chofer: reqChofer, id: userId } = req.user!;
-      const { vehiculoId, fotoUrl } = req.body;
+      const { 
+        vehiculoId, 
+        fotoUrl,
+        vtoLicencia,
+        vtoVtv,
+        vtoSeguro,
+        vtoMatafuego
+      } = req.body;
 
       let choferId = reqChofer?.id;
       if (!choferId) {
@@ -3681,6 +3777,43 @@ export const choferController = {
         dataToUpdate.fotoUrl = fotoUrl;
       }
 
+      // Helper para parsear fecha evitando desfasajes de zona horaria
+      const parseDateInput = (val: any): Date | null => {
+        if (!val) return null;
+        const match = String(val).match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+        if (match) {
+          return new Date(Date.UTC(parseInt(match[1], 10), parseInt(match[2], 10) - 1, parseInt(match[3], 10), 12, 0, 0));
+        }
+        const d = new Date(val);
+        return isNaN(d.getTime()) ? null : d;
+      };
+
+      // Actualizar vencimiento de licencia (propio del chofer)
+      if (vtoLicencia !== undefined) {
+        const parsedLicencia = parseDateInput(vtoLicencia);
+        if (parsedLicencia) {
+          dataToUpdate.vtoLicencia = parsedLicencia;
+        }
+      }
+
+      // Determinar cuál es el vehículo objetivo para actualizar su documentación
+      const targetVehiculoId = vehiculoId !== undefined ? (dataToUpdate.vehiculoId || null) : choferActual.vehiculoId;
+
+      if (targetVehiculoId && (vtoVtv !== undefined || vtoSeguro !== undefined || vtoMatafuego !== undefined)) {
+        const vehiculoData: any = {};
+
+        if (vtoVtv !== undefined) vehiculoData.vtoVtv = parseDateInput(vtoVtv);
+        if (vtoSeguro !== undefined) vehiculoData.vtoSeguro = parseDateInput(vtoSeguro);
+        if (vtoMatafuego !== undefined) vehiculoData.vtoMatafuego = parseDateInput(vtoMatafuego);
+
+        if (Object.keys(vehiculoData).length > 0) {
+          await prisma.vehiculo.update({
+            where: { id: targetVehiculoId },
+            data: vehiculoData,
+          });
+        }
+      }
+
       const choferActualizado = await prisma.chofer.update({
         where: { id: choferId },
         data: dataToUpdate,
@@ -3715,9 +3848,14 @@ export const choferController = {
         });
       }
 
+      // Notificar en tiempo real en la app del chofer sobre la documentación
+      const resumenDocumentacion = await emitirAlertaDocumentacionSiCorresponde(choferId, choferActual.remiseriaId);
+
       res.json({
         success: true,
         data: choferActualizado,
+        resumenDocumentacion,
+        alertasVencimiento: resumenDocumentacion?.alertas || [],
         message: 'Perfil de chofer actualizado correctamente',
       });
     } catch (error) {
@@ -3965,7 +4103,10 @@ export const choferController = {
       const viajeEnCurso = await prisma.viaje.findFirst({
         where: {
           choferId,
-          estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] },
+          OR: [
+            { estado: { in: ['EN_CAMINO', 'EN_CURSO'] } },
+            { estado: 'ACEPTADO', artEmpresaId: null }
+          ]
         },
         select: { id: true },
       });
@@ -4160,7 +4301,10 @@ export const choferController = {
       const viajeExistente = await prisma.viaje.findFirst({
         where: {
           choferId,
-          estado: { in: ['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] },
+          OR: [
+            { estado: { in: ['EN_CAMINO', 'EN_CURSO'] } },
+            { estado: 'ACEPTADO', artEmpresaId: null }
+          ]
         },
       });
       if (viajeExistente) {

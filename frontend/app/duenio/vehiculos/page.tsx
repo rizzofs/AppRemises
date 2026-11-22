@@ -3,9 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/contexts/AuthContext';
-import { vehiculoService, remiseriaService } from '@/lib/api';
-import { Vehiculo, CreateVehiculoData, UpdateVehiculoData, Remiseria } from '@/types';
+import { vehiculoService, remiseriaService, choferService } from '@/lib/api';
+import { Vehiculo, CreateVehiculoData, UpdateVehiculoData, Remiseria, Chofer } from '@/types';
 import { toast } from 'react-hot-toast';
+import { evaluarDocumentacionClient, getDocumentoBadgeClasses } from '@/lib/documentacionUtils';
 import { 
   Plus, 
   Edit, 
@@ -25,7 +26,9 @@ import {
   ChevronLeft,
   Check,
   Sparkles,
-  ShieldCheck
+  ShieldCheck,
+  ShieldAlert,
+  Bell
 } from 'lucide-react';
 
 export default function VehiculosPage() {
@@ -33,6 +36,7 @@ export default function VehiculosPage() {
   const router = useRouter();
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
   const [remiserias, setRemiserias] = useState<Remiseria[]>([]);
+  const [choferes, setChoferes] = useState<Chofer[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'ACTIVO' | 'MANTENIMIENTO' | 'INACTIVO'>('all');
@@ -64,7 +68,19 @@ export default function VehiculosPage() {
     }
     loadVehiculos();
     loadRemiserias();
+    loadChoferes();
   }, [user, router]);
+
+  const loadChoferes = async () => {
+    try {
+      const response = await choferService.getAll();
+      if (response.success && response.data) {
+        setChoferes(response.data);
+      }
+    } catch (error) {
+      console.error('Error loading choferes:', error);
+    }
+  };
 
   const loadVehiculos = async () => {
     try {
@@ -95,7 +111,15 @@ export default function VehiculosPage() {
     try {
       const response = await vehiculoService.create(formData);
       if (response.success) {
-        toast.success('Vehículo creado exitosamente');
+        const alertas = (response as any).alertasVencimiento || [];
+        if (alertas.length > 0) {
+          toast.success(
+            `Vehículo creado. Se notificó al chofer en su app por ${alertas.length} documento(s) por vencer o vencido(s).`,
+            { duration: 5500 }
+          );
+        } else {
+          toast.success('Vehículo creado exitosamente');
+        }
         setShowCreateModal(false);
         resetForm();
         loadVehiculos();
@@ -125,7 +149,8 @@ export default function VehiculosPage() {
         vtoMatafuego: formData.vtoMatafuego || undefined,
         vtoSeguro: formData.vtoSeguro || undefined,
         observaciones: formData.observaciones || undefined,
-        estado: editingVehiculo.estado
+        estado: editingVehiculo.estado,
+        choferId: formData.choferId || undefined
       };
 
       const response = await vehiculoService.update(editingVehiculo.id, updateData);
@@ -207,7 +232,8 @@ export default function VehiculosPage() {
       vtoMatafuego: vehiculo.vtoMatafuego || '',
       vtoSeguro: vehiculo.vtoSeguro || '',
       observaciones: vehiculo.observaciones || '',
-      remiseriaId: vehiculo.remiseriaId
+      remiseriaId: vehiculo.remiseriaId,
+      choferId: vehiculo.choferes && vehiculo.choferes[0]?.id ? vehiculo.choferes[0].id : undefined
     });
     setShowEditModal(true);
   };
@@ -257,7 +283,8 @@ export default function VehiculosPage() {
       vtoMatafuego: '',
       vtoSeguro: '',
       observaciones: '',
-      remiseriaId: remiserias[0]?.id || ''
+      remiseriaId: remiserias[0]?.id || '',
+      choferId: undefined
     });
   };
 
@@ -815,7 +842,9 @@ export default function VehiculosPage() {
                       <div
                         onClick={() => {
                           setTipoPropietario('CHOFER');
-                          setFormData({ ...formData, propietario: 'Chofer' });
+                          if (formData.propietario === 'Agencia') {
+                            setFormData({ ...formData, propietario: 'Chofer' });
+                          }
                         }}
                         className={`p-3.5 rounded-2xl border-2 cursor-pointer transition-all flex items-center justify-between ${
                           tipoPropietario === 'CHOFER'
@@ -840,6 +869,68 @@ export default function VehiculosPage() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Selector de Chofer si seleccionó CHOFER */}
+                  {tipoPropietario === 'CHOFER' && (
+                    <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-2xl space-y-3 animate-in fade-in slide-in-from-top-2 duration-200">
+                      <div>
+                        <label className="block text-xs font-bold text-emerald-950 mb-1">
+                          Chofer Propietario de la Unidad *
+                        </label>
+                        <select
+                          required
+                          value={formData.choferId || ''}
+                          onChange={(e) => {
+                            const cId = e.target.value;
+                            const choferObj = choferes.find((c) => c.id === cId);
+                            setFormData({
+                              ...formData,
+                              choferId: cId || undefined,
+                              propietario: choferObj ? `${choferObj.nombre} ${choferObj.apellido}` : 'Chofer'
+                            });
+                          }}
+                          className="w-full px-3.5 py-2.5 bg-white border border-emerald-300 rounded-xl text-xs sm:text-sm font-semibold text-slate-900 focus:ring-2 focus:ring-emerald-500 shadow-xs"
+                        >
+                          <option value="">-- Seleccionar Chofer Registrado --</option>
+                          {choferes.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              Móvil #{c.numeroChofer} - {c.nombre} {c.apellido} (Licencia hasta: {new Date(c.vtoLicencia).toLocaleDateString()})
+                            </option>
+                          ))}
+                        </select>
+                        <p className="text-[11px] text-emerald-800 mt-1">
+                          El chofer quedará vinculado a esta unidad y se le notificará automáticamente en su app cuando los papeles del auto o su carnet estén por vencer.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Asignar chofer opcional si es de Agencia o Tercero */}
+                  {tipoPropietario !== 'CHOFER' && (
+                    <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-1.5">
+                      <label className="block text-xs font-bold text-slate-700">
+                        Chofer asignado al rodado (opcional)
+                      </label>
+                      <select
+                        value={formData.choferId || ''}
+                        onChange={(e) => {
+                          const cId = e.target.value;
+                          setFormData({
+                            ...formData,
+                            choferId: cId || undefined
+                          });
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl text-xs text-slate-800 focus:ring-2 focus:ring-primary-500"
+                      >
+                        <option value="">-- Sin chofer asignado por ahora --</option>
+                        {choferes.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            Móvil #{c.numeroChofer} - {c.nombre} {c.apellido}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   {/* Campo de ingreso del Dueño Tercero si seleccionó TERCERO */}
                   {tipoPropietario === 'TERCERO' && (
@@ -946,6 +1037,151 @@ export default function VehiculosPage() {
                       />
                     </div>
                   </div>
+
+                  {/* Panel de Control y Evaluación de Documentación */}
+                  {(() => {
+                    const choferAsignado = choferes.find((c) => c.id === formData.choferId);
+                    const evaluacion = evaluarDocumentacionClient(choferAsignado, formData);
+
+                    return (
+                      <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <ShieldAlert
+                              className={`w-4 h-4 ${
+                                evaluacion.tieneAlertas
+                                  ? evaluacion.tieneCriticas
+                                    ? 'text-red-500'
+                                    : 'text-amber-500'
+                                  : 'text-emerald-500'
+                              }`}
+                            />
+                            <span className="text-xs font-bold text-slate-800 uppercase tracking-wide">
+                              Control de Documentación y Alertas
+                            </span>
+                          </div>
+                          {evaluacion.tieneAlertas ? (
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                evaluacion.tieneCriticas
+                                  ? 'bg-red-100 text-red-700 border border-red-200'
+                                  : 'bg-amber-100 text-amber-700 border border-amber-200'
+                              }`}
+                            >
+                              {evaluacion.cantidadAlertas} {evaluacion.cantidadAlertas === 1 ? 'alerta' : 'alertas'}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200">
+                              Documentación al día
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Detalle de los 4 documentos */}
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          {/* Seguro */}
+                          <div className="p-2 rounded-xl bg-white border border-slate-200/70 flex items-center justify-between">
+                            <div>
+                              <p className="font-bold text-[11px] text-slate-800">🛡️ Seguro</p>
+                              <p className="text-[10px] text-slate-500">{evaluacion.items.seguro.fecha || 'Sin fecha'}</p>
+                            </div>
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                                getDocumentoBadgeClasses(evaluacion.items.seguro.estado).badge
+                              }`}
+                            >
+                              {evaluacion.items.seguro.estado === 'VENCIDO'
+                                ? 'Vencido'
+                                : evaluacion.items.seguro.estado === 'PROXIMO_A_VENCER'
+                                ? `${evaluacion.items.seguro.diasRestantes}d`
+                                : evaluacion.items.seguro.estado === 'AL_DIA'
+                                ? 'Al día'
+                                : 'S/D'}
+                            </span>
+                          </div>
+
+                          {/* VTV */}
+                          <div className="p-2 rounded-xl bg-white border border-slate-200/70 flex items-center justify-between">
+                            <div>
+                              <p className="font-bold text-[11px] text-slate-800">📋 VTV</p>
+                              <p className="text-[10px] text-slate-500">{evaluacion.items.vtv.fecha || 'Sin fecha'}</p>
+                            </div>
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                                getDocumentoBadgeClasses(evaluacion.items.vtv.estado).badge
+                              }`}
+                            >
+                              {evaluacion.items.vtv.estado === 'VENCIDO'
+                                ? 'Vencida'
+                                : evaluacion.items.vtv.estado === 'PROXIMO_A_VENCER'
+                                ? `${evaluacion.items.vtv.diasRestantes}d`
+                                : evaluacion.items.vtv.estado === 'AL_DIA'
+                                ? 'Al día'
+                                : 'S/D'}
+                            </span>
+                          </div>
+
+                          {/* Matafuego */}
+                          <div className="p-2 rounded-xl bg-white border border-slate-200/70 flex items-center justify-between">
+                            <div>
+                              <p className="font-bold text-[11px] text-slate-800">🧯 Matafuego</p>
+                              <p className="text-[10px] text-slate-500">{evaluacion.items.matafuego.fecha || 'Sin fecha'}</p>
+                            </div>
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                                getDocumentoBadgeClasses(evaluacion.items.matafuego.estado).badge
+                              }`}
+                            >
+                              {evaluacion.items.matafuego.estado === 'VENCIDO'
+                                ? 'Vencido'
+                                : evaluacion.items.matafuego.estado === 'PROXIMO_A_VENCER'
+                                ? `${evaluacion.items.matafuego.diasRestantes}d`
+                                : evaluacion.items.matafuego.estado === 'AL_DIA'
+                                ? 'Al día'
+                                : 'S/D'}
+                            </span>
+                          </div>
+
+                          {/* Carnet Chofer */}
+                          <div className="p-2 rounded-xl bg-white border border-slate-200/70 flex items-center justify-between">
+                            <div>
+                              <p className="font-bold text-[11px] text-slate-800">🪪 Carnet Chofer</p>
+                              <p className="text-[10px] text-slate-500">
+                                {choferAsignado ? evaluacion.items.licencia.fecha || 'Sin fecha' : 'Sin chofer'}
+                              </p>
+                            </div>
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded font-bold ${
+                                choferAsignado
+                                  ? getDocumentoBadgeClasses(evaluacion.items.licencia.estado).badge
+                                  : 'bg-slate-100 text-slate-400'
+                              }`}
+                            >
+                              {choferAsignado
+                                ? evaluacion.items.licencia.estado === 'VENCIDO'
+                                  ? 'Vencido'
+                                  : evaluacion.items.licencia.estado === 'PROXIMO_A_VENCER'
+                                  ? `${evaluacion.items.licencia.diasRestantes}d`
+                                  : evaluacion.items.licencia.estado === 'AL_DIA'
+                                  ? 'Al día'
+                                  : 'S/D'
+                                : '-'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Aviso de notificación automática en la app */}
+                        {choferAsignado && evaluacion.tieneAlertas && (
+                          <div className="p-2.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 flex items-center gap-2">
+                            <Bell className="w-4 h-4 text-blue-600 shrink-0" />
+                            <p className="text-[11px]">
+                              Al guardar, el chofer <strong>{choferAsignado.nombre} {choferAsignado.apellido}</strong> recibirá una notificación automática en su aplicación móvil avisándole sobre los documentos por vencer o vencidos.
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <div>
                     <label className="block text-xs font-medium text-slate-600 mb-1">

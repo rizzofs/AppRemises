@@ -10,6 +10,7 @@ import {
   Navigation,
   Car,
   AlertTriangle,
+  AlertCircle,
   CheckCircle,
   User,
   Phone,
@@ -40,8 +41,14 @@ import {
   Share2,
   ChevronDown,
   ChevronUp,
+  Key,
+  Delete,
+  ShieldCheck,
+  Bell,
+  Calendar,
 } from 'lucide-react';
 import { choferService, coordinadorDashboardService } from '@/lib/api';
+import { ResumenDocumentacion } from '@/types';
 import { io, Socket } from 'socket.io-client';
 
 const ChoferRouteMap = dynamic(() => import('@/components/ChoferRouteMap'), {
@@ -74,11 +81,21 @@ export default function ChoferApp() {
   const [isActive, setIsActive] = useState(false);
   const [viajeActual, setViajeActual] = useState<any>(null);
   const [alertaViaje, setAlertaViaje] = useState<any>(null);
+  const [viajesProgramados, setViajesProgramados] = useState<any[]>([]);
+  const [alertaViajeArtProgramado, setAlertaViajeArtProgramado] = useState<any | null>(null);
+  const [alertaRecordatorioSalidaArt, setAlertaRecordatorioSalidaArt] = useState<any | null>(null);
+  const [viajesArtExpandidos, setViajesArtExpandidos] = useState(false);
+  const [modalDetalleArt, setModalDetalleArt] = useState<any | null>(null);
+  const recordatoriosSalidaNotificadosRef = useRef<{ [viajeId: string]: number }>({});
   const [viajesRechazados, setViajesRechazados] = useState<string[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
   const [avisoLlegandoEnviado, setAvisoLlegandoEnviado] = useState(false);
   const [viajeExpandido, setViajeExpandido] = useState(false);
   const [navbarSlot, setNavbarSlot] = useState<HTMLElement | null>(null);
+
+  // Control y alertas de documentación (Seguro, VTV, Matafuego, Carnet)
+  const [documentacionResumen, setDocumentacionResumen] = useState<ResumenDocumentacion | null>(null);
+  const [alertasDocExpandidas, setAlertasDocExpandidas] = useState(false);
 
   useEffect(() => {
     if (typeof document !== 'undefined') {
@@ -118,6 +135,8 @@ export default function ChoferApp() {
   const [modalFinalizarViaje, setModalFinalizarViaje] = useState(false);
   const [metodoPagoSeleccionado, setMetodoPagoSeleccionado] = useState<'EFECTIVO' | 'TRANSFERENCIA' | 'CUENTA_CORRIENTE'>('EFECTIVO');
   const [montoFinalACobrar, setMontoFinalACobrar] = useState<number | null>(null);
+  const [peajesInputChofer, setPeajesInputChofer] = useState('');
+  const [observacionesPeajeChofer, setObservacionesPeajeChofer] = useState('');
 
   // Modal para agregar parada intermedia solicitada por el cliente
   const [isAddStopModalOpenChofer, setIsAddStopModalOpenChofer] = useState(false);
@@ -133,6 +152,201 @@ export default function ChoferApp() {
   const [chatChoferInput, setChatChoferInput] = useState('');
   const [chatMensajesChofer, setChatMensajesChofer] = useState<any[]>([]);
   const [isSendingChatChofer, setIsSendingChatChofer] = useState(false);
+
+  // Modal de validación de código PIN de 4 dígitos (estilo Uber)
+  const [isModalPinOpen, setIsModalPinOpen] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [validatingPin, setValidatingPin] = useState(false);
+  const [pinError, setPinError] = useState('');
+
+  // Helpers para fechas y horarios de viajes de ART programados en cola de espera
+  const getLocalDateOnly = (dateInput: any): string => {
+    if (!dateInput) return '';
+    try {
+      const d = new Date(dateInput);
+      if (isNaN(d.getTime())) return String(dateInput).split('T')[0];
+      const year = d.getFullYear();
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    } catch {
+      return String(dateInput || '').split('T')[0];
+    }
+  };
+
+  const formatearFechaLegible = (dateInput: any): string => {
+    if (!dateInput) return 'Fecha a convenir';
+    try {
+      let d: Date;
+      if (typeof dateInput === 'string' && dateInput.match(/^\d{4}-\d{2}-\d{2}$/)) {
+        const [y, m, day] = dateInput.split('-').map(Number);
+        d = new Date(y, m - 1, day, 12, 0, 0);
+      } else {
+        d = new Date(dateInput);
+      }
+      if (isNaN(d.getTime())) return String(dateInput);
+      return d.toLocaleDateString('es-AR', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long'
+      });
+    } catch {
+      return String(dateInput);
+    }
+  };
+
+  const obtenerEtiquetaFechaRelativa = (dateInput: any): { texto: string; color: string; dias: number } => {
+    if (!dateInput) return { texto: 'Fecha a convenir', color: 'bg-slate-700 text-slate-200', dias: 0 };
+    const dStr = getLocalDateOnly(dateInput);
+    const hoyStr = getLocalDateOnly(new Date());
+
+    if (!dStr) return { texto: 'Fecha a convenir', color: 'bg-slate-700 text-slate-200', dias: 0 };
+
+    const [y1, m1, d1] = dStr.split('-').map(Number);
+    const [y0, m0, d0] = hoyStr.split('-').map(Number);
+    const fecha1 = new Date(y1, m1 - 1, d1).getTime();
+    const fecha0 = new Date(y0, m0 - 1, d0).getTime();
+    const diffDias = Math.round((fecha1 - fecha0) / (1000 * 60 * 60 * 24));
+
+    if (diffDias === 0) {
+      return { texto: 'HOY', color: 'bg-emerald-500 text-slate-950 font-black', dias: 0 };
+    } else if (diffDias === 1) {
+      return { texto: 'MAÑANA', color: 'bg-blue-500 text-white font-black', dias: 1 };
+    } else if (diffDias > 1) {
+      return { texto: `En ${diffDias} días`, color: 'bg-purple-600 text-white font-bold', dias: diffDias };
+    } else {
+      return { texto: `Hace ${Math.abs(diffDias)} días`, color: 'bg-slate-600 text-slate-300 font-semibold', dias: diffDias };
+    }
+  };
+
+  const esHoraDeSalirViaje = (viaje: any): boolean => {
+    if (!viaje) return false;
+    const dStr = getLocalDateOnly(viaje.fecha);
+    const hoyStr = getLocalDateOnly(new Date());
+    if (dStr !== hoyStr) return false;
+
+    const horaSalida = viaje.horaSalidaChofer || '08:00';
+    const [h, m] = horaSalida.split(':').map(Number);
+    const ahora = new Date();
+    const minutosSalida = (h || 0) * 60 + (m || 0);
+    const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
+
+    // Si ya es la hora o faltan 10 minutos para la salida acordada
+    return minutosAhora >= minutosSalida - 10;
+  };
+
+  // Solicitar permiso de notificaciones del sistema para avisos y alarmas de salida
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
+  // Alarma sonora y vibración para el recordatorio de salida de viaje ART
+  const reproducirAlarmaSalidaArt = useCallback(() => {
+    try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      if (AudioContextClass) {
+        const ctx = new AudioContextClass();
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = 'triangle';
+        // Secuencia de alerta estilo despertador / campanada
+        osc.frequency.setValueAtTime(659.25, now);
+        osc.frequency.setValueAtTime(880, now + 0.15);
+        osc.frequency.setValueAtTime(659.25, now + 0.3);
+        osc.frequency.setValueAtTime(880, now + 0.45);
+        osc.frequency.setValueAtTime(1046.5, now + 0.6);
+
+        gain.gain.setValueAtTime(0.5, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.85);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.85);
+      }
+    } catch {}
+
+    if (typeof navigator !== 'undefined' && 'vibrate' in navigator) {
+      try {
+        navigator.vibrate([400, 200, 400, 200, 400]);
+      } catch {}
+    }
+  }, []);
+
+  // Disparar alerta visual y sonora cuando llega la hora de salida de un viaje ART
+  const dispararAlertaSalidaArt = useCallback((viaje: any) => {
+    if (!viaje) return;
+
+    reproducirAlarmaSalidaArt();
+
+    // Notificación nativa del navegador / dispositivo móvil
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification('⏰ ¡HORA DE SALIR! - Traslado ART', {
+          body: `Salida acordada (${viaje.horaSalidaChofer || ''} hs). Pasajero: ${viaje.clienteNombre || 'Paciente'} hacia ${viaje.origen || ''}.`,
+          icon: '/favicon.ico',
+          tag: `art-salida-${viaje.id}`
+        });
+      } catch {}
+    }
+
+    // Modal de recordatorio prominente en la app
+    setAlertaRecordatorioSalidaArt(viaje);
+
+    // Toast en pantalla
+    toast(
+      `⏰ ¡HORA DE SALIR! (Traslado ART)\n🚗 Salida: ${viaje.horaSalidaChofer || ''} hs | 🏥 Turno: ${viaje.horaTurno || ''} hs\nPasajero: ${viaje.clienteNombre || ''}`,
+      {
+        duration: 9000,
+        icon: '⏰',
+        style: { background: '#78350f', color: '#fef3c7', fontWeight: 'bold', border: '2px solid #f59e0b' }
+      }
+    );
+  }, [reproducirAlarmaSalidaArt]);
+
+  // Chequeo periódico cada 15 segundos para alertar al chofer en cuanto llega la hora de salida
+  useEffect(() => {
+    if (!viajesProgramados || viajesProgramados.length === 0) return;
+
+    const verificarHorariosSalida = () => {
+      const ahora = new Date();
+      const hoyStr = getLocalDateOnly(ahora);
+      const minutosAhora = ahora.getHours() * 60 + ahora.getMinutes();
+
+      for (const v of viajesProgramados) {
+        if (v.estado && v.estado !== 'ACEPTADO') continue;
+
+        const dStr = getLocalDateOnly(v.fecha);
+        if (dStr !== hoyStr) continue;
+
+        const horaSalida = v.horaSalidaChofer || '08:00';
+        const [h, m] = horaSalida.split(':').map(Number);
+        if (isNaN(h) || isNaN(m)) continue;
+
+        const minutosSalida = h * 60 + m;
+
+        // Si ya llegó la hora de salida acordada (o ventana de 45 minutos si no inició aún)
+        if (minutosAhora >= minutosSalida && minutosAhora <= minutosSalida + 45) {
+          const ultimoAviso = recordatoriosSalidaNotificadosRef.current[v.id] || 0;
+          const ahoraMs = Date.now();
+
+          // Si nunca se notificó o ya se venció el período de snooze (5 min)
+          if (ahoraMs >= ultimoAviso) {
+            recordatoriosSalidaNotificadosRef.current[v.id] = ahoraMs + 5 * 60 * 1000;
+            dispararAlertaSalidaArt(v);
+          }
+        }
+      }
+    };
+
+    verificarHorariosSalida();
+    const interval = setInterval(verificarHorariosSalida, 15000);
+    return () => clearInterval(interval);
+  }, [viajesProgramados, dispararAlertaSalidaArt]);
 
   // 1. Lanzador Directo a GPS Externo (Google Maps / Waze)
   const abrirNavegadorExterno = (app: 'google' | 'waze') => {
@@ -592,6 +806,19 @@ export default function ChoferApp() {
     socket.on('viaje_estado_actualizado', (data: any) => {
       const myChoferId = user?.chofer?.id || choferIdRef.current;
       if (data?.viaje && myChoferId && data.viaje.choferId === myChoferId) {
+        // Si es un viaje de ART asignado pero que aún no inició salida (estado ACEPTADO),
+        // debe mantenerse/actualizarse en la cola de viajes programados, NO como viajeActual en curso
+        if ((data.viaje.artEmpresaId || data.esProgramadoArt) && data.estado === 'ACEPTADO') {
+          setViajesProgramados((prev) => {
+            const yaExiste = prev.some((v) => v.id === data.viaje.id);
+            if (yaExiste) {
+              return prev.map((v) => (v.id === data.viaje.id ? data.viaje : v));
+            }
+            return [data.viaje, ...prev];
+          });
+          return;
+        }
+
         if (['ACEPTADO', 'EN_CAMINO', 'EN_CURSO'].includes(data.estado)) {
           acceptedAtRef.current = Date.now();
           previousViajeIdRef.current = data.viaje.id;
@@ -602,11 +829,98 @@ export default function ChoferApp() {
       }
     });
 
+    // Notificación en tiempo real de Viaje ART asignado por el Dueño
+    socket.on('viaje_programado_art_asignado', (data: any) => {
+      const myChoferId = user?.chofer?.id || choferIdRef.current;
+      if (myChoferId && data.choferId === myChoferId) {
+        try {
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          if (AudioContextClass) {
+            const ctx = new AudioContextClass();
+            const now = ctx.currentTime;
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'triangle';
+            osc.frequency.setValueAtTime(523.25, now);
+            osc.frequency.setValueAtTime(659.25, now + 0.15);
+            osc.frequency.setValueAtTime(783.99, now + 0.3);
+            gain.gain.setValueAtTime(0.4, now);
+            gain.gain.exponentialRampToValueAtTime(0.01, now + 0.6);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.6);
+          }
+        } catch {}
+
+        setAlertaViajeArtProgramado(data);
+        const viajeData = data.viaje || {
+          id: data.viajeId,
+          ...data,
+          fecha: data.fecha || data.fechaStr
+        };
+        setViajesProgramados((prev) => {
+          const yaExiste = prev.some((v) => v.id === viajeData.id);
+          if (yaExiste) {
+            return prev.map((v) => (v.id === viajeData.id ? viajeData : v));
+          }
+          return [viajeData, ...prev];
+        });
+
+        toast(
+          `🏢 ¡NUEVO VIAJE ART EN COLA DE ESPERA!\n🚗 Salida: ${data.horaSalidaChofer} hs | 🏥 Turno: ${data.horaTurno} hs\nPasajero: ${data.clienteNombre}`,
+          {
+            duration: 9000,
+            icon: '🏢',
+            style: { background: '#065f46', color: '#fff', fontWeight: 'bold' }
+          }
+        );
+      }
+    });
+
+    // Recordatorio en tiempo real cuando llega el horario de salida programado de un viaje de ART
+    socket.on('alerta_hora_salida_art', (data: any) => {
+      const myChoferId = user?.chofer?.id || choferIdRef.current;
+      if (myChoferId && data.choferId === myChoferId) {
+        const viajeData = data.viaje || data;
+        const ultimoAviso = recordatoriosSalidaNotificadosRef.current[viajeData.id] || 0;
+        const ahoraMs = Date.now();
+        if (ahoraMs >= ultimoAviso) {
+          recordatoriosSalidaNotificadosRef.current[viajeData.id] = ahoraMs + 5 * 60 * 1000;
+          dispararAlertaSalidaArt(viajeData);
+        }
+      }
+    });
+
+    // Alerta en vivo de vencimiento de documentación (Seguro, VTV, Matafuego, Carnet)
+    socket.on('alerta_vencimiento_documentacion', (data: any) => {
+      const myChoferId = user?.chofer?.id || choferIdRef.current;
+      if (myChoferId && data.choferId === myChoferId && data.resumen) {
+        setDocumentacionResumen(data.resumen);
+        if (data.resumen.tieneAlertas) {
+          toast(
+            () => (
+              <div className="flex items-start gap-2.5">
+                <span className="text-xl shrink-0">⚠️</span>
+                <div>
+                  <p className="font-bold text-xs">Aviso de Documentación</p>
+                  <p className="text-[11px] opacity-90">
+                    {data.resumen.alertas[0]?.mensaje || 'Tenés documentación próxima a vencer o vencida.'}
+                  </p>
+                </div>
+              </div>
+            ),
+            { duration: 7000, style: { background: '#0f172a', color: '#fff', border: '1px solid #f59e0b' } }
+          );
+        }
+      }
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [user?.chofer?.remiseriaId]);
+  }, [user?.chofer?.remiseriaId, dispararAlertaSalidaArt]);
 
   // Función para emitir ubicación GPS al coordinador vía WebSocket
   const emitirUbicacionGps = useCallback((lat: number, lon: number, estadoOverride?: string) => {
@@ -649,7 +963,13 @@ export default function ChoferApp() {
       if (!res.success || !res.data) return;
       if (actionLoadingRef.current) return;
 
-      const { chofer, viajeActual: viajeEnCurso, viajesDisponibles, turnoActivo: turno } = res.data;
+      const { chofer, viajeActual: viajeEnCurso, viajesDisponibles, turnoActivo: turno, viajesProgramados: prog, documentacion } = res.data;
+      if (documentacion) {
+        setDocumentacionResumen(documentacion);
+      }
+      if (Array.isArray(prog)) {
+        setViajesProgramados(prog);
+      }
       if (chofer?.id) {
         choferIdRef.current = chofer.id;
       }
@@ -759,6 +1079,10 @@ export default function ChoferApp() {
         const effectiveOnline = localOnline || dbOnline;
         setIsActive(effectiveOnline);
         localStorage.setItem('chofer_isActive', JSON.stringify(effectiveOnline));
+
+        if (res.data.documentacion) {
+          setDocumentacionResumen(res.data.documentacion);
+        }
 
         await sincronizarEstado(effectiveOnline);
       }
@@ -1009,6 +1333,26 @@ export default function ChoferApp() {
     }
   };
 
+  const iniciarViajeArt = async (viaje: any) => {
+    setActionLoading(true);
+    try {
+      const res = await choferService.actualizarEstadoViaje(viaje.id, 'EN_CAMINO');
+      if (res.success) {
+        toast.success('¡Iniciando viaje hacia el origen del pasajero!');
+        setViajeActual(res.data?.viaje || { ...viaje, estado: 'EN_CAMINO' });
+        setViajesProgramados((prev) => prev.filter((v) => v.id !== viaje.id));
+        await sincronizarEstado(true);
+      } else {
+        toast.error(res.message || 'Error al iniciar viaje');
+      }
+    } catch (err) {
+      console.error('Error iniciando viaje ART:', err);
+      toast.error('Error al conectar con la central');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const aceptarViaje = async () => {
     if (!alertaViaje || actionLoading) return;
 
@@ -1143,6 +1487,51 @@ export default function ChoferApp() {
     }
   };
 
+  // Manejo de PIN de 4 dígitos (estilo Uber)
+  const handlePinDigit = (digit: string) => {
+    if (pinInput.length < 4) {
+      const nuevoPin = pinInput + digit;
+      setPinInput(nuevoPin);
+      setPinError('');
+      if (nuevoPin.length === 4) {
+        confirmarPinViaje(nuevoPin);
+      }
+    }
+  };
+
+  const handlePinDelete = () => {
+    setPinInput(prev => prev.slice(0, -1));
+    setPinError('');
+  };
+
+  const confirmarPinViaje = async (codigoAValidar?: string) => {
+    const pin = codigoAValidar || pinInput;
+    if (pin.length !== 4 || !viajeActual || validatingPin) return;
+
+    setValidatingPin(true);
+    setPinError('');
+    try {
+      const res = await choferService.actualizarEstadoViaje(viajeActual.id, 'EN_CURSO', {
+        pin: pin.trim()
+      });
+
+      if (res.success && res.data) {
+        setViajeActual(res.data);
+        setIsModalPinOpen(false);
+        setPinInput('');
+        toast.success('¡Código verificado! Pasajero a bordo. Viaje en curso.', { icon: '🚕', duration: 4000 });
+      } else {
+        setPinError(res.message || 'Código incorrecto. Pedile al pasajero que te dicte los 4 números.');
+        toast.error(res.message || 'Código incorrecto', { icon: '❌' });
+      }
+    } catch (err: any) {
+      setPinError('Error de conexión al validar código');
+      toast.error('Error al validar código');
+    } finally {
+      setValidatingPin(false);
+    }
+  };
+
   const abrirModalFinalizar = () => {
     if (!viajeActual || actionLoading) return;
     setMetodoPagoSeleccionado('EFECTIVO');
@@ -1163,6 +1552,8 @@ export default function ChoferApp() {
       }
     }
     setMontoFinalACobrar(precioSugerido);
+    setPeajesInputChofer(viajeActual.montoPeajes ? String(viajeActual.montoPeajes) : '');
+    setObservacionesPeajeChofer(viajeActual.observacionesPeaje || '');
     if (viajeActual.metodoPago === 'CUENTA_CORRIENTE') {
       setMetodoPagoSeleccionado('CUENTA_CORRIENTE');
     } else {
@@ -1180,6 +1571,8 @@ export default function ChoferApp() {
       setViajeActual(null);
       tripDistanceRef.current = { con: 0, sin: 0 };
       setModalFinalizarViaje(false);
+      setPeajesInputChofer('');
+      setObservacionesPeajeChofer('');
       toast.success(`Viaje completado. ${metodoPagoSeleccionado === 'CUENTA_CORRIENTE' ? 'Imputado a Cuenta Corriente 🏛️' : metodoPagoSeleccionado === 'TRANSFERENCIA' ? 'Cobrado por Transferencia 💳' : 'Cobrado en Efectivo 💵'}`);
       setViajeParaCalificar(vTest);
       setModalCalificarPasajeroOpen(true);
@@ -1190,12 +1583,15 @@ export default function ChoferApp() {
     try {
       const distCon = tripDistanceRef.current.con > 0 ? Number(tripDistanceRef.current.con.toFixed(2)) : undefined;
       const distSin = tripDistanceRef.current.sin > 0 ? Number(tripDistanceRef.current.sin.toFixed(2)) : undefined;
+      const peajesNum = parseFloat(peajesInputChofer) || 0;
 
       const res = await choferService.actualizarEstadoViaje(viajeActual.id, 'COMPLETADO', {
         distanciaKmConPasajero: distCon,
         distanciaKmSinPasajero: distSin,
         metodoPago: metodoPagoSeleccionado,
         precioFinal: montoFinalACobrar !== null ? montoFinalACobrar : undefined,
+        montoPeajes: peajesNum > 0 ? peajesNum : 0,
+        observacionesPeaje: peajesNum > 0 && observacionesPeajeChofer ? observacionesPeajeChofer.trim() : undefined,
       });
 
       if (res.success) {
@@ -1205,6 +1601,8 @@ export default function ChoferApp() {
         setUltimoDestinoCompletado(viajeFin?.destino || null);
         setViajeActual(null);
         setModalFinalizarViaje(false);
+        setPeajesInputChofer('');
+        setObservacionesPeajeChofer('');
         toast.success(`¡Viaje completado! Cobro en ${metodoPagoSeleccionado === 'EFECTIVO' ? 'Efectivo 💵' : 'Transferencia 💳'}`);
         // Abrir calificación del pasajero
         setViajeParaCalificar(viajeFin);
@@ -1532,6 +1930,102 @@ export default function ChoferApp() {
         </div>
       )}
 
+      {/* Alerta de Documentación por Vencer / Vencida (Seguro, VTV, Matafuego, Carnet) */}
+      {documentacionResumen?.tieneAlertas && (
+        <div
+          className={`rounded-2xl border p-3.5 transition-all shadow-sm ${
+            documentacionResumen.tieneCriticas
+              ? 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800/60 text-red-900 dark:text-red-200'
+              : 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200'
+          }`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5 min-w-0">
+              <div
+                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                  documentacionResumen.tieneCriticas
+                    ? 'bg-red-500 text-white'
+                    : 'bg-amber-500 text-white'
+                }`}
+              >
+                <ShieldAlert className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <h4 className="text-xs font-black uppercase tracking-wide">
+                    {documentacionResumen.tieneCriticas
+                      ? 'Atención: Documentación Crítica / Vencida'
+                      : 'Aviso: Documentación Próxima a Vencer'}
+                  </h4>
+                  <span
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                      documentacionResumen.tieneCriticas
+                        ? 'bg-red-200 dark:bg-red-900/60 text-red-800 dark:text-red-300'
+                        : 'bg-amber-200 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300'
+                    }`}
+                  >
+                    {documentacionResumen.cantidadAlertas} {documentacionResumen.cantidadAlertas === 1 ? 'aviso' : 'avisos'}
+                  </span>
+                </div>
+                <p className="text-[11px] opacity-90 mt-0.5 leading-tight">
+                  Regularizá estos papeles con la agencia para asegurar cobertura y continuidad de servicio:
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAlertasDocExpandidas(!alertasDocExpandidas)}
+              className="text-xs font-bold underline opacity-80 hover:opacity-100 shrink-0 cursor-pointer pt-0.5"
+            >
+              {alertasDocExpandidas ? 'Ocultar' : 'Ver detalle'}
+            </button>
+          </div>
+
+          {/* Lista detallada de alertas */}
+          {alertasDocExpandidas && (
+            <div className="mt-3 pt-3 border-t border-current/15 space-y-2 animate-in fade-in duration-200">
+              {documentacionResumen.alertas.map((doc, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white/70 dark:bg-slate-900/80 text-xs border border-current/10"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-base shrink-0">
+                      {doc.tipo === 'LICENCIA' ? '🪪' : doc.tipo === 'SEGURO' ? '🛡️' : doc.tipo === 'VTV' ? '📋' : '🧯'}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-bold truncate text-slate-900 dark:text-slate-100">{doc.nombre}</p>
+                      <p className="text-[10px] opacity-75">
+                        {doc.fecha ? `Vencimiento: ${doc.fecha}` : 'Sin fecha registrada'}
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full shrink-0 ${
+                      doc.estado === 'VENCIDO' || doc.estado === 'VENCE_HOY' || doc.diasRestantes === 1
+                        ? 'bg-red-500 text-white'
+                        : doc.estado === 'PROXIMO_A_VENCER'
+                        ? 'bg-amber-500 text-white'
+                        : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {doc.label || (
+                      doc.diasRestantes === 0
+                        ? 'Vence hoy'
+                        : doc.diasRestantes === 1
+                        ? 'Vence mañana'
+                        : (doc.diasRestantes || 0) < 0
+                        ? `Vencido hace ${Math.abs(doc.diasRestantes || 0)}d`
+                        : `Vence en ${doc.diasRestantes}d`
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Botón de Estado / Toggle Activo */}
       {!isActive ? (
         <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 shadow-sm border border-gray-100 dark:border-slate-800 flex flex-col items-center justify-center min-h-[50vh] transition-colors">
@@ -1550,6 +2044,226 @@ export default function ChoferApp() {
         </div>
       ) : !viajeActual ? (
         <div className="space-y-3">
+          {/* COLA DE ESPERA: TRASLADOS PROGRAMADOS DE ART ASIGNADOS POR EL DUEÑO (COMPACTO Y COLAPSABLE) */}
+          {viajesProgramados.length > 0 && (() => {
+            const proximoViaje = viajesProgramados[0];
+            const hayViajeHoraSalida = viajesProgramados.some((v) => esHoraDeSalirViaje(v));
+            const primerViajeSalida = viajesProgramados.find((v) => esHoraDeSalirViaje(v)) || proximoViaje;
+            const badgeProximo = obtenerEtiquetaFechaRelativa(primerViajeSalida.fecha);
+
+            return (
+              <div
+                className={`text-white rounded-2xl transition-all shadow-lg border ${
+                  hayViajeHoraSalida
+                    ? 'bg-gradient-to-r from-amber-950/80 via-slate-900 to-slate-950 border-amber-400/80 shadow-amber-950/30 ring-1 ring-amber-400/50'
+                    : 'bg-gradient-to-r from-emerald-950/70 via-slate-900 to-slate-950 border-emerald-500/40'
+                }`}
+              >
+                {/* BARRA COMPACTA PRINCIPAL (Ocupa mínimo espacio en pantalla) */}
+                <div className="p-3 flex items-center justify-between gap-2.5">
+                  <div
+                    className="flex items-center gap-2 min-w-0 cursor-pointer flex-1"
+                    onClick={() => setViajesArtExpandidos(!viajesArtExpandidos)}
+                  >
+                    <div
+                      className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-base shrink-0 ${
+                        hayViajeHoraSalida
+                          ? 'bg-amber-500/20 text-amber-300 animate-bounce'
+                          : 'bg-emerald-500/20 text-emerald-400'
+                      }`}
+                    >
+                      {hayViajeHoraSalida ? '⏰' : '🏢'}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-xs font-black text-white">
+                          ART ({viajesProgramados.length})
+                        </span>
+                        {hayViajeHoraSalida ? (
+                          <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-400 text-slate-950 animate-pulse">
+                            ¡HORA DE SALIR {primerViajeSalida.horaSalidaChofer} HS!
+                          </span>
+                        ) : (
+                          <span className={`px-1.5 py-0.5 rounded-full text-[10px] uppercase font-bold ${badgeProximo.color}`}>
+                            {badgeProximo.texto} {primerViajeSalida.horaSalidaChofer || '08:00'} hs
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-[11px] text-slate-300 truncate">
+                        {primerViajeSalida.clienteNombre} • {primerViajeSalida.artEmpresa?.nombre || 'Empresa'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* ACCIONES RÁPIDAS EN LA BARRA */}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {hayViajeHoraSalida && (
+                      <button
+                        type="button"
+                        onClick={() => iniciarViajeArt(primerViajeSalida)}
+                        disabled={actionLoading}
+                        className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-md animate-pulse flex items-center gap-1 active:scale-95 transition-all"
+                      >
+                        <Car className="w-3.5 h-3.5" />
+                        <span>Salir</span>
+                      </button>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={() => setViajesArtExpandidos(!viajesArtExpandidos)}
+                      className="px-2.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 text-xs font-bold flex items-center gap-1 transition-colors"
+                      title={viajesArtExpandidos ? 'Ocultar viajes' : 'Ver viajes en cola'}
+                    >
+                      <span className="hidden sm:inline text-[11px]">
+                        {viajesArtExpandidos ? 'Ocultar' : 'Ver'}
+                      </span>
+                      {viajesArtExpandidos ? (
+                        <ChevronUp className="w-4 h-4 text-emerald-400" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4 text-emerald-400" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {/* DETALLE EXPANDIBLE (Solo se despliega si el chofer lo solicita) */}
+                {viajesArtExpandidos && (
+                  <div className="px-3 pb-3 pt-1 border-t border-white/10 space-y-2.5 animate-in fade-in">
+                    <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                      <span>Servicios asignados con fecha y horario programado:</span>
+                      <button
+                        type="button"
+                        onClick={() => setViajesArtExpandidos(false)}
+                        className="text-emerald-400 hover:underline font-semibold"
+                      >
+                        ▲ Ocultar
+                      </button>
+                    </div>
+
+                    {viajesProgramados.map((progViaje: any) => {
+                      const badgeFecha = obtenerEtiquetaFechaRelativa(progViaje.fecha);
+                      const fechaTexto = formatearFechaLegible(progViaje.fecha);
+                      const esHoraSalir = esHoraDeSalirViaje(progViaje);
+
+                      return (
+                        <div
+                          key={progViaje.id}
+                          className={`bg-white/5 rounded-xl p-3 border transition-all space-y-2 ${
+                            esHoraSalir
+                              ? 'border-amber-400/80 bg-amber-950/20 shadow-md ring-1 ring-amber-400/40'
+                              : 'border-white/10'
+                          }`}
+                        >
+                          {/* Encabezado del viaje */}
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-bold text-emerald-400">
+                                🏢 {progViaje.artEmpresa?.nombre || 'ART / Empresa'}
+                              </span>
+                              {progViaje.numeroSiniestro && (
+                                <span className="text-[10px] bg-white/10 text-slate-300 px-1.5 py-0.5 rounded">
+                                  Sin: {progViaje.numeroSiniestro}
+                                </span>
+                              )}
+                            </div>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wider ${badgeFecha.color}`}>
+                              {badgeFecha.texto}
+                            </span>
+                          </div>
+
+                          {/* Fecha y Horarios en píldoras compactas */}
+                          <div className="flex items-center justify-between text-xs bg-black/30 p-2 rounded-lg border border-white/5 flex-wrap gap-2">
+                            <div className="text-[11px] text-slate-300 font-medium">
+                              📅 <strong className="text-white capitalize">{fechaTexto}</strong>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <span className="text-amber-300 font-black">
+                                🚗 Salida: {progViaje.horaSalidaChofer || '08:00'} hs
+                              </span>
+                              <span className="text-emerald-300 font-black">
+                                🏥 Turno: {progViaje.horaTurno || '10:00'} hs
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Aviso de hora de salida */}
+                          {esHoraSalir && (
+                            <div className="bg-amber-500/20 border border-amber-400/40 text-amber-200 p-2 rounded-lg text-xs font-bold flex items-center gap-2 animate-pulse">
+                              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                              <span>¡Es el horario de salida acordado! Iniciá viaje para llegar a tiempo.</span>
+                            </div>
+                          )}
+
+                          {/* Info Pasajero y Origen/Destino */}
+                          <div className="text-xs space-y-1 text-slate-300">
+                            <div className="flex items-center justify-between">
+                              <span>👤 Pasajero: <strong className="text-white">{progViaje.clienteNombre}</strong></span>
+                              {progViaje.clienteTelefono && (
+                                <a
+                                  href={`tel:${progViaje.clienteTelefono}`}
+                                  className="text-emerald-400 hover:underline flex items-center gap-1 font-semibold text-[11px]"
+                                >
+                                  📞 {progViaje.clienteTelefono}
+                                </a>
+                              )}
+                            </div>
+                            <div className="truncate">📍 <strong>Origen:</strong> {progViaje.origen}</div>
+                            <div className="truncate">🏁 <strong>Destino:</strong> {progViaje.destino}</div>
+                            {progViaje.precio && (
+                              <div className="pt-0.5 text-slate-400 flex items-center justify-between">
+                                <span>Paga Chofer:</span>
+                                <span className="text-emerald-400 font-bold text-xs">
+                                  ${Number(progViaje.precio).toLocaleString('es-AR')}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Botones de acción del viaje */}
+                          <div className="flex items-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => iniciarViajeArt(progViaje)}
+                              disabled={actionLoading}
+                              className={`flex-1 py-2 px-3 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow active:scale-95 transition-all ${
+                                esHoraSalir
+                                  ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 animate-pulse'
+                                  : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                              }`}
+                            >
+                              <Car className="w-3.5 h-3.5" />
+                              <span>🚗 Iniciar Salida</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setModalDetalleArt(progViaje)}
+                              className="py-2 px-3 rounded-xl bg-white/10 hover:bg-white/15 text-slate-200 font-bold text-xs"
+                              title="Ver ficha completa"
+                            >
+                              Ficha
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    <button
+                      type="button"
+                      onClick={() => setViajesArtExpandidos(false)}
+                      className="w-full py-2 text-center text-xs text-slate-400 hover:text-white transition-colors"
+                    >
+                      ▲ Minimizar lista de viajes ART
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
           {/* Widget de Odometría / Kilometraje del Turno en Tiempo Real */}
           <div className="bg-slate-900 text-white rounded-2xl p-4 shadow-md">
             <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2">
@@ -2060,13 +2774,28 @@ export default function ChoferApp() {
               )}
 
               {viajeActual.estado === 'EN_CAMINO' && (
-                <button
-                  onClick={iniciarViaje}
-                  disabled={actionLoading}
-                  className="w-full py-3 bg-primary-600 text-white font-bold rounded-xl shadow-md shadow-primary-500/20 disabled:opacity-50 text-sm"
-                >
-                  INICIAR VIAJE (PASAJERO A BORDO)
-                </button>
+                viajeActual.codigoPin ? (
+                  <button
+                    onClick={() => {
+                      setPinInput('');
+                      setPinError('');
+                      setIsModalPinOpen(true);
+                    }}
+                    disabled={actionLoading}
+                    className="w-full py-3.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 hover:from-emerald-700 hover:to-teal-700 text-white font-black rounded-xl shadow-lg shadow-emerald-600/25 flex items-center justify-center gap-2 text-sm transition-all active:scale-[0.99]"
+                  >
+                    <Key className="w-4 h-4 shrink-0 animate-bounce" />
+                    <span>🔑 INGRESAR PIN DEL PASAJERO Y COMENZAR</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={iniciarViaje}
+                    disabled={actionLoading}
+                    className="w-full py-3 bg-primary-600 hover:bg-primary-700 text-white font-bold rounded-xl shadow-md shadow-primary-500/20 disabled:opacity-50 text-sm transition-colors"
+                  >
+                    INICIAR VIAJE (PASAJERO A BORDO)
+                  </button>
+                )
               )}
 
               {viajeActual.estado === 'EN_CURSO' && (
@@ -2377,6 +3106,59 @@ export default function ChoferApp() {
                   </button>
                 )}
               </div>
+            </div>
+
+            {/* Registro de Peajes pagados por el Chofer */}
+            <div className="p-3.5 bg-slate-50 dark:bg-slate-800/60 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-base">🛣️</span>
+                  <span className="text-xs font-bold text-gray-800 dark:text-slate-200">
+                    Peajes abonados (Opcional)
+                  </span>
+                </div>
+                {viajeActual.esArt && (
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300">
+                    Reembolsable ART
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-[10px] font-medium text-gray-500 dark:text-slate-400 block mb-1">
+                    Total Peajes ($)
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400">$</span>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={peajesInputChofer}
+                      onChange={(e) => setPeajesInputChofer(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full pl-7 pr-3 py-2 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium text-gray-500 dark:text-slate-400 block mb-1">
+                    Detalle / Cabinas
+                  </label>
+                  <input
+                    type="text"
+                    value={observacionesPeajeChofer}
+                    onChange={(e) => setObservacionesPeajeChofer(e.target.value)}
+                    placeholder="Ej: Riccheri, Dellepiane..."
+                    className="w-full px-3 py-2 text-xs rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                </div>
+              </div>
+              {parseFloat(peajesInputChofer) > 0 && (
+                <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                  ✓ Se sumarán ${(parseFloat(peajesInputChofer) || 0).toLocaleString('es-AR')} a tu reintegro para este viaje.
+                </p>
+              )}
             </div>
 
             {/* Botones de acción */}
@@ -3002,6 +3784,490 @@ export default function ChoferApp() {
                 ) : (
                   <span>Iniciar Taxímetro</span>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL / BANNER DE VIAJE ART ASIGNADO POR EL DUEÑO */}
+      {/* Modal de Validación de PIN de Abordaje (Estilo Uber) */}
+      {isModalPinOpen && viajeActual && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-sm w-full p-5 shadow-2xl text-center space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                  <Key className="w-5 h-5" />
+                </div>
+                <div className="text-left">
+                  <h3 className="text-base font-black text-slate-900 dark:text-white leading-tight">
+                    Código de Abordaje
+                  </h3>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Seguridad y validación de pasajero
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsModalPinOpen(false);
+                  setPinInput('');
+                  setPinError('');
+                }}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300">
+              Pedile a <strong>{viajeActual.clienteNombre || 'el pasajero'}</strong> los <strong>4 números</strong> que figuran en su pantalla:
+            </p>
+
+            {/* Display de 4 casillas */}
+            <div className="flex items-center justify-center gap-2.5 py-1">
+              {[0, 1, 2, 3].map((index) => {
+                const char = pinInput[index] || '';
+                const isCurrent = pinInput.length === index;
+                return (
+                  <div
+                    key={index}
+                    className={`w-12 h-14 sm:w-14 sm:h-16 rounded-2xl flex items-center justify-center font-mono text-2xl sm:text-3xl font-black border-2 transition-all ${
+                      char
+                        ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-500 text-emerald-800 dark:text-emerald-300 shadow-sm'
+                        : isCurrent
+                        ? 'border-emerald-500/80 ring-2 ring-emerald-500/20 bg-slate-50 dark:bg-slate-800'
+                        : 'border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 text-slate-400'
+                    }`}
+                  >
+                    {char ? char : <span className="w-2.5 h-2.5 rounded-full bg-slate-300 dark:bg-slate-600" />}
+                  </div>
+                );
+              })}
+            </div>
+
+            {pinError && (
+              <div className="p-2.5 rounded-xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800/60 text-xs text-red-700 dark:text-red-300 font-semibold animate-in shake">
+                ⚠️ {pinError}
+              </div>
+            )}
+
+            {/* Teclado numérico táctil integrado */}
+            <div className="grid grid-cols-3 gap-2 pt-1 max-w-[260px] mx-auto">
+              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((num) => (
+                <button
+                  key={num}
+                  type="button"
+                  disabled={validatingPin}
+                  onClick={() => handlePinDigit(num)}
+                  className="h-12 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-mono text-xl font-bold transition-all active:scale-90 shadow-2xs"
+                >
+                  {num}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  setPinInput('');
+                  setPinError('');
+                }}
+                disabled={validatingPin || pinInput.length === 0}
+                className="h-12 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 text-xs font-bold transition-all active:scale-90 disabled:opacity-30"
+              >
+                Limpiar
+              </button>
+              <button
+                type="button"
+                disabled={validatingPin}
+                onClick={() => handlePinDigit('0')}
+                className="h-12 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-900 dark:text-white font-mono text-xl font-bold transition-all active:scale-90 shadow-2xs"
+              >
+                0
+              </button>
+              <button
+                type="button"
+                disabled={validatingPin || pinInput.length === 0}
+                onClick={handlePinDelete}
+                className="h-12 rounded-2xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 flex items-center justify-center transition-all active:scale-90 disabled:opacity-30"
+              >
+                <Delete className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Botón de confirmación si completó los 4 */}
+            <div className="pt-2">
+              <button
+                type="button"
+                disabled={pinInput.length !== 4 || validatingPin}
+                onClick={() => confirmarPinViaje()}
+                className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs uppercase tracking-wider shadow-md shadow-emerald-600/20 transition-all active:scale-95 disabled:opacity-40"
+              >
+                {validatingPin ? 'Validando código...' : 'Validar e Iniciar Viaje'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {alertaViajeArtProgramado && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+          <div className="bg-slate-900 border-2 border-emerald-500 text-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
+            <div className="flex items-center gap-3 border-b border-white/10 pb-3">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-2xl font-black">
+                🏢
+              </div>
+              <div>
+                <span className="text-xs uppercase font-bold text-emerald-400 tracking-wider">
+                  Asignación del Dueño
+                </span>
+                <h3 className="text-lg font-black text-white">
+                  Viaje de ART / Empresa
+                </h3>
+              </div>
+            </div>
+
+            <div className="bg-black/50 p-4 rounded-2xl border border-white/10 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-xs text-slate-300">
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Empresa / ART</span>
+                  <span className="text-base font-bold text-white">
+                    {alertaViajeArtProgramado.artNombre || 'ART Asignada'}
+                  </span>
+                  {alertaViajeArtProgramado.numeroSiniestro && (
+                    <span className="text-xs text-emerald-400 block mt-0.5">
+                      Siniestro: {alertaViajeArtProgramado.numeroSiniestro}
+                    </span>
+                  )}
+                </div>
+
+                {/* BADGE DE FECHA */}
+                {alertaViajeArtProgramado && (
+                  <span className={`text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider font-bold ${
+                    obtenerEtiquetaFechaRelativa(alertaViajeArtProgramado.fecha || alertaViajeArtProgramado.fechaStr).color
+                  }`}>
+                    {obtenerEtiquetaFechaRelativa(alertaViajeArtProgramado.fecha || alertaViajeArtProgramado.fechaStr).texto}
+                  </span>
+                )}
+              </div>
+
+              {/* BLOQUE FECHA DEL TRASLADO */}
+              <div className="bg-emerald-950/40 border border-emerald-500/30 p-2.5 rounded-xl text-center">
+                <span className="text-[10px] uppercase font-bold text-emerald-400 block tracking-wider">
+                  📅 FECHA PROGRAMADA DEL VIAJE
+                </span>
+                <span className="text-sm font-black text-white capitalize">
+                  {formatearFechaLegible(alertaViajeArtProgramado.fecha || alertaViajeArtProgramado.fechaStr)}
+                </span>
+              </div>
+
+              {/* HORARIOS */}
+              <div className="grid grid-cols-2 gap-2 bg-white/5 p-3 rounded-xl border border-white/10 text-center">
+                <div className="border-r border-white/10 pr-2">
+                  <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wide block">
+                    🚗 HORA DE SALIDA
+                  </span>
+                  <span className="text-2xl font-black text-amber-300">
+                    {alertaViajeArtProgramado.horaSalidaChofer || '08:00'} hs
+                  </span>
+                  <span className="text-[9px] text-slate-400 block">
+                    Debes salir a esta hora
+                  </span>
+                </div>
+
+                <div className="pl-2">
+                  <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wide block">
+                    🏥 HORA TURNO
+                  </span>
+                  <span className="text-2xl font-black text-emerald-300">
+                    {alertaViajeArtProgramado.horaTurno || '10:00'} hs
+                  </span>
+                  <span className="text-[9px] text-slate-400 block">
+                    Turno en origen
+                  </span>
+                </div>
+              </div>
+
+              <div className="text-xs space-y-1 text-slate-300">
+                <div>👤 <strong>Pasajero:</strong> {alertaViajeArtProgramado.clienteNombre}</div>
+                <div>📍 <strong>Origen:</strong> {alertaViajeArtProgramado.origen}</div>
+                <div>🏁 <strong>Destino:</strong> {alertaViajeArtProgramado.destino}</div>
+                {alertaViajeArtProgramado.precioChofer && (
+                  <div className="pt-1 flex items-center justify-between text-slate-400">
+                    <span>Paga Chofer:</span>
+                    <span className="text-emerald-400 font-black text-base">
+                      ${Number(alertaViajeArtProgramado.precioChofer).toLocaleString('es-AR')}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAlertaViajeArtProgramado(null);
+                  toast.success('¡Viaje guardado en tu cola de espera! Marcá que estás saliendo cuando sea la hora.');
+                }}
+                className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm uppercase tracking-wider shadow-lg shadow-emerald-950 transition-all active:scale-95"
+              >
+                📋 Aceptar y Dejar en Cola de Espera
+              </button>
+
+              {/* Botón directo si el viaje es para hoy o ya es la hora */}
+              {obtenerEtiquetaFechaRelativa(alertaViajeArtProgramado.fecha || alertaViajeArtProgramado.fechaStr).dias === 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const v = alertaViajeArtProgramado.viaje || alertaViajeArtProgramado;
+                    setAlertaViajeArtProgramado(null);
+                    iniciarViajeArt(v);
+                  }}
+                  className="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow-md transition-all active:scale-95 flex items-center justify-center gap-1.5"
+                >
+                  <Car className="w-4 h-4" />
+                  <span>🚗 Marcar que estoy saliendo ahora</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE ALERTA: HORA DE SALIDA DE VIAJE ART ALCANZADA (NOTIFICACIÓN RECORDATORIA) */}
+      {alertaRecordatorioSalidaArt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in">
+          <div className="bg-slate-900 border-2 border-amber-400 text-white rounded-3xl max-w-md w-full p-6 shadow-2xl shadow-amber-950/80 space-y-4 animate-in zoom-in-95">
+            {/* ENCABEZADO CON CAMPANA / RELOJ PULSANTE */}
+            <div className="flex items-center gap-3 border-b border-white/10 pb-3">
+              <div className="relative shrink-0">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-2xl font-black animate-bounce">
+                  ⏰
+                </div>
+                <div className="w-3 h-3 rounded-full bg-amber-400 absolute -top-1 -right-1 animate-ping"></div>
+              </div>
+              <div className="min-w-0">
+                <span className="text-[10px] uppercase font-black text-amber-400 tracking-wider block">
+                  ¡RECORDATORIO DE SALIDA!
+                </span>
+                <h3 className="text-lg font-black text-white">
+                  Llegó el horario de salir
+                </h3>
+              </div>
+            </div>
+
+            {/* CONTENIDO DEL VIAJE */}
+            <div className="bg-black/50 p-4 rounded-2xl border border-amber-400/30 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-slate-400 block text-[10px] uppercase font-bold">Empresa / ART</span>
+                  <span className="text-base font-bold text-emerald-400">
+                    🏢 {alertaRecordatorioSalidaArt.artEmpresa?.nombre || alertaRecordatorioSalidaArt.artNombre || 'ART Asignada'}
+                  </span>
+                </div>
+                {alertaRecordatorioSalidaArt.numeroSiniestro && (
+                  <span className="text-xs bg-white/10 text-slate-300 px-2 py-0.5 rounded-md font-medium">
+                    Sin: {alertaRecordatorioSalidaArt.numeroSiniestro}
+                  </span>
+                )}
+              </div>
+
+              {/* HORARIO DESTACADO */}
+              <div className="grid grid-cols-2 gap-2 bg-amber-950/30 p-2.5 rounded-xl border border-amber-500/30 text-center">
+                <div className="border-r border-amber-500/20 pr-2">
+                  <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wide block">
+                    🚗 SALIDA ACORDADA
+                  </span>
+                  <span className="text-2xl font-black text-amber-300">
+                    {alertaRecordatorioSalidaArt.horaSalidaChofer || '08:00'} hs
+                  </span>
+                </div>
+                <div className="pl-2">
+                  <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-wide block">
+                    🏥 HORA TURNO
+                  </span>
+                  <span className="text-2xl font-black text-emerald-300">
+                    {alertaRecordatorioSalidaArt.horaTurno || '10:00'} hs
+                  </span>
+                </div>
+              </div>
+
+              {/* DETALLES PASAJERO Y DIRECCIÓN */}
+              <div className="text-xs space-y-1.5 text-slate-300">
+                <div className="flex items-center justify-between">
+                  <span>👤 Pasajero: <strong className="text-white">{alertaRecordatorioSalidaArt.clienteNombre}</strong></span>
+                  {alertaRecordatorioSalidaArt.clienteTelefono && (
+                    <a
+                      href={`tel:${alertaRecordatorioSalidaArt.clienteTelefono}`}
+                      className="text-emerald-400 hover:underline font-bold text-[11px] flex items-center gap-1"
+                    >
+                      📞 {alertaRecordatorioSalidaArt.clienteTelefono}
+                    </a>
+                  )}
+                </div>
+                <div>📍 <strong>Origen:</strong> {alertaRecordatorioSalidaArt.origen}</div>
+                <div>🏁 <strong>Destino:</strong> {alertaRecordatorioSalidaArt.destino}</div>
+                {alertaRecordatorioSalidaArt.observaciones && (
+                  <div className="text-[11px] text-amber-200/90 italic bg-white/5 p-2 rounded-lg">
+                    ⚠️ {alertaRecordatorioSalidaArt.observaciones}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* BOTONES DE ACCIÓN */}
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={() => {
+                  const viaje = alertaRecordatorioSalidaArt.viaje || alertaRecordatorioSalidaArt;
+                  setAlertaRecordatorioSalidaArt(null);
+                  iniciarViajeArt(viaje);
+                }}
+                disabled={actionLoading}
+                className="w-full py-3.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-sm uppercase tracking-wider shadow-lg shadow-amber-950/50 transition-all active:scale-95 flex items-center justify-center gap-2"
+              >
+                <Car className="w-5 h-5" />
+                <span>🚗 Iniciar Viaje / Estoy saliendo ahora</span>
+              </button>
+
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const id = alertaRecordatorioSalidaArt.id || alertaRecordatorioSalidaArt.viajeId;
+                    if (id) {
+                      recordatoriosSalidaNotificadosRef.current[id] = Date.now() + 5 * 60 * 1000;
+                    }
+                    setAlertaRecordatorioSalidaArt(null);
+                    toast('⏱️ Te volveremos a avisar en 5 minutos');
+                  }}
+                  className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs uppercase tracking-wider border border-white/10 transition-colors"
+                >
+                  ⏱️ En 5 min
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAlertaRecordatorioSalidaArt(null)}
+                  className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold text-xs uppercase tracking-wider border border-white/10 transition-colors"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: DETALLES COMPLETOS DEL TRASLADO ART */}
+      {modalDetalleArt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in">
+          <div className="bg-slate-900 border border-emerald-500/50 text-white rounded-3xl max-w-md w-full p-6 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
+                  🏢
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white">
+                    {modalDetalleArt.artEmpresa?.nombre || 'Traslado ART'}
+                  </h3>
+                  <span className="text-[11px] text-slate-400">
+                    Fecha: {formatearFechaLegible(modalDetalleArt.fecha)}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalDetalleArt(null)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 flex items-center justify-center transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3 bg-black/40 p-4 rounded-2xl border border-white/5 text-xs text-slate-300">
+              {modalDetalleArt.numeroSiniestro && (
+                <div>
+                  <span className="text-slate-400 font-bold block text-[10px] uppercase">Número de Siniestro</span>
+                  <span className="text-sm font-bold text-white">{modalDetalleArt.numeroSiniestro}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2 bg-white/5 p-2.5 rounded-xl text-center">
+                <div>
+                  <span className="text-[10px] font-bold text-amber-400 uppercase block">Hora Salida</span>
+                  <span className="text-lg font-black text-amber-300">{modalDetalleArt.horaSalidaChofer || '08:00'} hs</span>
+                </div>
+                <div>
+                  <span className="text-[10px] font-bold text-emerald-400 uppercase block">Hora Turno</span>
+                  <span className="text-lg font-black text-emerald-300">{modalDetalleArt.horaTurno || '10:00'} hs</span>
+                </div>
+              </div>
+
+              <div>
+                <span className="text-slate-400 font-bold block text-[10px] uppercase">Pasajero</span>
+                <span className="text-sm font-bold text-white block">{modalDetalleArt.clienteNombre}</span>
+                {modalDetalleArt.clienteTelefono && (
+                  <a
+                    href={`tel:${modalDetalleArt.clienteTelefono}`}
+                    className="inline-flex items-center gap-1.5 text-emerald-400 hover:underline font-semibold mt-1"
+                  >
+                    <Phone className="w-3.5 h-3.5" />
+                    <span>Llamar: {modalDetalleArt.clienteTelefono}</span>
+                  </a>
+                )}
+              </div>
+
+              <div>
+                <span className="text-slate-400 font-bold block text-[10px] uppercase">Origen (Retiro)</span>
+                <span className="text-white block mt-0.5">{modalDetalleArt.origen}</span>
+              </div>
+
+              <div>
+                <span className="text-slate-400 font-bold block text-[10px] uppercase">Destino (Clínica / Centro)</span>
+                <span className="text-white block mt-0.5">{modalDetalleArt.destino}</span>
+              </div>
+
+              {modalDetalleArt.precio && (
+                <div className="pt-2 border-t border-white/10 flex items-center justify-between">
+                  <span className="text-slate-400">Paga Chofer por viaje:</span>
+                  <span className="text-emerald-400 font-black text-base">
+                    ${Number(modalDetalleArt.precio).toLocaleString('es-AR')}
+                  </span>
+                </div>
+              )}
+
+              {modalDetalleArt.observaciones && (
+                <div className="bg-amber-500/10 border border-amber-500/20 text-amber-200 p-2.5 rounded-xl">
+                  <strong className="block text-[10px] uppercase text-amber-400">Observaciones del Dueño:</strong>
+                  <span>{modalDetalleArt.observaciones}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const v = modalDetalleArt;
+                  setModalDetalleArt(null);
+                  iniciarViajeArt(v);
+                }}
+                disabled={actionLoading}
+                className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase tracking-wider shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-all"
+              >
+                <Car className="w-4 h-4" />
+                <span>🚗 Marcar que estoy saliendo</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalDetalleArt(null)}
+                className="w-full py-2 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold text-xs uppercase tracking-wider"
+              >
+                Cerrar
               </button>
             </div>
           </div>
