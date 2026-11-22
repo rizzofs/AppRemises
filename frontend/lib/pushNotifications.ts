@@ -32,6 +32,10 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
     const registration = await navigator.serviceWorker.register('/sw.js', {
       scope: '/',
     });
+    // Forzar actualización inmediata del Service Worker para no quedar atrapado en caché viejo
+    if (registration) {
+      registration.update().catch(() => {});
+    }
     return registration;
   } catch (error) {
     console.error('Error al registrar Service Worker:', error);
