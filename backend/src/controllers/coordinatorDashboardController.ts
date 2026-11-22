@@ -544,6 +544,12 @@ export const coordinatorDashboardController = {
             data: { viajeId: updatedViaje.id },
           }).catch((e) => console.warn('Push error cliente asignar viaje:', e));
         }
+
+        // Notificación automática por WhatsApp al pasajero
+        try {
+          const { whatsappBotService } = await import('../services/whatsappBotService');
+          whatsappBotService.notificarCambioEstadoPasajero(updatedViaje, 'ACEPTADO').catch(() => {});
+        } catch {}
       } catch (pErr) {
         console.warn('Push error asignar viaje:', pErr);
       }

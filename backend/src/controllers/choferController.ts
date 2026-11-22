@@ -2163,6 +2163,12 @@ export const choferController = {
         }
       }
 
+      // Notificación automática por WhatsApp al pasajero
+      try {
+        const { whatsappBotService } = await import('../services/whatsappBotService');
+        whatsappBotService.notificarCambioEstadoPasajero(viajeActualizado, estado).catch(() => {});
+      } catch {}
+
       res.json({
         success: true,
         data: viajeActualizado,
@@ -2225,6 +2231,12 @@ export const choferController = {
           console.warn('Aviso enviando Push al cliente en avisarLlegando:', errPush);
         }
       }
+
+      // Notificación automática por WhatsApp al pasajero
+      try {
+        const { whatsappBotService } = await import('../services/whatsappBotService');
+        whatsappBotService.notificarCambioEstadoPasajero(viaje, 'LLEGANDO').catch(() => {});
+      } catch {}
 
       res.json({
         success: true,

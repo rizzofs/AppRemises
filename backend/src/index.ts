@@ -21,6 +21,7 @@ import clienteRoutes from './routes/cliente';
 import reportesRoutes from './routes/reportes';
 import artEmpresasRoutes from './routes/artEmpresas';
 import pushRoutes from './routes/push';
+import whatsappRoutes from './routes/whatsapp';
 
 // Cargar variables de entorno
 dotenv.config();
@@ -101,6 +102,9 @@ app.use('/api/reportes', reportesRoutes);
 app.use('/api/art-empresas', artEmpresasRoutes);
 app.use('/api/art', artEmpresasRoutes);
 app.use('/api/push', pushRoutes);
+app.use('/api/webhook/whatsapp', whatsappRoutes);
+app.use('/api/whatsapp/webhook', whatsappRoutes);
+app.use('/api/whatsapp', whatsappRoutes);
 
 // Ruta de salud
 app.get('/api/health', (req, res) => {
