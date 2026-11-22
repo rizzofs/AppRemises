@@ -147,6 +147,78 @@ export const pushNotificationService = {
   },
 
   /**
+   * Envía notificación Push nativa a todas las suscripciones de un usuario (ej. Cliente)
+   */
+  async enviarAUsuario(userId: string, payload: PushNotificationPayload) {
+    if (!userId) return;
+
+    try {
+      const db = prisma as any;
+      const suscripciones = await db.pushSubscription.findMany({
+        where: { userId },
+      });
+
+      if (!suscripciones || suscripciones.length === 0) return;
+
+      const formattedPayload = JSON.stringify({
+        title: payload.title,
+        body: payload.body,
+        icon: payload.icon || '/pwa-192x192.png',
+        badge: payload.badge || '/pwa-192x192.png',
+        url: payload.url || '/cliente/app',
+        tag: payload.tag || 'alerta-cliente',
+        vibrate: payload.vibrate || [400, 200, 400, 200, 600],
+        requireInteraction: payload.requireInteraction !== undefined ? payload.requireInteraction : true,
+        data: payload.data || {},
+      });
+
+      const envios = suscripciones.map(async (sub: any) => {
+        const pushConfig = {
+          endpoint: sub.endpoint,
+          keys: {
+            p256dh: sub.p256dh,
+            auth: sub.auth,
+          },
+        };
+
+        try {
+          await webpush.sendNotification(pushConfig, formattedPayload);
+        } catch (error: any) {
+          if (error.statusCode === 404 || error.statusCode === 410) {
+            await db.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {});
+          } else {
+            console.warn(`Aviso enviando Push a Usuario (${sub.id}):`, error.message);
+          }
+        }
+      });
+
+      await Promise.allSettled(envios);
+    } catch (err) {
+      console.error(`Error en enviarAUsuario (${userId}):`, err);
+    }
+  },
+
+  /**
+   * Envía notificación Push a un Cliente a través de su clienteId
+   */
+  async enviarACliente(clienteId: string, payload: PushNotificationPayload) {
+    if (!clienteId) return;
+
+    try {
+      const cliente = await prisma.cliente.findUnique({
+        where: { id: clienteId },
+        select: { userId: true },
+      });
+
+      if (cliente?.userId) {
+        await this.enviarAUsuario(cliente.userId, payload);
+      }
+    } catch (err) {
+      console.error(`Error enviando push a cliente (${clienteId}):`, err);
+    }
+  },
+
+  /**
    * Envía notificación Push a todos los choferes conectados/activos de una remisería
    */
   async enviarAChoferesDeRemiseria(remiseriaId: string, payload: PushNotificationPayload, excludeChoferId?: string) {

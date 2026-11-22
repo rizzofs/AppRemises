@@ -1,13 +1,20 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import LogoutButton from '@/components/LogoutButton';
 import ThemeToggle from '@/components/ThemeToggle';
 import LogoBruno from '@/components/LogoBruno';
 import { ThemeModuleProvider } from '@/contexts/ThemeContext';
 import { triggerEmergencyPhoneFallback } from '@/components/EmergencyPhoneFallback';
-import { PhoneCall } from 'lucide-react';
+import { PhoneCall, BellRing, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import {
+  subscribeToPushNotifications,
+  isPushNotificationSupported,
+  getNotificationPermissionState,
+} from '@/lib/pushNotifications';
+import toast from 'react-hot-toast';
 
 export default function ClienteLayout({
   children,
@@ -15,6 +22,49 @@ export default function ClienteLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const [mostrarBannerPush, setMostrarBannerPush] = useState(false);
+  const [activandoPush, setActivandoPush] = useState(false);
+
+  useEffect(() => {
+    if (!isPushNotificationSupported()) return;
+
+    const perm = getNotificationPermissionState();
+    if (perm === 'granted') {
+      // Si ya tiene permiso concedido, sincronizamos la suscripción en segundo plano
+      subscribeToPushNotifications().catch(() => {});
+    } else if (perm === 'default') {
+      // Verificar si el usuario no cerró el banner en esta sesión
+      const descartado = sessionStorage.getItem('push_banner_cliente_descartado');
+      if (!descartado) {
+        setMostrarBannerPush(true);
+      }
+    }
+  }, []);
+
+  const handleActivarNotificaciones = async () => {
+    setActivandoPush(true);
+    try {
+      const res = await subscribeToPushNotifications();
+      if (res.success) {
+        setMostrarBannerPush(false);
+        toast.success('¡Listo! Tu teléfono te avisará cuando el chofer llegue a tu puerta.', {
+          icon: '🔔',
+          duration: 4500,
+        });
+      } else {
+        toast.error(res.message || 'No se pudieron activar las notificaciones');
+      }
+    } catch {
+      toast.error('Error al solicitar permiso de notificaciones');
+    } finally {
+      setActivandoPush(false);
+    }
+  };
+
+  const handleDescartarBanner = () => {
+    setMostrarBannerPush(false);
+    sessionStorage.setItem('push_banner_cliente_descartado', 'true');
+  };
 
   const isPedirActive = pathname === '/cliente/app' || pathname === '/cliente/reserva';
   const isViajesActive = pathname === '/cliente/viajes';
@@ -53,6 +103,36 @@ export default function ClienteLayout({
             <LogoutButton className="text-gray-500 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400" />
           </div>
         </header>
+
+        {/* Banner discreto para activar alertas cuando el chofer llega a la puerta */}
+        {mostrarBannerPush && (
+          <div className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3.5 py-2.5 flex items-center justify-between gap-3 text-xs shadow-sm animate-in fade-in">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <BellRing className="w-4 h-4 shrink-0 animate-bounce" />
+              <p className="truncate text-xs font-medium">
+                ¿Querés que tu teléfono suene cuando el remis llegue a tu puerta?
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleActivarNotificaciones}
+                disabled={activandoPush}
+                className="px-2.5 py-1 bg-white text-blue-700 hover:bg-blue-50 rounded-lg font-black text-[11px] uppercase tracking-wider transition-all shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
+              >
+                {activandoPush ? 'Activando...' : 'Activar'}
+              </button>
+              <button
+                type="button"
+                onClick={handleDescartarBanner}
+                className="p-1 hover:bg-white/20 rounded-md transition-colors cursor-pointer text-white/80 hover:text-white"
+                title="Descartar aviso"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        )}
 
         <main className="flex-1 overflow-y-auto">
           {children}

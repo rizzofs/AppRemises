@@ -46,6 +46,7 @@ import {
 } from 'lucide-react';
 import { DireccionFrecuente, ParadaIntermedia } from '@/types';
 import { clienteService, coordinadorDashboardService } from '@/lib/api';
+import { subscribeToPushNotifications } from '@/lib/pushNotifications';
 import Link from 'next/link';
 
 const ClienteTrackingMap = dynamic(() => import('@/components/ClienteTrackingMap'), {
@@ -1020,6 +1021,8 @@ export default function ClienteApp() {
         if (rId && socketRef.current) {
           socketRef.current.emit('join_room', { remiseriaId: rId });
         }
+        // Asegurar que el cliente reciba alertas push cuando el auto llegue a la puerta
+        subscribeToPushNotifications().catch(() => {});
         toast.success('Buscando el auto más cercano...');
       } else {
         toast.error(

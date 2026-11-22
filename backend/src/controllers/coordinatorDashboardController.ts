@@ -531,6 +531,19 @@ export const coordinatorDashboardController = {
           tag: `viaje-asignado-${updatedViaje.id}`,
           data: { viajeId: updatedViaje.id },
         }).catch((e) => console.warn('Push error asignar viaje:', e));
+
+        // Notificación Push nativa al cliente en su celular bloqueado
+        if (updatedViaje.clienteId) {
+          const vehiculo = updatedViaje.vehiculo;
+          const autoStr = vehiculo ? ` (${vehiculo.marca} ${vehiculo.modelo} - ${vehiculo.patente})` : '';
+          pushNotificationService.enviarACliente(updatedViaje.clienteId, {
+            title: '🚕 ¡Chofer asignado!',
+            body: `${chofer.nombre || 'Un chofer'}${autoStr} fue asignado a tu viaje y va en camino.`,
+            url: '/cliente/app',
+            tag: `asignado-${updatedViaje.id}`,
+            data: { viajeId: updatedViaje.id },
+          }).catch((e) => console.warn('Push error cliente asignar viaje:', e));
+        }
       } catch (pErr) {
         console.warn('Push error asignar viaje:', pErr);
       }

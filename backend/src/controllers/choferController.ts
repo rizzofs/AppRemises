@@ -2134,6 +2134,35 @@ export const choferController = {
         // Sockets opcional
       }
 
+      // Notificación Push nativa al cliente en su celular bloqueado
+      if (viaje.clienteId) {
+        try {
+          const { pushNotificationService } = await import('../services/pushNotificationService');
+          const choferNombre = viajeActualizado.chofer?.nombre || 'Tu chofer';
+          const vehiculo = viajeActualizado.vehiculo;
+          const autoStr = vehiculo ? ` (${vehiculo.marca} ${vehiculo.modelo} - ${vehiculo.patente})` : '';
+
+          if (estado === 'EN_CAMINO') {
+            pushNotificationService.enviarACliente(viaje.clienteId, {
+              title: '🚕 ¡Tu remis está esperando afuera!',
+              body: `${choferNombre} ya está en tu puerta${autoStr}. ¡Ya podés salir a subirte!`,
+              url: '/cliente/app',
+              tag: `afuera-${viaje.id}`,
+              vibrate: [500, 200, 500, 200, 700],
+            }).catch((e) => console.warn('Push error cliente esperando afuera:', e));
+          } else if (estado === 'ACEPTADO') {
+            pushNotificationService.enviarACliente(viaje.clienteId, {
+              title: '🚕 ¡Viaje confirmado!',
+              body: `${choferNombre} aceptó tu viaje y va en camino a buscarte${autoStr}.`,
+              url: '/cliente/app',
+              tag: `confirmado-${viaje.id}`,
+            }).catch((e) => console.warn('Push error cliente aceptado:', e));
+          }
+        } catch (errPush) {
+          console.warn('Aviso enviando Push al cliente en actualización de estado:', errPush);
+        }
+      }
+
       res.json({
         success: true,
         data: viajeActualizado,
@@ -2180,6 +2209,22 @@ export const choferController = {
           viaje,
         });
       } catch (errSocket) {}
+
+      // Notificación Push nativa al cliente en su celular bloqueado
+      if (viaje.clienteId) {
+        try {
+          const { pushNotificationService } = await import('../services/pushNotificationService');
+          pushNotificationService.enviarACliente(viaje.clienteId, {
+            title: '🚕 ¡Tu remis está llegando!',
+            body: `${choferNombre}${autoStr} está a pocas cuadras. ¡Podés ir preparándote!`,
+            url: '/cliente/app',
+            tag: `llegando-${viaje.id}`,
+            vibrate: [400, 200, 400, 200, 600],
+          }).catch((e) => console.warn('Push error cliente chofer llegando:', e));
+        } catch (errPush) {
+          console.warn('Aviso enviando Push al cliente en avisarLlegando:', errPush);
+        }
+      }
 
       res.json({
         success: true,
