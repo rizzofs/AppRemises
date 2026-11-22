@@ -28,9 +28,9 @@ export const pushController = {
    */
   async subscribe(req: AuthenticatedRequest, res: Response) {
     try {
-      const { subscription } = req.body;
+      const sub = req.body.subscription || req.body;
 
-      if (!subscription || !subscription.endpoint || !subscription.keys) {
+      if (!sub || !sub.endpoint || !sub.keys) {
         return res.status(400).json({
           success: false,
           message: 'Formato de suscripción inválido',
@@ -54,9 +54,9 @@ export const pushController = {
       const userAgent = req.headers['user-agent'] || null;
 
       await pushNotificationService.guardarSuscripcion({
-        endpoint: subscription.endpoint,
-        p256dh: subscription.keys.p256dh,
-        auth: subscription.keys.auth,
+        endpoint: sub.endpoint,
+        p256dh: sub.keys.p256dh,
+        auth: sub.keys.auth,
         choferId,
         userId,
         userAgent,

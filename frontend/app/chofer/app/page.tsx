@@ -184,8 +184,8 @@ export default function ChoferApp() {
       const sub = await getCurrentPushSubscription();
       setIsPushSubscribed(Boolean(sub));
 
-      // Si el chofer ya había dado permiso antes pero no estaba suscrito en esta sesión, auto-suscribir
-      if (perm === 'granted' && !sub) {
+      // Si el chofer ya había dado permiso antes, asegurar que la suscripción esté activa en el backend
+      if (perm === 'granted') {
         subscribeToPushNotifications().then((res) => {
           if (res.success) setIsPushSubscribed(true);
         });
@@ -1402,6 +1402,17 @@ export default function ChoferApp() {
 
   const handleToggleClick = async () => {
     if (!isActive) {
+      // Si el navegador soporta notificaciones y aún no se suscribió, solicitarlo al conectar
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'denied') {
+        subscribeToPushNotifications()
+          .then((res) => {
+            if (res.success) {
+              setIsPushSubscribed(true);
+              setPushStatus('granted');
+            }
+          })
+          .catch(() => {});
+      }
       setModalConexion('INICIAR');
     } else {
       if (viajeActual) {
