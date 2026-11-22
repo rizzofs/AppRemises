@@ -703,6 +703,20 @@ export const solicitarViaje = async (req: AuthenticatedRequest, res: Response) =
       console.warn('Socket aviso nuevo viaje:', socketErr);
     }
 
+    // Notificación Push nativa a todos los choferes activos (para cuando tienen la app cerrada o bloqueada)
+    try {
+      const { pushNotificationService } = await import('../services/pushNotificationService');
+      pushNotificationService.enviarAChoferesDeRemiseria(remiseria.id, {
+        title: '🚕 ¡Nuevo viaje disponible!',
+        body: `${origen} ➔ ${destino} ($${Number(precio).toLocaleString('es-AR')})`,
+        url: '/chofer/app',
+        tag: `nuevo-viaje-${viaje.id}`,
+        data: { viajeId: viaje.id },
+      }).catch((e) => console.warn('Push error nuevo viaje:', e));
+    } catch (pushErr) {
+      console.warn('Push aviso nuevo viaje:', pushErr);
+    }
+
     res.json({
       success: true,
       data: viaje,

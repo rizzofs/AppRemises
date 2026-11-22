@@ -88,6 +88,20 @@ export function iniciarServicioRecordatorioART() {
               observaciones: viaje.observaciones,
               viaje
             });
+
+            // Enviar notificación Push al chofer (despierta el cel aun con pantalla bloqueada)
+            if (viaje.choferId) {
+              try {
+                const { pushNotificationService } = await import('./pushNotificationService');
+                pushNotificationService.enviarAChofer(viaje.choferId, {
+                  title: '⏰ ¡Hora de salir para viaje ART!',
+                  body: `Es hora de salir a buscar al pasajero ${viaje.clienteNombre} en ${viaje.origen} (Turno: ${viaje.horaTurno || viaje.horaSalidaChofer}).`,
+                  url: '/chofer/app',
+                  tag: `alerta-art-${viaje.id}`,
+                  data: { viajeId: viaje.id },
+                }).catch(() => {});
+              } catch {}
+            }
           }
         }
       }

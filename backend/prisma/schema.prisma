@@ -37,6 +37,9 @@ model User {
   // Relación 1:N con Liquidacion
   liquidaciones Liquidacion[]
 
+  // Relación 1:N con Notificaciones Push
+  pushSubscriptions PushSubscription[]
+
   @@map("users")
 }
 
@@ -273,6 +276,9 @@ model Chofer {
 
   // Relación 1:N con CalificacionViaje
   calificaciones CalificacionViaje[]
+
+  // Relación 1:N con Notificaciones Push
+  pushSubscriptions PushSubscription[]
 
   @@index([remiseriaId, estado, isOnline])
   @@map("choferes")
@@ -749,5 +755,28 @@ model CierreFacturacionArt {
 
   @@index([remiseriaId, artEmpresaId])
   @@map("cierres_facturacion_art")
+}
+
+// ==============================================================================
+// WEB PUSH NOTIFICATIONS
+// ==============================================================================
+model PushSubscription {
+  id        String   @id @default(cuid())
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  choferId  String?
+  chofer    Chofer?  @relation(fields: [choferId], references: [id], onDelete: Cascade)
+
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([choferId])
+  @@index([userId])
+  @@map("push_subscriptions")
 }
  

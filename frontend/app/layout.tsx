@@ -6,6 +6,7 @@ import '../styles/leaflet.css'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { Toaster } from 'react-hot-toast'
 import EmergencyPhoneFallback from '@/components/EmergencyPhoneFallback'
+import ServiceWorkerRegister from '@/components/ServiceWorkerRegister'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -36,6 +37,7 @@ export default function RootLayout({
     <html lang="es">
       <body className={inter.className}>
         <AuthProvider>
+          <ServiceWorkerRegister />
           {children}
           <EmergencyPhoneFallback />
           <Toaster 

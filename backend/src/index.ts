@@ -20,6 +20,7 @@ import coordinatorDashboardRoutes from './routes/coordinatorDashboard';
 import clienteRoutes from './routes/cliente';
 import reportesRoutes from './routes/reportes';
 import artEmpresasRoutes from './routes/artEmpresas';
+import pushRoutes from './routes/push';
 
 // Cargar variables de entorno
 dotenv.config();
@@ -99,6 +100,7 @@ app.use('/api/cliente', clienteRoutes);
 app.use('/api/reportes', reportesRoutes);
 app.use('/api/art-empresas', artEmpresasRoutes);
 app.use('/api/art', artEmpresasRoutes);
+app.use('/api/push', pushRoutes);
 
 // Ruta de salud
 app.get('/api/health', (req, res) => {

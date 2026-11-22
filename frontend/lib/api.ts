@@ -2350,4 +2350,55 @@ export const duenioClienteService = {
   }
 };
 
+// Servicio de Notificaciones Web Push (VAPID)
+export const pushService = {
+  getPublicKey: async (): Promise<ApiResponse<{ publicKey: string }>> => {
+    try {
+      const response = await api.get('/push/public-key');
+      return handleApiResponse<{ publicKey: string }>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al obtener clave pública VAPID',
+      };
+    }
+  },
+
+  subscribe: async (subscription: any): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/push/subscribe', { subscription });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al guardar suscripción push',
+      };
+    }
+  },
+
+  unsubscribe: async (endpoint: string): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/push/unsubscribe', { endpoint });
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al desuscribir',
+      };
+    }
+  },
+
+  enviarPrueba: async (): Promise<ApiResponse<any>> => {
+    try {
+      const response = await api.post('/push/test');
+      return handleApiResponse<any>(response);
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Error al enviar prueba push',
+      };
+    }
+  },
+};
+
 export default api;

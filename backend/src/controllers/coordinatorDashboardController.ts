@@ -520,6 +520,21 @@ export const coordinatorDashboardController = {
         console.warn('Socket asignarViaje warning:', sErr);
       }
 
+      // Notificación Push nativa al chofer asignado (para cuando tiene la app cerrada o bloqueada)
+      try {
+        const { pushNotificationService } = await import('../services/pushNotificationService');
+        const pasajero = updatedViaje.clienteNombre || 'Pasajero';
+        pushNotificationService.enviarAChofer(chofer.id, {
+          title: '🚕 ¡Viaje asignado por Central!',
+          body: `${pasajero} en ${updatedViaje.origen} ➔ ${updatedViaje.destino}`,
+          url: '/chofer/app',
+          tag: `viaje-asignado-${updatedViaje.id}`,
+          data: { viajeId: updatedViaje.id },
+        }).catch((e) => console.warn('Push error asignar viaje:', e));
+      } catch (pErr) {
+        console.warn('Push error asignar viaje:', pErr);
+      }
+
       res.json({
         success: true,
         data: updatedViaje,

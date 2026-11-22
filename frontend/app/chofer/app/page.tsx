@@ -45,9 +45,16 @@ import {
   Delete,
   ShieldCheck,
   Bell,
+  BellRing,
   Calendar,
 } from 'lucide-react';
-import { choferService, coordinadorDashboardService } from '@/lib/api';
+import { choferService, coordinadorDashboardService, pushService } from '@/lib/api';
+import {
+  subscribeToPushNotifications,
+  getCurrentPushSubscription,
+  getNotificationPermissionState,
+  isPushNotificationSupported,
+} from '@/lib/pushNotifications';
 import { ResumenDocumentacion } from '@/types';
 import { io, Socket } from 'socket.io-client';
 
@@ -158,6 +165,68 @@ export default function ChoferApp() {
   const [pinInput, setPinInput] = useState('');
   const [validatingPin, setValidatingPin] = useState(false);
   const [pinError, setPinError] = useState('');
+
+  // Estado de notificaciones Push (pantalla bloqueada / segundo plano)
+  const [pushStatus, setPushStatus] = useState<'granted' | 'default' | 'denied' | 'unsupported'>('default');
+  const [isPushSubscribed, setIsPushSubscribed] = useState(false);
+  const [subscribingPush, setSubscribingPush] = useState(false);
+  const [probandoPush, setProbandoPush] = useState(false);
+
+  useEffect(() => {
+    const checkPush = async () => {
+      if (!isPushNotificationSupported()) {
+        setPushStatus('unsupported');
+        return;
+      }
+      const perm = getNotificationPermissionState();
+      setPushStatus(perm === 'unsupported' ? 'unsupported' : perm);
+
+      const sub = await getCurrentPushSubscription();
+      setIsPushSubscribed(Boolean(sub));
+
+      // Si el chofer ya había dado permiso antes pero no estaba suscrito en esta sesión, auto-suscribir
+      if (perm === 'granted' && !sub) {
+        subscribeToPushNotifications().then((res) => {
+          if (res.success) setIsPushSubscribed(true);
+        });
+      }
+    };
+    checkPush();
+  }, []);
+
+  const handleActivarNotificaciones = async () => {
+    setSubscribingPush(true);
+    try {
+      const res = await subscribeToPushNotifications();
+      if (res.success) {
+        setIsPushSubscribed(true);
+        setPushStatus('granted');
+        toast.success('¡Listo! Recibirás avisos de viajes aunque tengas el celular bloqueado.', { icon: '🔔', duration: 5000 });
+      } else {
+        toast.error(res.message || 'No se pudieron activar las notificaciones');
+      }
+    } catch {
+      toast.error('Error al solicitar permiso de notificaciones');
+    } finally {
+      setSubscribingPush(false);
+    }
+  };
+
+  const handleProbarNotificacionPush = async () => {
+    setProbandoPush(true);
+    try {
+      const res = await pushService.enviarPrueba();
+      if (res.success) {
+        toast.success('¡Enviada! Bloqueá tu pantalla o minimizá la app para verla sonar.', { icon: '📱', duration: 5000 });
+      } else {
+        toast.error(res.message || 'Error al enviar prueba');
+      }
+    } catch {
+      toast.error('Error de conexión al enviar prueba');
+    } finally {
+      setProbandoPush(false);
+    }
+  };
 
   // Helpers para fechas y horarios de viajes de ART programados en cola de espera
   const getLocalDateOnly = (dateInput: any): string => {
@@ -2066,6 +2135,52 @@ export default function ChoferApp() {
             </div>
           )}
         </div>
+      )}
+
+      {/* Banner / Activador de Notificaciones Push en Segundo Plano (Pantalla bloqueada) */}
+      {pushStatus !== 'unsupported' && (
+        !isPushSubscribed ? (
+          <div className="rounded-2xl p-3.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white shadow-md shadow-blue-500/20 border border-blue-400/30 flex items-center justify-between gap-3 animate-in fade-in">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-xl bg-white/20 text-white flex items-center justify-center shrink-0">
+                <BellRing className="w-5 h-5 animate-bounce" />
+              </div>
+              <div className="min-w-0">
+                <h4 className="text-xs font-black uppercase tracking-wider">
+                  Recibir viajes con el celular bloqueado
+                </h4>
+                <p className="text-[11px] text-blue-100 leading-tight mt-0.5">
+                  Activá las alertas para que el teléfono suene y vibre aunque salgas de la app.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleActivarNotificaciones}
+              disabled={subscribingPush}
+              className="px-3.5 py-2 rounded-xl bg-white text-blue-700 hover:bg-blue-50 font-black text-xs uppercase tracking-wider shrink-0 shadow-sm active:scale-95 disabled:opacity-50 transition-all cursor-pointer"
+            >
+              {subscribingPush ? 'Activando...' : 'Activar'}
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-xl px-3 py-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-2 text-xs font-semibold">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+              <span className="truncate text-[11px]">
+                Notificaciones en 2° plano activas (recibís viajes con el celular bloqueado)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleProbarNotificacionPush}
+              disabled={probandoPush}
+              className="px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 text-[10px] font-bold uppercase tracking-wider shrink-0 transition-colors cursor-pointer"
+            >
+              {probandoPush ? 'Enviando...' : 'Probar'}
+            </button>
+          </div>
+        )
       )}
 
       {/* Botón de Estado / Toggle Activo */}
