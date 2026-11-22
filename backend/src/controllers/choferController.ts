@@ -1137,7 +1137,7 @@ export const choferController = {
               },
             },
             orderBy: {
-              createdAt: 'desc',
+              updatedAt: 'desc',
             },
           }),
           prisma.viaje.findMany({

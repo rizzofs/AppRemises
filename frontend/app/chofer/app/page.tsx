@@ -1006,9 +1006,31 @@ export default function ChoferApp() {
         if (res.data.motivoPausa) setMotivoPausa(res.data.motivoPausa);
       }
 
-      // Evitar que una respuesta en vuelo anterior a aceptarViaje pise el viaje recién aceptado
-      if (!viajeEnCurso && Date.now() - acceptedAtRef.current < 5000 && viajeActualRef.current) {
-        return;
+      // Evitar que una respuesta en vuelo anterior o retrasada degrade el estado de un viaje activo
+      if (viajeActualRef.current) {
+        const jerarquia: Record<string, number> = {
+          'SOLICITADO': 1,
+          'ACEPTADO': 2,
+          'EN_CAMINO': 3,
+          'EN_CURSO': 4,
+          'COMPLETADO': 5,
+          'CANCELADO': 5,
+        };
+        const estadoActual = viajeActualRef.current.estado;
+        const estadoEntrante = viajeEnCurso?.estado;
+
+        // Si el estado entrante es nulo pero recién aceptamos/iniciamos viaje hace menos de 5 seg
+        if (!viajeEnCurso && Date.now() - acceptedAtRef.current < 5000) {
+          return;
+        }
+
+        // Si es el mismo viaje y la respuesta entrante tiene un estado anterior (ej: EN_CAMINO vs EN_CURSO)
+        if (
+          viajeEnCurso?.id === viajeActualRef.current.id &&
+          (jerarquia[estadoActual] || 0) > (jerarquia[estadoEntrante] || 0)
+        ) {
+          return;
+        }
       }
 
       // Si el chofer ya tenía un viaje en curso y desapareció
@@ -1452,9 +1474,13 @@ export default function ChoferApp() {
     }
 
     setActionLoading(true);
+    actionLoadingRef.current = true;
     try {
       const res = await choferService.actualizarEstadoViaje(viajeActual.id, 'EN_CAMINO');
       if (res.success && res.data) {
+        acceptedAtRef.current = Date.now();
+        previousViajeIdRef.current = res.data.id;
+        viajeActualRef.current = res.data;
         setViajeActual(res.data);
         toast.success('Avisamos al cliente que estás esperando afuera en la puerta');
       } else {
@@ -1462,6 +1488,7 @@ export default function ChoferApp() {
       }
     } finally {
       setActionLoading(false);
+      actionLoadingRef.current = false;
     }
   };
 
@@ -1474,9 +1501,13 @@ export default function ChoferApp() {
     }
 
     setActionLoading(true);
+    actionLoadingRef.current = true;
     try {
       const res = await choferService.actualizarEstadoViaje(viajeActual.id, 'EN_CURSO');
       if (res.success && res.data) {
+        acceptedAtRef.current = Date.now();
+        previousViajeIdRef.current = res.data.id;
+        viajeActualRef.current = res.data;
         setViajeActual(res.data);
         toast.success('Pasajero a bordo. Viaje en curso hacia el destino');
       } else {
@@ -1484,38 +1515,48 @@ export default function ChoferApp() {
       }
     } finally {
       setActionLoading(false);
+      actionLoadingRef.current = false;
     }
   };
 
   // Manejo de PIN de 4 dígitos (estilo Uber)
   const handlePinDigit = (digit: string) => {
-    if (pinInput.length < 4) {
-      const nuevoPin = pinInput + digit;
-      setPinInput(nuevoPin);
+    if (validatingPin) return;
+    setPinInput((prev) => {
+      if (prev.length >= 4) return prev;
+      const nuevoPin = prev + digit;
       setPinError('');
       if (nuevoPin.length === 4) {
-        confirmarPinViaje(nuevoPin);
+        setTimeout(() => {
+          confirmarPinViaje(nuevoPin);
+        }, 30);
       }
-    }
+      return nuevoPin;
+    });
   };
 
   const handlePinDelete = () => {
-    setPinInput(prev => prev.slice(0, -1));
+    if (validatingPin) return;
+    setPinInput((prev) => prev.slice(0, -1));
     setPinError('');
   };
 
   const confirmarPinViaje = async (codigoAValidar?: string) => {
-    const pin = codigoAValidar || pinInput;
+    const pin = (codigoAValidar || pinInput).trim();
     if (pin.length !== 4 || !viajeActual || validatingPin) return;
 
     setValidatingPin(true);
+    actionLoadingRef.current = true;
     setPinError('');
     try {
       const res = await choferService.actualizarEstadoViaje(viajeActual.id, 'EN_CURSO', {
-        pin: pin.trim()
+        pin: pin
       });
 
       if (res.success && res.data) {
+        acceptedAtRef.current = Date.now();
+        previousViajeIdRef.current = res.data.id;
+        viajeActualRef.current = res.data;
         setViajeActual(res.data);
         setIsModalPinOpen(false);
         setPinInput('');
@@ -1529,6 +1570,7 @@ export default function ChoferApp() {
       toast.error('Error al validar código');
     } finally {
       setValidatingPin(false);
+      actionLoadingRef.current = false;
     }
   };
 
