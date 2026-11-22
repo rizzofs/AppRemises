@@ -54,6 +54,7 @@ import {
   getCurrentPushSubscription,
   getNotificationPermissionState,
   isPushNotificationSupported,
+  forceAppCacheRefresh,
 } from '@/lib/pushNotifications';
 import { ResumenDocumentacion } from '@/types';
 import { io, Socket } from 'socket.io-client';
@@ -171,6 +172,14 @@ export default function ChoferApp() {
   const [isPushSubscribed, setIsPushSubscribed] = useState(false);
   const [subscribingPush, setSubscribingPush] = useState(false);
   const [probandoPush, setProbandoPush] = useState(false);
+  const [recargandoApp, setRecargandoApp] = useState(false);
+
+  const handleLimpiarYRecargar = async () => {
+    setRecargandoApp(true);
+    toast('Actualizando versión...', { icon: '🔄' });
+    await forceAppCacheRefresh();
+    window.location.reload();
+  };
 
   useEffect(() => {
     const checkPush = async () => {
@@ -2149,8 +2158,28 @@ export default function ChoferApp() {
       )}
 
       {/* Banner / Activador de Notificaciones Push en Segundo Plano (Pantalla bloqueada) */}
-      {pushStatus !== 'unsupported' && (
-        !isPushSubscribed ? (
+      <div className="space-y-2">
+        {isPushSubscribed ? (
+          <div className="rounded-2xl px-3.5 py-2.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700/60 text-emerald-900 dark:text-emerald-200 flex items-center justify-between gap-2 text-xs font-semibold shadow-xs">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shrink-0 animate-ping"></span>
+              <div className="min-w-0">
+                <p className="font-extrabold text-xs">Alertas en 2° Plano Activas</p>
+                <p className="text-[10px] text-emerald-700 dark:text-emerald-400 truncate">
+                  El celular sonará con pantalla bloqueada
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleProbarNotificacionPush}
+              disabled={probandoPush}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs uppercase tracking-wider shrink-0 transition-all shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
+            >
+              {probandoPush ? 'Enviando...' : 'Probar'}
+            </button>
+          </div>
+        ) : (
           <div className="rounded-2xl p-3.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 text-white shadow-md shadow-blue-500/20 border border-blue-400/30 flex items-center justify-between gap-3 animate-in fade-in">
             <div className="flex items-center gap-3 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-white/20 text-white flex items-center justify-center shrink-0">
@@ -2174,25 +2203,22 @@ export default function ChoferApp() {
               {subscribingPush ? 'Activando...' : 'Activar'}
             </button>
           </div>
-        ) : (
-          <div className="rounded-xl px-3 py-2 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 flex items-center justify-between gap-2 text-xs font-semibold">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-              <span className="truncate text-[11px]">
-                Notificaciones en 2° plano activas (recibís viajes con el celular bloqueado)
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={handleProbarNotificacionPush}
-              disabled={probandoPush}
-              className="px-2.5 py-1 rounded-lg bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 text-[10px] font-bold uppercase tracking-wider shrink-0 transition-colors cursor-pointer"
-            >
-              {probandoPush ? 'Enviando...' : 'Probar'}
-            </button>
-          </div>
-        )
-      )}
+        )}
+
+        {/* Indicador de versión y botón para limpiar caché y actualizar */}
+        <div className="flex items-center justify-between px-2 text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+          <span>⚡ App Chofer v2.2 (Push Habilitado)</span>
+          <button
+            type="button"
+            onClick={handleLimpiarYRecargar}
+            disabled={recargandoApp}
+            className="flex items-center gap-1 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 underline cursor-pointer"
+          >
+            <RotateCcw className={`w-3 h-3 ${recargandoApp ? 'animate-spin' : ''}`} />
+            <span>Recargar versión</span>
+          </button>
+        </div>
+      </div>
 
       {/* Botón de Estado / Toggle Activo */}
       {!isActive ? (

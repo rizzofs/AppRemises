@@ -15,7 +15,8 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 export function isPushNotificationSupported(): boolean {
-  return typeof window !== 'undefined' && 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+  if (typeof window === 'undefined') return false;
+  return 'serviceWorker' in navigator && 'Notification' in window;
 }
 
 export function getNotificationPermissionState(): NotificationPermission | 'unsupported' {
@@ -23,6 +24,23 @@ export function getNotificationPermissionState(): NotificationPermission | 'unsu
     return 'unsupported';
   }
   return Notification.permission;
+}
+
+export async function forceAppCacheRefresh(): Promise<void> {
+  try {
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      const registrations = await navigator.serviceWorker.getRegistrations();
+      for (const reg of registrations) {
+        await reg.update();
+      }
+    }
+    if (typeof window !== 'undefined' && 'caches' in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (err) {
+    console.warn('Error limpiando caché de la app:', err);
+  }
 }
 
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
@@ -48,6 +66,7 @@ export async function getCurrentPushSubscription(): Promise<PushSubscription | n
 
   try {
     const registration = await navigator.serviceWorker.ready;
+    if (!registration.pushManager) return null;
     return await registration.pushManager.getSubscription();
   } catch (error) {
     console.error('Error al obtener suscripción push actual:', error);
@@ -86,6 +105,13 @@ export async function subscribeToPushNotifications(): Promise<{
       registration = await navigator.serviceWorker.register('/sw.js');
     }
     await navigator.serviceWorker.ready;
+
+    if (!registration.pushManager) {
+      return {
+        success: false,
+        message: 'PushManager no está disponible en este dispositivo.',
+      };
+    }
 
     // 3. Obtener la clave pública VAPID desde el backend
     const keyRes = await pushService.getPublicKey();
