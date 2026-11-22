@@ -56,7 +56,8 @@ export const pushNotificationService = {
       throw new Error('Datos de suscripción incompletos');
     }
 
-    return await prisma.pushSubscription.upsert({
+    const db = prisma as any;
+    return await db.pushSubscription.upsert({
       where: { endpoint },
       update: {
         p256dh,
@@ -82,7 +83,8 @@ export const pushNotificationService = {
    */
   async eliminarSuscripcion(endpoint: string) {
     try {
-      await prisma.pushSubscription.deleteMany({
+      const db = prisma as any;
+      await db.pushSubscription.deleteMany({
         where: { endpoint },
       });
       return true;
@@ -98,7 +100,8 @@ export const pushNotificationService = {
     if (!choferId) return;
 
     try {
-      const suscripciones = await prisma.pushSubscription.findMany({
+      const db = prisma as any;
+      const suscripciones = await db.pushSubscription.findMany({
         where: { choferId },
       });
 
@@ -116,7 +119,7 @@ export const pushNotificationService = {
         data: payload.data || {},
       });
 
-      const envios = suscripciones.map(async (sub) => {
+      const envios = suscripciones.map(async (sub: any) => {
         const pushConfig = {
           endpoint: sub.endpoint,
           keys: {
@@ -130,7 +133,7 @@ export const pushNotificationService = {
         } catch (error: any) {
           // Si el endpoint expiró o fue revocado por el navegador (404 o 410)
           if (error.statusCode === 404 || error.statusCode === 410) {
-            await prisma.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {});
+            await db.pushSubscription.delete({ where: { id: sub.id } }).catch(() => {});
           } else {
             console.warn(`Aviso enviando Push a Chofer (${sub.id}):`, error.message);
           }
