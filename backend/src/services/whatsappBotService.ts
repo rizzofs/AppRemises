@@ -231,11 +231,12 @@ async function geocodificarDireccion(
     variantes.push(hasCityConstraint ? simplificada : `${simplificada}, Chivilcoy`);
   }
 
-  // Si incluye intersección (" y " o " esq "), buscar también la primera calle
+  // Si incluye intersección (" y " o " esq "), probar también invertir el orden de las calles en la esquina
   if (/\s+y\s+|\s+esq\.?\s+/i.test(queryFinal)) {
     const partes = queryFinal.split(/\s+y\s+|\s+esq\.?\s+/i);
-    if (partes[0] && partes[0].trim().length >= 3) {
-      variantes.push(`${partes[0].trim()}, Chivilcoy`);
+    if (partes[0] && partes[1] && partes[0].trim().length >= 3 && partes[1].trim().length >= 3) {
+      const invertida = `${partes[1].trim()} y ${partes[0].trim()}`;
+      variantes.push(hasCityConstraint ? invertida : `${invertida}, Chivilcoy`);
     }
   }
 
@@ -260,13 +261,24 @@ async function geocodificarDireccion(
 
       const data = (await res.json()) as any[];
       if (Array.isArray(data) && data.length > 0 && data[0].lat && data[0].lon) {
-        const resultado = {
-          lat: parseFloat(data[0].lat),
-          lon: parseFloat(data[0].lon),
-          display: data[0].display_name,
-        };
-        geocodeCache.set(cacheKey, resultado);
-        return resultado;
+        const lat = parseFloat(data[0].lat);
+        const lon = parseFloat(data[0].lon);
+        const display = data[0].display_name || '';
+
+        // Validar que la respuesta pertenezca efectivamente a Chivilcoy o su radio urbano
+        const esChivilcoy =
+          display.toLowerCase().includes('chivilcoy') ||
+          (lat >= -35.15 && lat <= -34.70 && lon >= -60.30 && lon <= -59.75);
+
+        if (esChivilcoy) {
+          const resultado = {
+            lat,
+            lon,
+            display,
+          };
+          geocodeCache.set(cacheKey, resultado);
+          return resultado;
+        }
       }
     } catch (err) {
       // Continuar con la siguiente variante si hay timeout
@@ -793,16 +805,17 @@ export const whatsappBotService = {
           sesion.origenLon = location.longitude;
           sesion.origen = location.address || location.name || `Ubicación GPS (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)})`;
         } else if (texto && texto.trim().length >= 3) {
-          sesion.origen = texto.trim();
-          // Geocodificar la dirección de origen para obtener coordenadas precisas
-          const geoO = await geocodificarDireccion(sesion.origen);
-          if (geoO) {
-            sesion.origenLat = geoO.lat;
-            sesion.origenLon = geoO.lon;
-            if (geoO.nombreOficial) {
-              sesion.origen = geoO.nombreOficial;
-            }
+          // Validar que la dirección exista en el mapa de Chivilcoy
+          const geoO = await geocodificarDireccion(texto.trim());
+          if (!geoO) {
+            return await whatsappService.enviarTexto(
+              cleanFrom,
+              `⚠️ No pudimos encontrar la dirección *"${texto.trim()}"* en el mapa de Chivilcoy.\n\nPor favor verificá:\n• Que el nombre de la calle y la altura estén bien escritos (ej: *Rivadavia 250*).\n• Si es una esquina, asegurate de que ambas calles se crucen (ej: *Sarmiento y Belgrano*).\n• O compartinos tu *ubicación GPS* directa desde el clip 📎 de WhatsApp.`
+            );
           }
+          sesion.origen = geoO.nombreOficial || texto.trim();
+          sesion.origenLat = geoO.lat;
+          sesion.origenLon = geoO.lon;
         } else {
           return await whatsappService.enviarTexto(
             cleanFrom,
@@ -832,15 +845,18 @@ export const whatsappBotService = {
           textoLower.includes('cambiar');
 
         if (esAfirmativo) {
-          sesion.origen = sesion.audioDireccionPendiente || 'Origen confirmado por audio';
-          const geoO = await geocodificarDireccion(sesion.origen);
-          if (geoO) {
-            sesion.origenLat = geoO.lat;
-            sesion.origenLon = geoO.lon;
-            if (geoO.nombreOficial) {
-              sesion.origen = geoO.nombreOficial;
-            }
+          const dirO = sesion.audioDireccionPendiente || 'Origen confirmado por audio';
+          const geoO = await geocodificarDireccion(dirO);
+          if (!geoO) {
+            sesion.estado = 'ESPERANDO_ORIGEN';
+            return await whatsappService.enviarTexto(
+              cleanFrom,
+              `⚠️ No pudimos encontrar la dirección *"${dirO}"* en el mapa de Chivilcoy.\n\nPor favor verificá:\n• Que el nombre de la calle y la altura estén bien escritos (ej: *Rivadavia 250*).\n• Si es una esquina, asegurate de que ambas calles se crucen.\n• O compartinos tu *ubicación GPS* directa desde el clip 📎 de WhatsApp.`
+            );
           }
+          sesion.origen = geoO.nombreOficial || dirO;
+          sesion.origenLat = geoO.lat;
+          sesion.origenLon = geoO.lon;
           sesion.estado = 'ESPERANDO_DESTINO';
           return await whatsappService.enviarTexto(
             cleanFrom,
@@ -850,19 +866,20 @@ export const whatsappBotService = {
           sesion.estado = 'ESPERANDO_ORIGEN';
           return await whatsappService.enviarTexto(
             cleanFrom,
-            '✍️ Por favor escribí la calle y altura por texto (ej: *Rivadavia 250*):'
+            '✍️ Por favor escribí la calle y altura por texto (ej: *Rivadavia 250*) o compartinos tu ubicación GPS 📎:'
           );
         } else if (texto && texto.trim().length >= 3) {
           // El usuario escribió directamente la corrección
-          sesion.origen = texto.trim();
-          const geoO = await geocodificarDireccion(sesion.origen);
-          if (geoO) {
-            sesion.origenLat = geoO.lat;
-            sesion.origenLon = geoO.lon;
-            if (geoO.nombreOficial) {
-              sesion.origen = geoO.nombreOficial;
-            }
+          const geoO = await geocodificarDireccion(texto.trim());
+          if (!geoO) {
+            return await whatsappService.enviarTexto(
+              cleanFrom,
+              `⚠️ No pudimos encontrar la dirección *"${texto.trim()}"* en el mapa de Chivilcoy.\n\nPor favor verificá el nombre de la calle y altura (ej: *Rivadavia 250*) o compartinos tu ubicación GPS 📎:`
+            );
           }
+          sesion.origen = geoO.nombreOficial || texto.trim();
+          sesion.origenLat = geoO.lat;
+          sesion.origenLon = geoO.lon;
           sesion.estado = 'ESPERANDO_DESTINO';
           return await whatsappService.enviarTexto(
             cleanFrom,
@@ -886,16 +903,17 @@ export const whatsappBotService = {
           sesion.destinoLon = location.longitude;
           sesion.destino = location.address || location.name || `Destino GPS (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)})`;
         } else if (texto && texto.trim().length >= 3) {
-          sesion.destino = texto.trim();
-          // Geocodificar la dirección de destino
-          const geoD = await geocodificarDireccion(sesion.destino);
-          if (geoD) {
-            sesion.destinoLat = geoD.lat;
-            sesion.destinoLon = geoD.lon;
-            if (geoD.nombreOficial) {
-              sesion.destino = geoD.nombreOficial;
-            }
+          // Validar que el destino exista en el mapa de Chivilcoy
+          const geoD = await geocodificarDireccion(texto.trim());
+          if (!geoD) {
+            return await whatsappService.enviarTexto(
+              cleanFrom,
+              `⚠️ No pudimos encontrar el destino *"${texto.trim()}"* en el mapa de Chivilcoy.\n\nPor favor verificá el nombre de la calle (ej: *Av. Sarmiento 500*), punto de referencia (ej: *Hospital*, *Terminal*) o compartí tu ubicación GPS 📎:`
+            );
           }
+          sesion.destino = geoD.nombreOficial || texto.trim();
+          sesion.destinoLat = geoD.lat;
+          sesion.destinoLon = geoD.lon;
         } else {
           return await whatsappService.enviarTexto(
             cleanFrom,
@@ -995,15 +1013,18 @@ export const whatsappBotService = {
           textoLower.includes('cambiar');
 
         if (esAfirmativo) {
-          sesion.destino = sesion.audioDireccionPendiente || 'Destino confirmado por audio';
-          const geoD = await geocodificarDireccion(sesion.destino);
-          if (geoD) {
-            sesion.destinoLat = geoD.lat;
-            sesion.destinoLon = geoD.lon;
-            if (geoD.nombreOficial) {
-              sesion.destino = geoD.nombreOficial;
-            }
+          const dirD = sesion.audioDireccionPendiente || 'Destino confirmado por audio';
+          const geoD = await geocodificarDireccion(dirD);
+          if (!geoD) {
+            sesion.estado = 'ESPERANDO_DESTINO';
+            return await whatsappService.enviarTexto(
+              cleanFrom,
+              `⚠️ No pudimos encontrar el destino *"${dirD}"* en el mapa de Chivilcoy.\n\nPor favor escribí la calle y altura (ej: *Av. Sarmiento 500*), punto de referencia o mandá un nuevo audio:`
+            );
           }
+          sesion.destino = geoD.nombreOficial || dirD;
+          sesion.destinoLat = geoD.lat;
+          sesion.destinoLon = geoD.lon;
 
           if ((!sesion.origenLat || !sesion.origenLon) && sesion.origen) {
             const geoO = await geocodificarDireccion(sesion.origen);
@@ -1085,15 +1106,16 @@ export const whatsappBotService = {
           );
         } else if (texto && texto.trim().length >= 3) {
           // El usuario escribió directamente la corrección del destino
-          sesion.destino = texto.trim();
-          const geoD = await geocodificarDireccion(sesion.destino);
-          if (geoD) {
-            sesion.destinoLat = geoD.lat;
-            sesion.destinoLon = geoD.lon;
-            if (geoD.nombreOficial) {
-              sesion.destino = geoD.nombreOficial;
-            }
+          const geoD = await geocodificarDireccion(texto.trim());
+          if (!geoD) {
+            return await whatsappService.enviarTexto(
+              cleanFrom,
+              `⚠️ No pudimos encontrar el destino *"${texto.trim()}"* en el mapa de Chivilcoy.\n\nPor favor verificá la dirección (ej: *Av. Sarmiento 500* o *Hospital Municipal*):`
+            );
           }
+          sesion.destino = geoD.nombreOficial || texto.trim();
+          sesion.destinoLat = geoD.lat;
+          sesion.destinoLon = geoD.lon;
 
           let dist = 2.5;
           if (sesion.origenLat && sesion.origenLon && sesion.destinoLat && sesion.destinoLon) {
