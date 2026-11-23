@@ -353,6 +353,105 @@ const PUNTOS_INTERES_CHIVILCOY: PuntoInteres[] = [
     lat: -34.897,
     lon: -60.0185,
   },
+
+  // --- Localidades Vecinas y Destinos Interurbanos / de Ruta ---
+  {
+    // Match "alberti" solo cuando se refiera a la ciudad (sin número de calle ni esquinas)
+    alias: [
+      /^(voy\s+a\s+|hasta\s+|a\s+|para\s+)?alberti(\s+centro|\s+ciudad)?$/i,
+      /ciudad\s+de\s+alberti/i,
+      /alberti\s+ruta\s*5/i,
+      /partido\s+de\s+alberti/i,
+    ],
+    nombre: 'Alberti (Centro - Ruta 5)',
+    direccion: 'Alberti, Provincia de Buenos Aires',
+    lat: -35.0317876,
+    lon: -60.2804069,
+  },
+  {
+    alias: [/moquehu[aá]/i],
+    nombre: 'Moquehuá (Centro)',
+    direccion: 'Moquehuá, Partido de Chivilcoy',
+    lat: -35.0920287,
+    lon: -59.7754756,
+  },
+  {
+    alias: [/gorostiaga/i],
+    nombre: 'Gorostiaga (Centro)',
+    direccion: 'Gorostiaga, Partido de Chivilcoy',
+    lat: -34.8384597,
+    lon: -59.8630066,
+  },
+  {
+    alias: [/la rica/i],
+    nombre: 'La Rica (Centro)',
+    direccion: 'La Rica, Partido de Chivilcoy',
+    lat: -34.9732415,
+    lon: -59.861755,
+  },
+  {
+    alias: [/suipacha/i],
+    nombre: 'Suipacha (Centro - Ruta 5)',
+    direccion: 'Suipacha, Provincia de Buenos Aires',
+    lat: -34.7733304,
+    lon: -59.690381,
+  },
+  {
+    alias: [/bragado/i],
+    nombre: 'Bragado (Centro - Ruta 5)',
+    direccion: 'Bragado, Provincia de Buenos Aires',
+    lat: -35.1155766,
+    lon: -60.489771,
+  },
+  {
+    alias: [/mercedes/i],
+    nombre: 'Mercedes (Centro - Ruta 5)',
+    direccion: 'Mercedes, Provincia de Buenos Aires',
+    lat: -34.6506717,
+    lon: -59.4317202,
+  },
+  {
+    alias: [/chacabuco/i],
+    nombre: 'Chacabuco (Centro - Ruta 30)',
+    direccion: 'Chacabuco, Provincia de Buenos Aires',
+    lat: -34.6297043,
+    lon: -60.470185,
+  },
+  {
+    alias: [/25 de mayo/i, /veinticinco de mayo/i],
+    nombre: '25 de Mayo (Centro)',
+    direccion: 'Veinticinco de Mayo, Provincia de Buenos Aires',
+    lat: -35.4324152,
+    lon: -60.171624,
+  },
+  {
+    alias: [/navarro/i],
+    nombre: 'Navarro (Centro - Ruta 30)',
+    direccion: 'Navarro, Provincia de Buenos Aires',
+    lat: -35.0058641,
+    lon: -59.2779545,
+  },
+  {
+    alias: [/ezeiza/i, /aeropuerto\s*(de\s*)?ezeiza/i, /\beze\b/i],
+    nombre: 'Aeropuerto Internacional de Ezeiza (EZE)',
+    direccion: 'Aeropuerto Internacional Ministro Pistarini, Ezeiza',
+    lat: -34.8168141,
+    lon: -58.5474234,
+  },
+  {
+    alias: [/aeroparque/i, /\baep\b/i],
+    nombre: 'Aeroparque Jorge Newbery (AEP)',
+    direccion: 'Aeroparque Jorge Newbery, CABA',
+    lat: -34.5594364,
+    lon: -58.4146299,
+  },
+  {
+    alias: [/\bcaba\b/i, /capital federal/i, /buenos aires centro/i, /\bobelisco\b/i],
+    nombre: 'Ciudad de Buenos Aires (Centro / Obelisco)',
+    direccion: 'Obelisco, Av. 9 de Julio, CABA',
+    lat: -34.603722,
+    lon: -58.381592,
+  },
 ];
 
 function buscarPuntoInteres(texto: string): PuntoInteres | null {
@@ -412,7 +511,10 @@ async function geocodificarDireccion(
   // 3. Generar variantes ordenadas de búsqueda en OpenStreetMap
   const queryFinal = limpia.length >= 3 ? limpia : q;
   const variantes: string[] = [];
-  const hasCityConstraint = /chivilcoy|buenos\s+aires|caba|lujan|mercedes/i.test(queryFinal);
+  const hasCityConstraint =
+    /chivilcoy|alberti|moquehu[aá]|gorostiaga|la\s+rica|suipacha|bragado|mercedes|chacabuco|ezeiza|aeroparque|caba|buenos\s+aires|lujan|navarro/i.test(
+      queryFinal
+    );
   const base = hasCityConstraint ? queryFinal : `${queryFinal}, Chivilcoy`;
   variantes.push(base);
 
@@ -434,10 +536,17 @@ async function geocodificarDireccion(
   // Si tiene número al final, buscar también el nombre de la calle sola
   const matchNumero = queryFinal.match(/^([a-zA-ZáéíóúÁÉÍÓÚñÑ\s\.\d]+?)\s+(\d{1,5})$/);
   if (matchNumero && matchNumero[1]) {
-    variantes.push(`${matchNumero[1].trim()}, Chivilcoy`);
+    variantes.push(hasCityConstraint ? `${matchNumero[1].trim()}` : `${matchNumero[1].trim()}, Chivilcoy`);
   }
 
-  const viewboxParam = 'viewbox=-60.15,-34.83,-59.88,-34.96&bounded=0';
+  // Si es un destino interurbano (Alberti, Suipacha, etc.), ampliar el viewbox al corredor regional
+  const esInterurbano =
+    /alberti|moquehu[aá]|gorostiaga|la\s+rica|suipacha|bragado|mercedes|chacabuco|ezeiza|aeroparque|caba|buenos\s+aires|lujan|navarro/i.test(
+      queryFinal
+    );
+  const viewboxParam = esInterurbano
+    ? 'viewbox=-60.65,-34.30,-58.20,-35.65&bounded=0'
+    : 'viewbox=-60.15,-34.83,-59.88,-34.96&bounded=0';
 
   for (const query of variantes) {
     try {
@@ -456,12 +565,22 @@ async function geocodificarDireccion(
         const lon = parseFloat(data[0].lon);
         const display = data[0].display_name || '';
 
-        // Validar que la respuesta pertenezca efectivamente a Chivilcoy o su radio urbano
-        const esChivilcoy =
+        // Validar que la respuesta pertenezca efectivamente a Chivilcoy o sus corredores interurbanos válidos
+        const esValido =
           display.toLowerCase().includes('chivilcoy') ||
+          display.toLowerCase().includes('alberti') ||
+          display.toLowerCase().includes('moquehu') ||
+          display.toLowerCase().includes('gorostiaga') ||
+          display.toLowerCase().includes('suipacha') ||
+          display.toLowerCase().includes('bragado') ||
+          display.toLowerCase().includes('mercedes') ||
+          display.toLowerCase().includes('chacabuco') ||
+          display.toLowerCase().includes('ezeiza') ||
+          display.toLowerCase().includes('aeroparque') ||
+          display.toLowerCase().includes('buenos aires') ||
           (lat >= -35.15 && lat <= -34.70 && lon >= -60.30 && lon <= -59.75);
 
-        if (esChivilcoy) {
+        if (esValido) {
           const resultado = {
             lat,
             lon,
