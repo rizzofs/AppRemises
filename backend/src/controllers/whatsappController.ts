@@ -65,10 +65,11 @@ export const whatsappController = {
             const messageId = msg.id;
             const msgType = msg.type;
 
-            let tipo: 'text' | 'interactive' | 'location' = 'text';
+            let tipo: 'text' | 'interactive' | 'location' | 'audio' = 'text';
             let texto: string | undefined;
             let botonId: string | undefined;
             let location: { latitude: number; longitude: number; name?: string; address?: string } | undefined;
+            let audioId: string | undefined;
 
             if (msgType === 'text') {
               tipo = 'text';
@@ -90,6 +91,9 @@ export const whatsappController = {
                 name: msg.location?.name,
                 address: msg.location?.address,
               };
+            } else if (msgType === 'audio' || msgType === 'voice') {
+              tipo = 'audio';
+              audioId = msg.audio?.id || msg.voice?.id;
             }
 
             // Procesar en segundo plano con el servicio del bot
@@ -101,6 +105,7 @@ export const whatsappController = {
                 texto,
                 botonId,
                 location,
+                audioId,
                 senderName,
               })
               .catch((err) => {

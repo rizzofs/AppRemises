@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { whatsappService } from './whatsappService';
 import { pushNotificationService } from './pushNotificationService';
+import { transcriptionService } from './transcriptionService';
 import crypto from 'crypto';
 
 // ==============================================================================
@@ -11,7 +12,9 @@ type EstadoConversacion =
   | 'IDLE'
   | 'ESPERANDO_FECHA_HORA_RESERVA'
   | 'ESPERANDO_ORIGEN'
+  | 'CONFIRMANDO_AUDIO_ORIGEN'
   | 'ESPERANDO_DESTINO'
+  | 'CONFIRMANDO_AUDIO_DESTINO'
   | 'CONFIRMANDO_COTIZACION';
 
 interface SesionClienteWhatsApp {
@@ -30,6 +33,8 @@ interface SesionClienteWhatsApp {
   destinoLon?: number;
   distanciaKm?: number;
   precioEstimado?: number;
+  audioDireccionPendiente?: string;
+  audioTextoOriginal?: string;
   updatedAt: number;
 }
 
@@ -390,13 +395,14 @@ export const whatsappBotService = {
   async procesarMensaje(params: {
     from: string;
     messageId: string;
-    tipo: 'text' | 'interactive' | 'location';
+    tipo: 'text' | 'interactive' | 'location' | 'audio';
     texto?: string;
     botonId?: string;
     location?: { latitude: number; longitude: number; name?: string; address?: string };
+    audioId?: string;
     senderName?: string;
   }) {
-    const { from, messageId, tipo, texto, botonId, location, senderName } = params;
+    const { from, messageId, tipo, texto, botonId, location, audioId, senderName } = params;
     const cleanFrom = whatsappService.formatearNumero(from);
     const sesion = getSesion(cleanFrom);
 
@@ -455,7 +461,113 @@ export const whatsappBotService = {
       return await this.consultarEstadoViaje(cleanFrom, cliente?.id);
     }
 
-    // 3. Manejo según estado de la conversación
+    // ==============================================================================
+    // 3. PROCESAMIENTO DE MENSAJES DE AUDIO / VOZ (TRANSCRIPCIÓN Y CONFIRMACIÓN)
+    // ==============================================================================
+    if (tipo === 'audio' && audioId) {
+      const transcripcion = await transcriptionService.transcribirAudioWhatsApp(audioId);
+
+      if (!transcripcion || transcripcion.trim().length < 2) {
+        return await whatsappService.enviarTexto(
+          cleanFrom,
+          '🎙️ *No pudimos entender con claridad tu audio por ruido de fondo.*\n\n✍️ Por favor escribinos tu mensaje por texto o compartinos tu ubicación GPS con el clip 📎.'
+        );
+      }
+
+      const direccionLimpia = transcriptionService.extraerDireccion(transcripcion);
+      sesion.audioTextoOriginal = transcripcion;
+      sesion.audioDireccionPendiente = direccionLimpia;
+
+      if (sesion.estado === 'IDLE') {
+        const transLower = transcripcion.toLowerCase();
+        if (
+          transLower.includes('reserva') ||
+          transLower.includes('agendar') ||
+          transLower.includes('para mañana') ||
+          transLower.includes('para más tarde')
+        ) {
+          sesion.esReserva = true;
+          const parseResult = parsearFechaHoraReserva(transcripcion);
+          if (!('error' in parseResult)) {
+            sesion.fechaHoraReserva = parseResult.fecha;
+            sesion.fechaHoraTexto = parseResult.fechaTexto;
+            sesion.horaInicioStr = parseResult.horaStr;
+            sesion.estado = 'ESPERANDO_ORIGEN';
+            return await whatsappService.enviarTexto(
+              cleanFrom,
+              `🎙️ *Te escuchamos:* _"${transcripcion}"_\n\n🗓️ *Reserva programada para:* ${parseResult.fechaTexto}\n\n📍 *¿Dónde te pasamos a buscar?*\nPodés escribir la dirección o mandar otro audio indicando el origen:`
+            );
+          } else {
+            sesion.estado = 'ESPERANDO_FECHA_HORA_RESERVA';
+            return await whatsappService.enviarTexto(
+              cleanFrom,
+              `🎙️ *Te escuchamos:* _"${transcripcion}"_\n\n📅 ¿Para qué día y hora necesitás el remís? (ej: *Mañana 08:30*, *Hoy 23:00*)`
+            );
+          }
+        } else {
+          // Audio normal en IDLE pidiendo auto
+          sesion.esReserva = false;
+          sesion.estado = 'CONFIRMANDO_AUDIO_ORIGEN';
+          return await whatsappService.enviarBotones(
+            cleanFrom,
+            `🎙️ *Escuchamos tu audio:*\n_\"${transcripcion}\"_\n\n🟢 Entendimos que tu origen es:\n*${direccionLimpia}*\n\n¿Es correcta esta dirección para buscarte?`,
+            [
+              { id: 'BTN_CONFIRMAR_AUDIO_ORIGEN', title: '✅ Sí, es correcta' },
+              { id: 'BTN_REINTENTAR_AUDIO_ORIGEN', title: '✍️ No, escribirla' },
+            ],
+            'Confirmación de Audio'
+          );
+        }
+      }
+
+      if (sesion.estado === 'ESPERANDO_ORIGEN') {
+        sesion.estado = 'CONFIRMANDO_AUDIO_ORIGEN';
+        return await whatsappService.enviarBotones(
+          cleanFrom,
+          `🎙️ *Escuchamos tu audio:*\n_\"${transcripcion}\"_\n\n🟢 Entendimos que tu origen es:\n*${direccionLimpia}*\n\n¿Es correcta esta dirección para buscarte?`,
+          [
+            { id: 'BTN_CONFIRMAR_AUDIO_ORIGEN', title: '✅ Sí, es correcta' },
+            { id: 'BTN_REINTENTAR_AUDIO_ORIGEN', title: '✍️ No, escribirla' },
+          ],
+          'Confirmación de Audio'
+        );
+      }
+
+      if (sesion.estado === 'ESPERANDO_DESTINO') {
+        sesion.estado = 'CONFIRMANDO_AUDIO_DESTINO';
+        return await whatsappService.enviarBotones(
+          cleanFrom,
+          `🎙️ *Escuchamos tu audio:*\n_\"${transcripcion}\"_\n\n🔴 Entendimos que tu destino es:\n*${direccionLimpia}*\n\n¿Es correcto este destino?`,
+          [
+            { id: 'BTN_CONFIRMAR_AUDIO_DESTINO', title: '✅ Sí, es correcto' },
+            { id: 'BTN_REINTENTAR_AUDIO_DESTINO', title: '✍️ No, escribirlo' },
+          ],
+          'Confirmación de Audio'
+        );
+      }
+
+      if (sesion.estado === 'ESPERANDO_FECHA_HORA_RESERVA') {
+        const parseResult = parsearFechaHoraReserva(transcripcion);
+        if ('error' in parseResult) {
+          return await whatsappService.enviarTexto(
+            cleanFrom,
+            `🎙️ *Te escuchamos:* _"${transcripcion}"_\n\n${parseResult.error}`
+          );
+        }
+        sesion.fechaHoraReserva = parseResult.fecha;
+        sesion.fechaHoraTexto = parseResult.fechaTexto;
+        sesion.horaInicioStr = parseResult.horaStr;
+        sesion.estado = 'ESPERANDO_ORIGEN';
+        return await whatsappService.enviarTexto(
+          cleanFrom,
+          `🗓️ *Reserva para:* ${parseResult.fechaTexto}\n\n📍 *¿Dónde te pasamos a buscar?*\nPodés escribir la dirección o mandar otro audio diciendo el lugar:`
+        );
+      }
+    }
+
+    // ==============================================================================
+    // 4. MANEJO SEGÚN ESTADO DE LA CONVERSACIÓN
+    // ==============================================================================
     switch (sesion.estado) {
       case 'IDLE': {
         // Disparador: Reservar para más tarde
@@ -473,7 +585,7 @@ export const whatsappBotService = {
           sesion.estado = 'ESPERANDO_FECHA_HORA_RESERVA';
           return await whatsappService.enviarTexto(
             cleanFrom,
-            `📅 *¿Para qué día y hora necesitás el remís?*\n\nPodés escribir por ejemplo:\n• *'Hoy 23:30'*\n• *'Mañana 08:00'*\n• *'Lunes 07:30'*\n• *'25/11 14:00'*\n\n_(O escribí Cancelar para salir)_`
+            `📅 *¿Para qué día y hora necesitás el remís?*\n\nPodés escribir por ejemplo:\n• *'Hoy 23:30'*\n• *'Mañana 08:00'*\n• *'Lunes 07:30'*\n• *'25/11 14:00'*\n\n_(O podés mandarnos un audio diciendo el día y la hora)_`
           );
         }
 
@@ -491,7 +603,7 @@ export const whatsappBotService = {
           sesion.estado = 'ESPERANDO_ORIGEN';
           return await whatsappService.enviarTexto(
             cleanFrom,
-            `📍 *¿Dónde te pasamos a buscar?*\n\nPodés:\n1. 📎 Compartir tu *ubicación GPS* desde el clip de WhatsApp.\n2. ✍️ O escribir la calle y altura (ej: *Rivadavia 250*).`
+            `📍 *¿Dónde te pasamos a buscar?*\n\nPodés:\n1. 📎 Compartir tu *ubicación GPS* desde el clip de WhatsApp.\n2. ✍️ O escribir la calle y altura (ej: *Rivadavia 250*).\n3. 🎙️ O mandar un *mensaje de voz*.`
           );
         }
 
@@ -539,7 +651,7 @@ export const whatsappBotService = {
 
         return await whatsappService.enviarTexto(
           cleanFrom,
-          `🗓️ *Reserva para:* ${parseResult.fechaTexto}\n\n📍 *¿Dónde te pasamos a buscar?*\nPodés:\n1. 📎 Compartir tu *ubicación GPS* desde el clip de WhatsApp.\n2. ✍️ O escribir la dirección (ej: *Rivadavia 250*).`
+          `🗓️ *Reserva para:* ${parseResult.fechaTexto}\n\n📍 *¿Dónde te pasamos a buscar?*\nPodés:\n1. 📎 Compartir tu *ubicación GPS* desde el clip de WhatsApp.\n2. ✍️ O escribir la dirección (ej: *Rivadavia 250*).\n3. 🎙️ O mandar un *audio*.`
         );
       }
 
@@ -559,15 +671,72 @@ export const whatsappBotService = {
         } else {
           return await whatsappService.enviarTexto(
             cleanFrom,
-            '⚠️ Por favor enviá una dirección válida o compartí tu ubicación GPS desde WhatsApp.'
+            '⚠️ Por favor enviá una dirección válida, compartí tu ubicación GPS o mandanos un audio.'
           );
         }
 
         sesion.estado = 'ESPERANDO_DESTINO';
         return await whatsappService.enviarTexto(
           cleanFrom,
-          `✅ *Origen:* ${sesion.origen}\n\n🏁 *¿Hacia dónde te llevamos?*\nEscribí la dirección de destino (ej: *Av. Sarmiento 500*, *Hospital Municipal*, etc.):`
+          `✅ *Origen:* ${sesion.origen}\n\n🏁 *¿Hacia dónde te llevamos?*\nEscribí la dirección de destino o mandá un audio (ej: *Av. Sarmiento 500*, *Hospital Municipal*):`
         );
+      }
+
+      case 'CONFIRMANDO_AUDIO_ORIGEN': {
+        const esAfirmativo =
+          actionId === 'BTN_CONFIRMAR_AUDIO_ORIGEN' ||
+          textoLower === 'si' ||
+          textoLower === 'sí' ||
+          textoLower.includes('correcto') ||
+          textoLower.includes('correcta');
+
+        const esNegativo =
+          actionId === 'BTN_REINTENTAR_AUDIO_ORIGEN' ||
+          textoLower === 'no' ||
+          textoLower.includes('corregir') ||
+          textoLower.includes('cambiar');
+
+        if (esAfirmativo) {
+          sesion.origen = sesion.audioDireccionPendiente || 'Origen confirmado por audio';
+          const geoO = await geocodificarDireccion(sesion.origen);
+          if (geoO) {
+            sesion.origenLat = geoO.lat;
+            sesion.origenLon = geoO.lon;
+          }
+          sesion.estado = 'ESPERANDO_DESTINO';
+          return await whatsappService.enviarTexto(
+            cleanFrom,
+            `✅ *Origen confirmado:* ${sesion.origen}\n\n🏁 *¿Hacia dónde te llevamos?*\nEscribí la dirección de destino o mandá un audio:`
+          );
+        } else if (esNegativo) {
+          sesion.estado = 'ESPERANDO_ORIGEN';
+          return await whatsappService.enviarTexto(
+            cleanFrom,
+            '✍️ Por favor escribí la calle y altura por texto (ej: *Rivadavia 250*):'
+          );
+        } else if (texto && texto.trim().length >= 3) {
+          // El usuario escribió directamente la corrección
+          sesion.origen = texto.trim();
+          const geoO = await geocodificarDireccion(sesion.origen);
+          if (geoO) {
+            sesion.origenLat = geoO.lat;
+            sesion.origenLon = geoO.lon;
+          }
+          sesion.estado = 'ESPERANDO_DESTINO';
+          return await whatsappService.enviarTexto(
+            cleanFrom,
+            `✅ *Origen:* ${sesion.origen}\n\n🏁 *¿Hacia dónde te llevamos?*\nEscribí la dirección de destino o mandá un audio:`
+          );
+        } else {
+          return await whatsappService.enviarBotones(
+            cleanFrom,
+            `Entendimos que tu origen es: *${sesion.audioDireccionPendiente}*\n\n¿Es correcto?`,
+            [
+              { id: 'BTN_CONFIRMAR_AUDIO_ORIGEN', title: '✅ Sí, es correcta' },
+              { id: 'BTN_REINTENTAR_AUDIO_ORIGEN', title: '✍️ No, escribirla' },
+            ]
+          );
+        }
       }
 
       case 'ESPERANDO_DESTINO': {
@@ -586,11 +755,11 @@ export const whatsappBotService = {
         } else {
           return await whatsappService.enviarTexto(
             cleanFrom,
-            '⚠️ Por favor escribí la dirección hacia dónde te llevamos.'
+            '⚠️ Por favor escribí la dirección hacia dónde te llevamos o mandanos un audio.'
           );
         }
 
-        // Si el origen no tenía coordenadas (por ejemplo, si falló en el primer intento), intentar nuevamente
+        // Si el origen no tenía coordenadas, intentar nuevamente
         if ((!sesion.origenLat || !sesion.origenLon) && sesion.origen) {
           const geoO = await geocodificarDireccion(sesion.origen);
           if (geoO) {
@@ -600,7 +769,7 @@ export const whatsappBotService = {
         }
 
         // Calcular distancia real (vía OSRM o Haversine)
-        let dist = 2.5; // Distancia estándar urbana en caso extremo de no poder geocodificar
+        let dist = 2.5;
         if (sesion.origenLat && sesion.origenLon && sesion.destinoLat && sesion.destinoLon) {
           dist = await calcularDistanciaReal(
             sesion.origenLat,
@@ -612,7 +781,6 @@ export const whatsappBotService = {
         }
 
         // Cálculo de precio según tarifario vigente de la remisería
-        // La bajada de bandera cubre los primeros 1 km; los km adicionales se cobran al valorKm
         const kmAdicionales = Math.max(0, dist - 1);
         const precioGpsPuro = bajadaBandera + kmAdicionales * valorKm;
         const precioEstimado = Math.round(precioGpsPuro / 100) * 100;
@@ -661,6 +829,162 @@ export const whatsappBotService = {
               { id: 'BTN_CANCELAR', title: '❌ Cancelar' },
             ],
             'Cotización de Viaje'
+          );
+        }
+      }
+
+      case 'CONFIRMANDO_AUDIO_DESTINO': {
+        const esAfirmativo =
+          actionId === 'BTN_CONFIRMAR_AUDIO_DESTINO' ||
+          textoLower === 'si' ||
+          textoLower === 'sí' ||
+          textoLower.includes('correcto') ||
+          textoLower.includes('correcta');
+
+        const esNegativo =
+          actionId === 'BTN_REINTENTAR_AUDIO_DESTINO' ||
+          textoLower === 'no' ||
+          textoLower.includes('corregir') ||
+          textoLower.includes('cambiar');
+
+        if (esAfirmativo) {
+          sesion.destino = sesion.audioDireccionPendiente || 'Destino confirmado por audio';
+          const geoD = await geocodificarDireccion(sesion.destino);
+          if (geoD) {
+            sesion.destinoLat = geoD.lat;
+            sesion.destinoLon = geoD.lon;
+          }
+
+          if ((!sesion.origenLat || !sesion.origenLon) && sesion.origen) {
+            const geoO = await geocodificarDireccion(sesion.origen);
+            if (geoO) {
+              sesion.origenLat = geoO.lat;
+              sesion.origenLon = geoO.lon;
+            }
+          }
+
+          let dist = 2.5;
+          if (sesion.origenLat && sesion.origenLon && sesion.destinoLat && sesion.destinoLon) {
+            dist = await calcularDistanciaReal(
+              sesion.origenLat,
+              sesion.origenLon,
+              sesion.destinoLat,
+              sesion.destinoLon
+            );
+            if (dist < 0.5) dist = 0.8;
+          }
+
+          const kmAdicionales = Math.max(0, dist - 1);
+          const precioGpsPuro = bajadaBandera + kmAdicionales * valorKm;
+          const precioEstimado = Math.round(precioGpsPuro / 100) * 100;
+
+          sesion.distanciaKm = dist;
+          sesion.precioEstimado = precioEstimado;
+          sesion.estado = 'CONFIRMANDO_COTIZACION';
+
+          if (sesion.esReserva && sesion.fechaHoraTexto) {
+            const resumenReserva =
+              `📋 *Resumen de tu Reserva Programada:*\n` +
+              `━━━━━━━━━━━━━━━━━━━\n` +
+              `🗓️ *Fecha y Hora:* *${sesion.fechaHoraTexto}*\n` +
+              `🟢 *Origen:* ${sesion.origen}\n` +
+              `🔴 *Destino:* ${sesion.destino}\n` +
+              `📏 *Distancia:* ~${dist} km\n` +
+              `💵 *Precio estimado:* *$${precioEstimado.toLocaleString('es-AR')}* _(Efectivo)_\n` +
+              `━━━━━━━━━━━━━━━━━━━\n` +
+              `¿Confirmás la reserva?`;
+
+            return await whatsappService.enviarBotones(
+              cleanFrom,
+              resumenReserva,
+              [
+                { id: 'BTN_CONFIRMAR_RESERVA', title: '✅ Confirmar Reserva' },
+                { id: 'BTN_CANCELAR', title: '❌ Cancelar' },
+              ],
+              'Reserva de Viaje'
+            );
+          } else {
+            const resumen =
+              `📋 *Resumen de tu viaje:*\n` +
+              `━━━━━━━━━━━━━━━━━━━\n` +
+              `🟢 *Origen:* ${sesion.origen}\n` +
+              `🔴 *Destino:* ${sesion.destino}\n` +
+              `📏 *Distancia:* ~${dist} km\n` +
+              `💵 *Precio estimado:* *$${precioEstimado.toLocaleString('es-AR')}* _(Efectivo)_\n` +
+              `━━━━━━━━━━━━━━━━━━━\n` +
+              `¿Deseas solicitar el móvil ahora?`;
+
+            return await whatsappService.enviarBotones(
+              cleanFrom,
+              resumen,
+              [
+                { id: 'BTN_CONFIRMAR', title: '✅ Confirmar Pedido' },
+                { id: 'BTN_CANCELAR', title: '❌ Cancelar' },
+              ],
+              'Cotización de Viaje'
+            );
+          }
+        } else if (esNegativo) {
+          sesion.estado = 'ESPERANDO_DESTINO';
+          return await whatsappService.enviarTexto(
+            cleanFrom,
+            '✍️ Por favor escribí el destino por texto (ej: *Av. Sarmiento 500* o *Hospital Municipal*):'
+          );
+        } else if (texto && texto.trim().length >= 3) {
+          // El usuario escribió directamente la corrección del destino
+          sesion.destino = texto.trim();
+          const geoD = await geocodificarDireccion(sesion.destino);
+          if (geoD) {
+            sesion.destinoLat = geoD.lat;
+            sesion.destinoLon = geoD.lon;
+          }
+
+          let dist = 2.5;
+          if (sesion.origenLat && sesion.origenLon && sesion.destinoLat && sesion.destinoLon) {
+            dist = await calcularDistanciaReal(
+              sesion.origenLat,
+              sesion.origenLon,
+              sesion.destinoLat,
+              sesion.destinoLon
+            );
+            if (dist < 0.5) dist = 0.8;
+          }
+
+          const kmAdicionales = Math.max(0, dist - 1);
+          const precioGpsPuro = bajadaBandera + kmAdicionales * valorKm;
+          const precioEstimado = Math.round(precioGpsPuro / 100) * 100;
+
+          sesion.distanciaKm = dist;
+          sesion.precioEstimado = precioEstimado;
+          sesion.estado = 'CONFIRMANDO_COTIZACION';
+
+          const resumen =
+            `📋 *Resumen de tu viaje:*\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `🟢 *Origen:* ${sesion.origen}\n` +
+            `🔴 *Destino:* ${sesion.destino}\n` +
+            `📏 *Distancia:* ~${dist} km\n` +
+            `💵 *Precio estimado:* *$${precioEstimado.toLocaleString('es-AR')}* _(Efectivo)_\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `¿Deseas solicitar el móvil ahora?`;
+
+          return await whatsappService.enviarBotones(
+            cleanFrom,
+            resumen,
+            [
+              { id: 'BTN_CONFIRMAR', title: '✅ Confirmar Pedido' },
+              { id: 'BTN_CANCELAR', title: '❌ Cancelar' },
+            ],
+            'Cotización de Viaje'
+          );
+        } else {
+          return await whatsappService.enviarBotones(
+            cleanFrom,
+            `Entendimos que tu destino es: *${sesion.audioDireccionPendiente}*\n\n¿Es correcto?`,
+            [
+              { id: 'BTN_CONFIRMAR_AUDIO_DESTINO', title: '✅ Sí, es correcto' },
+              { id: 'BTN_REINTENTAR_AUDIO_DESTINO', title: '✍️ No, escribirlo' },
+            ]
           );
         }
       }
