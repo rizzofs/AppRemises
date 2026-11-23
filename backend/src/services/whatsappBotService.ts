@@ -445,10 +445,9 @@ export const whatsappBotService = {
     }
 
     if (actionId === 'BTN_OPERADOR' || textoLower === 'operador' || textoLower === 'central') {
-      const telFijo = remiseria?.telefono || '2346-427637';
       return await whatsappService.enviarTexto(
         cleanFrom,
-        `📞 Podés comunicarte directamente con nuestros operadores a los teléfonos fijos:\n☎️ ${telFijo}\n☎️ 2346-433000\n\nEstamos a tu disposición las 24 horas.`
+        `📞 Podés comunicarte directamente con nuestros operadores a los teléfonos fijos:\n☎️ 2346-427637\n☎️ 2346-433000\n\nEstamos a tu disposición las 24 horas.`
       );
     }
 
