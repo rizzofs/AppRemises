@@ -9,6 +9,7 @@ import crypto from 'crypto';
 
 type EstadoConversacion =
   | 'IDLE'
+  | 'ESPERANDO_FECHA_HORA_RESERVA'
   | 'ESPERANDO_ORIGEN'
   | 'ESPERANDO_DESTINO'
   | 'CONFIRMANDO_COTIZACION';
@@ -16,6 +17,10 @@ type EstadoConversacion =
 interface SesionClienteWhatsApp {
   telefono: string;
   estado: EstadoConversacion;
+  esReserva?: boolean;
+  fechaHoraReserva?: Date;
+  fechaHoraTexto?: string;
+  horaInicioStr?: string;
   nombre?: string;
   origen?: string;
   origenLat?: number;
@@ -77,6 +82,206 @@ function calcularDistanciaKm(lat1: number, lon1: number, lat2: number, lon2: num
   return Math.round(d * 10) / 10;
 }
 
+// ==============================================================================
+// HELPERS DE FECHA Y PARSEO NATURAL DE RESERVAS (ZONA HORARIA ARGENTINA UTC-3)
+// ==============================================================================
+
+function getFechaActualArgentina(): {
+  year: number;
+  month: number;
+  day: number;
+  hour: number;
+  minute: number;
+  dayOfWeek: number;
+} {
+  const now = new Date();
+  const arFormatter = new Intl.DateTimeFormat('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    weekday: 'long',
+    hour12: false,
+  });
+
+  const parts = arFormatter.formatToParts(now);
+  const map: Record<string, string> = {};
+  for (const p of parts) map[p.type] = p.value;
+
+  const year = parseInt(map.year, 10);
+  const month = parseInt(map.month, 10) - 1; // 0-indexed
+  const day = parseInt(map.day, 10);
+  const hour = parseInt(map.hour, 10);
+  const minute = parseInt(map.minute, 10);
+
+  const arDate = new Date(Date.UTC(year, month, day, 12, 0, 0));
+  const dayOfWeek = arDate.getUTCDay();
+
+  return { year, month, day, hour, minute, dayOfWeek };
+}
+
+function formatearFechaLegible(fechaUtc: Date): { fechaTexto: string; horaStr: string } {
+  const parts = new Intl.DateTimeFormat('es-AR', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(fechaUtc);
+
+  const map: Record<string, string> = {};
+  for (const p of parts) map[p.type] = p.value;
+
+  const weekdayCapitalized = map.weekday.charAt(0).toUpperCase() + map.weekday.slice(1);
+  const horaStr = `${map.hour}:${map.minute}`;
+  const fechaTexto = `${weekdayCapitalized} ${map.day}/${map.month} a las ${horaStr} hs`;
+
+  return { fechaTexto, horaStr };
+}
+
+function parsearFechaHoraReserva(input: string): { fecha: Date; fechaTexto: string; horaStr: string } | { error: string } {
+  const texto = input.trim().toLowerCase();
+  const ar = getFechaActualArgentina();
+
+  // 1. "en X horas" / "en X minutos"
+  const matchEnHoras = texto.match(/en\s+(\d+)\s*(h|hs|hora|horas)/i);
+  const matchEnMins = texto.match(/en\s+(\d+)\s*(m|min|mins|minuto|minutos)/i);
+  if (matchEnHoras || matchEnMins) {
+    const addHours = matchEnHoras ? parseInt(matchEnHoras[1], 10) : 0;
+    const addMins = matchEnMins ? parseInt(matchEnMins[1], 10) : 0;
+    const targetUtcMs = Date.now() + (addHours * 60 + addMins) * 60 * 1000;
+    const targetDate = new Date(targetUtcMs);
+
+    const diffMins = (targetDate.getTime() - Date.now()) / (1000 * 60);
+    if (diffMins < 15) {
+      return { error: '⚠️ Por favor indicá un horario con al menos *15 minutos de anticipación*.' };
+    }
+
+    const { fechaTexto, horaStr } = formatearFechaLegible(targetDate);
+    return { fecha: targetDate, fechaTexto, horaStr };
+  }
+
+  // 2. Extraer Hora (HH:mm, HH.mm, HH hs, etc.)
+  let textoSinFecha = texto
+    .replace(/\b(hoy|mañana|manana|pasado mañana|pasado manana)\b/g, '')
+    .replace(/\b(lunes|martes|miercoles|miércoles|jueves|viernes|sabado|sábado|domingo)\b/g, '')
+    .replace(/\b\d{1,2}[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?\b/g, '')
+    .trim();
+
+  const timeRegex = /(?:a\s+las\s+)?(\d{1,2})(?:[:.](\d{2}))?\s*(hs|hrs|horas|am|pm)?/i;
+  const timeMatch = textoSinFecha.match(timeRegex);
+  if (!timeMatch || !timeMatch[1]) {
+    return {
+      error:
+        '⚠️ No pudimos reconocer la hora de tu reserva.\n\nPor favor escribí la fecha y hora indicando el horario (ej: *Mañana 08:30*, *Hoy 23:00*, *Lunes 07:15*).',
+    };
+  }
+
+  let targetHour = parseInt(timeMatch[1], 10);
+  const targetMinute = timeMatch[2] ? parseInt(timeMatch[2], 10) : 0;
+  const ampm = (timeMatch[3] || '').toLowerCase();
+
+  if (ampm === 'pm' && targetHour < 12) targetHour += 12;
+  if (ampm === 'am' && targetHour === 12) targetHour = 0;
+
+  if (targetHour < 0 || targetHour > 23 || targetMinute < 0 || targetMinute > 59) {
+    return { error: '⚠️ El horario ingresado no es válido. Ingresá una hora entre 00:00 y 23:59.' };
+  }
+
+  let targetYear = ar.year;
+  let targetMonth = ar.month;
+  let targetDay = ar.day;
+
+  // 3. Determinar el Día
+  if (texto.includes('pasado mañana') || texto.includes('pasado manana')) {
+    targetDay += 2;
+  } else if (texto.includes('mañana') || texto.includes('manana')) {
+    targetDay += 1;
+  } else if (texto.includes('hoy')) {
+    // Es hoy
+  } else {
+    // ¿Nombre de día de semana?
+    const diasSemanaMap: Record<string, number> = {
+      domingo: 0,
+      lunes: 1,
+      martes: 2,
+      miercoles: 3,
+      miércoles: 3,
+      jueves: 4,
+      viernes: 5,
+      sabado: 6,
+      sábado: 6,
+    };
+
+    let diaSemanaEncontrado = -1;
+    for (const [diaNombre, diaNum] of Object.entries(diasSemanaMap)) {
+      if (new RegExp(`\\b${diaNombre}\\b`, 'i').test(texto)) {
+        diaSemanaEncontrado = diaNum;
+        break;
+      }
+    }
+
+    if (diaSemanaEncontrado !== -1) {
+      let diffDays = (diaSemanaEncontrado - ar.dayOfWeek + 7) % 7;
+      if (diffDays === 0) {
+        if (targetHour < ar.hour || (targetHour === ar.hour && targetMinute <= ar.minute)) {
+          diffDays = 7;
+        }
+      }
+      targetDay += diffDays;
+    } else {
+      // ¿Fecha numérica DD/MM?
+      const fechaNumMatch = texto.match(/(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?/);
+      if (fechaNumMatch) {
+        targetDay = parseInt(fechaNumMatch[1], 10);
+        targetMonth = parseInt(fechaNumMatch[2], 10) - 1;
+        if (fechaNumMatch[3]) {
+          let y = parseInt(fechaNumMatch[3], 10);
+          if (y < 100) y += 2000;
+          targetYear = y;
+        }
+      } else {
+        // Sin día explícito: si la hora ya pasó hoy (o falta menos de 15m), asume mañana
+        if (targetHour < ar.hour || (targetHour === ar.hour && targetMinute <= ar.minute + 15)) {
+          targetDay += 1;
+        }
+      }
+    }
+  }
+
+  // Argentina es UTC-3, por lo que UTC = targetHour + 3
+  const targetDateUtc = new Date(Date.UTC(targetYear, targetMonth, targetDay, targetHour + 3, targetMinute, 0));
+
+  const diffMinutes = (targetDateUtc.getTime() - Date.now()) / (1000 * 60);
+  if (diffMinutes < 15) {
+    return {
+      error:
+        '⚠️ La hora elegida ya pasó o es muy próxima. Por favor programá tu viaje con al menos *15 minutos de anticipación*.\n\n_Si necesitás un móvil ya mismo, presioná "Pedir Ahora"_',
+    };
+  }
+
+  if (diffMinutes > 30 * 24 * 60) {
+    return {
+      error: '⚠️ Las reservas pueden programarse hasta con 30 días de anticipación.',
+    };
+  }
+
+  const { fechaTexto, horaStr } = formatearFechaLegible(targetDateUtc);
+  return {
+    fecha: targetDateUtc,
+    fechaTexto,
+    horaStr,
+  };
+}
+
+// ==============================================================================
+// SERVICIO PRINCIPAL DEL BOT DE WHATSAPP
+// ==============================================================================
+
 export const whatsappBotService = {
   /**
    * Procesa cualquier mensaje entrante de un usuario por WhatsApp
@@ -94,7 +299,7 @@ export const whatsappBotService = {
     const cleanFrom = whatsappService.formatearNumero(from);
     const sesion = getSesion(cleanFrom);
 
-    // Marcar como leído
+    // Marcar mensaje como leído en WhatsApp
     whatsappService.marcarComoLeido(messageId).catch(() => {});
 
     // 1. Identificar o registrar al cliente en la base de datos
@@ -130,8 +335,11 @@ export const whatsappBotService = {
       resetSesion(cleanFrom);
       return await whatsappService.enviarBotones(
         cleanFrom,
-        '❌ Pedido cancelado. ¡Cuando nos necesites volvé a escribirnos!',
-        [{ id: 'BTN_PEDIR', title: '🚕 Pedir un Remís' }]
+        '❌ Operación cancelada. ¡Cuando nos necesites volvé a escribirnos!',
+        [
+          { id: 'BTN_PEDIR_AHORA', title: '🚕 Pedir Ahora' },
+          { id: 'BTN_RESERVAR', title: '📅 Reservar Viaje' },
+        ]
       );
     }
 
@@ -143,21 +351,43 @@ export const whatsappBotService = {
       );
     }
 
-    if (actionId === 'BTN_ESTADO' || textoLower === 'estado') {
+    if (actionId === 'BTN_ESTADO' || textoLower === 'estado' || textoLower === 'mis viajes') {
       return await this.consultarEstadoViaje(cleanFrom, cliente?.id);
     }
 
     // 3. Manejo según estado de la conversación
     switch (sesion.estado) {
       case 'IDLE': {
-        // Si el usuario presionó el botón de pedir o escribió "pedir", "remis", "auto", "viaje"
+        // Disparador: Reservar para más tarde
+        if (
+          actionId === 'BTN_RESERVAR' ||
+          textoLower.includes('reserva') ||
+          textoLower.includes('agendar') ||
+          textoLower.includes('programar') ||
+          textoLower.includes('para mañana') ||
+          textoLower.includes('para mas tarde') ||
+          textoLower.includes('para más tarde') ||
+          textoLower.includes('otro momento')
+        ) {
+          sesion.esReserva = true;
+          sesion.estado = 'ESPERANDO_FECHA_HORA_RESERVA';
+          return await whatsappService.enviarTexto(
+            cleanFrom,
+            `📅 *¿Para qué día y hora necesitás el remís?*\n\nPodés escribir por ejemplo:\n• *'Hoy 23:30'*\n• *'Mañana 08:00'*\n• *'Lunes 07:30'*\n• *'25/11 14:00'*\n\n_(O escribí Cancelar para salir)_`
+          );
+        }
+
+        // Disparador: Pedir ahora inmediatamente
         if (
           actionId === 'BTN_PEDIR' ||
+          actionId === 'BTN_PEDIR_AHORA' ||
           textoLower.includes('pedir') ||
           textoLower.includes('remis') ||
           textoLower.includes('auto') ||
-          textoLower.includes('viaje')
+          textoLower.includes('viaje') ||
+          textoLower.includes('ahora')
         ) {
+          sesion.esReserva = false;
           sesion.estado = 'ESPERANDO_ORIGEN';
           return await whatsappService.enviarTexto(
             cleanFrom,
@@ -180,13 +410,37 @@ export const whatsappBotService = {
           return await this.consultarEstadoViaje(cleanFrom, cliente?.id);
         }
 
-        // Saludo de bienvenida y menú principal
-        const mensajeBienvenida = `👋 ¡Hola, *${nombreMostrado}*! Bienvenido a *Remises Bruno*.\n¿En qué te podemos ayudar hoy?`;
+        // Saludo de bienvenida y menú principal interactivo
+        const mensajeBienvenida = `👋 ¡Hola, *${nombreMostrado}*! Bienvenido a *Remises Bruno*.\n¿Cómo querés viajar hoy?`;
         return await whatsappService.enviarBotones(cleanFrom, mensajeBienvenida, [
-          { id: 'BTN_PEDIR', title: '🚕 Pedir un Remís' },
-          { id: 'BTN_ESTADO', title: '📍 Estado de mi viaje' },
-          { id: 'BTN_OPERADOR', title: '📞 Hablar con Central' },
+          { id: 'BTN_PEDIR_AHORA', title: '🚕 Pedir Ahora' },
+          { id: 'BTN_RESERVAR', title: '📅 Reservar Viaje' },
+          { id: 'BTN_ESTADO', title: '📍 Estado / Ayuda' },
         ]);
+      }
+
+      case 'ESPERANDO_FECHA_HORA_RESERVA': {
+        if (!texto || texto.trim().length < 2) {
+          return await whatsappService.enviarTexto(
+            cleanFrom,
+            '⚠️ Por favor indicá el día y la hora de tu reserva (ej: *Mañana 08:30*, *Hoy 23:00*, *Lunes 07:15*).'
+          );
+        }
+
+        const parseResult = parsearFechaHoraReserva(texto);
+        if ('error' in parseResult) {
+          return await whatsappService.enviarTexto(cleanFrom, parseResult.error);
+        }
+
+        sesion.fechaHoraReserva = parseResult.fecha;
+        sesion.fechaHoraTexto = parseResult.fechaTexto;
+        sesion.horaInicioStr = parseResult.horaStr;
+        sesion.estado = 'ESPERANDO_ORIGEN';
+
+        return await whatsappService.enviarTexto(
+          cleanFrom,
+          `🗓️ *Reserva para:* ${parseResult.fechaTexto}\n\n📍 *¿Dónde te pasamos a buscar?*\nPodés:\n1. 📎 Compartir tu *ubicación GPS* desde el clip de WhatsApp.\n2. ✍️ O escribir la dirección (ej: *Rivadavia 250*).`
+        );
       }
 
       case 'ESPERANDO_ORIGEN': {
@@ -206,7 +460,7 @@ export const whatsappBotService = {
         sesion.estado = 'ESPERANDO_DESTINO';
         return await whatsappService.enviarTexto(
           cleanFrom,
-          `✅ *Origen registrado:* ${sesion.origen}\n\n🏁 *¿Hacia dónde te llevamos?*\nEscribí la dirección o punto de destino (ej: *Av. Sarmiento 500*, *Hospital Municipal*, etc.):`
+          `✅ *Origen:* ${sesion.origen}\n\n🏁 *¿Hacia dónde te llevamos?*\nEscribí la dirección de destino (ej: *Av. Sarmiento 500*, *Hospital Municipal*, etc.):`
         );
       }
 
@@ -238,36 +492,71 @@ export const whatsappBotService = {
         sesion.precioEstimado = precioEstimado;
         sesion.estado = 'CONFIRMANDO_COTIZACION';
 
-        const resumen =
-          `📋 *Resumen de tu viaje:*\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `🟢 *Origen:* ${sesion.origen}\n` +
-          `🔴 *Destino:* ${sesion.destino}\n` +
-          `📏 *Distancia:* ~${dist} km\n` +
-          `💵 *Precio estimado:* *$${precioEstimado.toLocaleString('es-AR')}* _(Efectivo)_\n` +
-          `━━━━━━━━━━━━━━━━━━━\n` +
-          `¿Deseas solicitar el móvil ahora?`;
+        if (sesion.esReserva && sesion.fechaHoraTexto) {
+          const resumenReserva =
+            `📋 *Resumen de tu Reserva Programada:*\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `🗓️ *Fecha y Hora:* *${sesion.fechaHoraTexto}*\n` +
+            `🟢 *Origen:* ${sesion.origen}\n` +
+            `🔴 *Destino:* ${sesion.destino}\n` +
+            `📏 *Distancia:* ~${dist} km\n` +
+            `💵 *Precio estimado:* *$${precioEstimado.toLocaleString('es-AR')}* _(Efectivo)_\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `¿Confirmás la reserva?`;
 
-        return await whatsappService.enviarBotones(
-          cleanFrom,
-          resumen,
-          [
-            { id: 'BTN_CONFIRMAR', title: '✅ Confirmar Pedido' },
-            { id: 'BTN_CANCELAR', title: '❌ Cancelar' },
-          ],
-          'Cotización de Viaje'
-        );
+          return await whatsappService.enviarBotones(
+            cleanFrom,
+            resumenReserva,
+            [
+              { id: 'BTN_CONFIRMAR_RESERVA', title: '✅ Confirmar Reserva' },
+              { id: 'BTN_CANCELAR', title: '❌ Cancelar' },
+            ],
+            'Reserva de Viaje'
+          );
+        } else {
+          const resumen =
+            `📋 *Resumen de tu viaje:*\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `🟢 *Origen:* ${sesion.origen}\n` +
+            `🔴 *Destino:* ${sesion.destino}\n` +
+            `📏 *Distancia:* ~${dist} km\n` +
+            `💵 *Precio estimado:* *$${precioEstimado.toLocaleString('es-AR')}* _(Efectivo)_\n` +
+            `━━━━━━━━━━━━━━━━━━━\n` +
+            `¿Deseas solicitar el móvil ahora?`;
+
+          return await whatsappService.enviarBotones(
+            cleanFrom,
+            resumen,
+            [
+              { id: 'BTN_CONFIRMAR', title: '✅ Confirmar Pedido' },
+              { id: 'BTN_CANCELAR', title: '❌ Cancelar' },
+            ],
+            'Cotización de Viaje'
+          );
+        }
       }
 
       case 'CONFIRMANDO_COTIZACION': {
-        if (actionId === 'BTN_CONFIRMAR' || textoLower.includes('si') || textoLower.includes('confirmar')) {
-          return await this.crearViajeDesdeWhatsApp(cleanFrom, sesion, cliente, remiseriaId);
+        const esAfirmativo =
+          actionId === 'BTN_CONFIRMAR' ||
+          actionId === 'BTN_CONFIRMAR_RESERVA' ||
+          textoLower.includes('si') ||
+          textoLower.includes('confirmar') ||
+          textoLower.includes('confirmo');
+
+        if (esAfirmativo) {
+          if (sesion.esReserva) {
+            return await this.crearReservaDesdeWhatsApp(cleanFrom, sesion, cliente, remiseriaId);
+          } else {
+            return await this.crearViajeDesdeWhatsApp(cleanFrom, sesion, cliente, remiseriaId);
+          }
         } else {
+          const botonConfirmarId = sesion.esReserva ? 'BTN_CONFIRMAR_RESERVA' : 'BTN_CONFIRMAR';
           return await whatsappService.enviarBotones(
             cleanFrom,
-            '¿Querés confirmar el viaje o cancelarlo?',
+            '¿Querés confirmar el servicio o cancelarlo?',
             [
-              { id: 'BTN_CONFIRMAR', title: '✅ Confirmar Pedido' },
+              { id: botonConfirmarId, title: '✅ Confirmar' },
               { id: 'BTN_CANCELAR', title: '❌ Cancelar' },
             ]
           );
@@ -277,7 +566,117 @@ export const whatsappBotService = {
   },
 
   /**
-   * Crea el Viaje en la base de datos de Remises Bruno y lo dispara a Central y Choferes
+   * Crea una Reserva programada en la base de datos de Remises Bruno
+   */
+  async crearReservaDesdeWhatsApp(
+    cleanFrom: string,
+    sesion: SesionClienteWhatsApp,
+    clienteExistente: any,
+    remiseriaId: string
+  ) {
+    try {
+      const trackingToken = crypto.randomBytes(16).toString('hex');
+      const codigoPin = Math.floor(1000 + Math.random() * 9000).toString();
+      const origen = sesion.origen || 'Origen solicitado por WhatsApp';
+      const destino = sesion.destino || 'Destino a convenir';
+      const precio = sesion.precioEstimado || 3500;
+      const clienteNombre = sesion.nombre || 'Pasajero WhatsApp';
+      const fechaInicio = sesion.fechaHoraReserva || new Date();
+      const horaInicio = sesion.horaInicioStr || '08:00';
+      const fechaTexto = sesion.fechaHoraTexto || 'Fecha programada';
+
+      const origenDetallado =
+        sesion.origenLat && sesion.origenLon
+          ? `${sesion.origenLat},${sesion.origenLon}`
+          : undefined;
+      const destinoDetallado =
+        sesion.destinoLat && sesion.destinoLon
+          ? `${sesion.destinoLat},${sesion.destinoLon}`
+          : undefined;
+
+      // 1. Guardar en la tabla Reserva (para que aparezca en el tab Reservados de la Central)
+      const reserva = await prisma.reserva.create({
+        data: {
+          clienteNombre,
+          clienteTelefono: cleanFrom,
+          clienteEmail: clienteExistente?.email || null,
+          origen,
+          destino,
+          fechaInicio,
+          horaInicio,
+          tipo: 'UNICA',
+          estado: 'ACTIVA',
+          observaciones: `Reserva programada por WhatsApp Bot para ${fechaTexto}. Est: $${precio.toLocaleString('es-AR')}`,
+          remiseriaId,
+          clienteId: clienteExistente?.id || null,
+        },
+      });
+
+      // 2. Registrar también el Viaje programado con la fecha de la reserva
+      const viaje = await prisma.viaje.create({
+        data: {
+          origen,
+          destino,
+          precio,
+          fecha: fechaInicio,
+          estado: 'PENDIENTE',
+          observaciones: `Viaje Reservado por WhatsApp para: ${fechaTexto} (Reserva #${reserva.id.slice(-4).toUpperCase()})`,
+          clienteId: clienteExistente?.id || null,
+          clienteNombre,
+          clienteTelefono: cleanFrom,
+          remiseriaId,
+          origenDetallado,
+          destinoDetallado,
+          trackingToken,
+          codigoPin,
+          metodoPago: 'EFECTIVO',
+        },
+      });
+
+      // Resetear estado de la sesión
+      resetSesion(cleanFrom);
+
+      // 3. Notificar en tiempo real por WebSocket a la central del Coordinador
+      try {
+        const { getIO } = await import('../lib/socket');
+        const io = getIO();
+        io.to(remiseriaId).emit('nueva_reserva_recibida', reserva);
+        io.to(remiseriaId).emit('nuevo_viaje_recibido', viaje);
+      } catch (sErr) {
+        console.warn('Socket aviso WhatsApp nueva reserva:', sErr);
+      }
+
+      // 4. Confirmar al pasajero por WhatsApp
+      const confirmacionTexto =
+        `📅 *¡Reserva agendada con éxito!*\n\n` +
+        `Tu viaje quedó registrado en nuestra central:\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `🗓️ *Fecha y Hora:* *${fechaTexto}*\n` +
+        `🟢 *Origen:* ${origen}\n` +
+        `🔴 *Destino:* ${destino}\n` +
+        `💵 *Precio estimado:* *$${precio.toLocaleString('es-AR')}*\n` +
+        `🔒 *PIN de seguridad:* *${codigoPin}*\n` +
+        `━━━━━━━━━━━━━━━━━━━\n\n` +
+        `La central asignará tu móvil con anticipación y te avisaremos por WhatsApp en cuanto el chofer salga a buscarte.`;
+
+      await whatsappService.enviarBotones(cleanFrom, confirmacionTexto, [
+        { id: 'BTN_ESTADO', title: '📍 Mis Reservas / Viajes' },
+        { id: 'BTN_OPERADOR', title: '📞 Hablar con Central' },
+      ]);
+
+      return { success: true, reservaId: reserva.id, viajeId: viaje.id };
+    } catch (err: any) {
+      console.error('Error creando reserva desde WhatsApp:', err);
+      resetSesion(cleanFrom);
+      return await whatsappService.enviarTexto(
+        cleanFrom,
+        'Tuvimos un inconveniente al agendar tu reserva. Por favor comunicate con nuestros teléfonos fijos: 2346-427637 o 2346-433000.'
+      );
+    }
+  },
+
+  /**
+   * Crea el Viaje inmediato en la base de datos de Remises Bruno y lo dispara a Central y Choferes
    */
   async crearViajeDesdeWhatsApp(
     cleanFrom: string,
@@ -375,60 +774,102 @@ export const whatsappBotService = {
   },
 
   /**
-   * Consulta y responde el estado actual del viaje de un cliente
+   * Consulta y responde el estado actual de los viajes o reservas del cliente
    */
   async consultarEstadoViaje(cleanFrom: string, clienteId?: string) {
-    const viaje = await prisma.viaje.findFirst({
-      where: {
-        OR: [
-          { clienteTelefono: cleanFrom },
-          ...(clienteId ? [{ clienteId }] : []),
-        ],
-        estado: { in: ['PENDIENTE', 'ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] },
-      },
-      include: {
-        chofer: true,
-        vehiculo: true,
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const [viaje, reservas] = await Promise.all([
+      prisma.viaje.findFirst({
+        where: {
+          OR: [
+            { clienteTelefono: cleanFrom },
+            ...(clienteId ? [{ clienteId }] : []),
+          ],
+          estado: { in: ['PENDIENTE', 'ACEPTADO', 'EN_CAMINO', 'EN_CURSO'] },
+        },
+        include: {
+          chofer: true,
+          vehiculo: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      }),
+      prisma.reserva.findMany({
+        where: {
+          clienteTelefono: cleanFrom,
+          estado: 'ACTIVA',
+          fechaInicio: { gte: new Date(Date.now() - 60 * 60 * 1000) },
+        },
+        include: {
+          chofer: true,
+        },
+        orderBy: { fechaInicio: 'asc' },
+        take: 3,
+      }),
+    ]);
 
-    if (!viaje) {
+    if (!viaje && reservas.length === 0) {
       return await whatsappService.enviarBotones(
         cleanFrom,
-        'No tenés ningún viaje activo en este momento.',
-        [{ id: 'BTN_PEDIR', title: '🚕 Pedir un Remís' }]
+        'No tenés ningún viaje activo ni reservas programadas en este momento.',
+        [
+          { id: 'BTN_PEDIR_AHORA', title: '🚕 Pedir Ahora' },
+          { id: 'BTN_RESERVAR', title: '📅 Reservar Viaje' },
+        ]
       );
     }
 
-    const choferNombre = viaje.chofer?.nombre || 'Chofer en asignación';
-    const vehiculo = viaje.vehiculo;
-    const vehiculoStr = vehiculo ? `${vehiculo.marca} ${vehiculo.modelo} (${vehiculo.patente})` : 'Móvil a confirmar';
+    let respuesta = '';
 
-    let estadoTexto = '';
-    switch (viaje.estado) {
-      case 'PENDIENTE':
-        estadoTexto = '🟡 *Buscando móvil disponible...* Tu viaje ya está en pantalla central.';
-        break;
-      case 'ACEPTADO':
-        estadoTexto = `🟢 *Chofer asignado:* ${choferNombre}\n🚗 *Vehículo:* ${vehiculoStr}\n_El chofer va en camino a buscarte._`;
-        break;
-      case 'EN_CAMINO':
-        estadoTexto = `🔔 *¡Tu remis ya está esperando afuera!*\n🚗 *Vehículo:* ${vehiculoStr}\n_Ya podés salir a subirte._`;
-        break;
-      case 'EN_CURSO':
-        estadoTexto = `🚕 *Viaje en curso* hacia ${viaje.destino}.`;
-        break;
+    // Si tiene un viaje activo en curso o por llegar
+    if (viaje) {
+      const choferNombre = viaje.chofer?.nombre || 'Chofer en asignación';
+      const vehiculo = viaje.vehiculo;
+      const vehiculoStr = vehiculo ? `${vehiculo.marca} ${vehiculo.modelo} (${vehiculo.patente})` : 'Móvil a confirmar';
+
+      let estadoTexto = '';
+      switch (viaje.estado) {
+        case 'PENDIENTE':
+          estadoTexto = '🟡 *Buscando móvil disponible...* Tu viaje ya está en pantalla central.';
+          break;
+        case 'ACEPTADO':
+          estadoTexto = `🟢 *Chofer asignado:* ${choferNombre}\n🚗 *Vehículo:* ${vehiculoStr}\n_El chofer va en camino a buscarte._`;
+          break;
+        case 'EN_CAMINO':
+          estadoTexto = `🔔 *¡Tu remis ya está esperando afuera!*\n🚗 *Vehículo:* ${vehiculoStr}\n_Ya podés salir a subirte._`;
+          break;
+        case 'EN_CURSO':
+          estadoTexto = `🚕 *Viaje en curso* hacia ${viaje.destino}.`;
+          break;
+      }
+
+      respuesta +=
+        `📋 *Estado de tu Viaje #${viaje.id.slice(-4).toUpperCase()}*\n` +
+        `━━━━━━━━━━━━━━━━━━━\n` +
+        `${estadoTexto}\n` +
+        `🟢 *Origen:* ${viaje.origen}\n` +
+        `🔴 *Destino:* ${viaje.destino}\n` +
+        `🔒 *PIN de seguridad:* *${viaje.codigoPin || 'Sin PIN'}*\n` +
+        `━━━━━━━━━━━━━━━━━━━`;
     }
 
-    const respuesta =
-      `📋 *Estado de tu Viaje #${viaje.id.slice(-4).toUpperCase()}*\n` +
-      `━━━━━━━━━━━━━━━━━━━\n` +
-      `${estadoTexto}\n` +
-      `🟢 *Origen:* ${viaje.origen}\n` +
-      `🔴 *Destino:* ${viaje.destino}\n` +
-      `🔒 *PIN de seguridad:* *${viaje.codigoPin || 'Sin PIN'}*\n` +
-      `━━━━━━━━━━━━━━━━━━━`;
+    // Si tiene reservas activas
+    if (reservas.length > 0) {
+      if (respuesta.length > 0) respuesta += '\n\n';
+      respuesta += `📅 *Tus Reservas Programadas:*\n━━━━━━━━━━━━━━━━━━━\n`;
+      respuesta += reservas
+        .map((r) => {
+          const { fechaTexto } = formatearFechaLegible(r.fechaInicio);
+          const choferStr = r.chofer
+            ? `🚗 Móvil asignado: *${r.chofer.nombre}*`
+            : `🟡 Agendada en central (se asignará previo al viaje)`;
+          return (
+            `🗓️ *${fechaTexto}*\n` +
+            `🟢 *Origen:* ${r.origen}\n` +
+            `🔴 *Destino:* ${r.destino}\n` +
+            `${choferStr}`
+          );
+        })
+        .join('\n───────────────────\n');
+    }
 
     return await whatsappService.enviarTexto(cleanFrom, respuesta);
   },
