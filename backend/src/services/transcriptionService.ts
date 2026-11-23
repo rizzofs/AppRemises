@@ -101,7 +101,8 @@ export const transcriptionService = {
   },
 
   /**
-   * Limpia frases introductorias habituales en audios de remís para extraer la dirección
+   * Limpia frases conversacionales e introductorias habituales en mensajes de remís para extraer la dirección limpia.
+   * Ej: "Voy hasta Eustaquia Sánchez 64" -> "Eustaquia Sánchez 64"
    * Ej: "Hola, mandame un auto a Rivadavia 250" -> "Rivadavia 250"
    * Ej: "Estoy en la policlínica" -> "policlínica"
    * Ej: "Hasta el hospital" -> "hospital"
@@ -109,21 +110,27 @@ export const transcriptionService = {
   extraerDireccion(texto: string): string {
     let t = texto.trim();
 
-    // Eliminar saludos y frases de petición iniciales
-    t = t.replace(
-      /^(hola|buenas|buen d[ií]a|buenas tardes|buenas noches|por favor|che|hola quetal|hola que tal)[,\s]+/gi,
-      ''
-    );
-    t = t.replace(
-      /^(mandame|mandanos|m[aá]ndame|enviame|env[ií]ame|necesito|quiero|preciso|solicito|me mand[aá]s|me envi[aá]s|podr[ií]as mandarme|pod[eé]s mandarme)\s+(un\s+)?(remis|rem[ií]s|auto|m[oó]vil|coche|viaje)\s+(a|hacia|para|en)\s+/gi,
-      ''
-    );
-    t = t.replace(/^(estoy\s+en|estamos\s+en|desde|origen|salgo\s+de)\s+/gi, '');
-    t = t.replace(
-      /^(hasta\s+el|hasta\s+la|hasta\s+los|hasta\s+las|hasta|llevame|ll[eé]vame|vamos\s+a|vamos\s+al|vamos\s+hacia|para\s+el|para\s+la|hacia\s+el|hacia\s+la|al|a\s+la|a\s+el|a|de\s+la|del|de|en\s+la|en\s+el|en)\s+/gi,
-      ''
-    );
-    t = t.replace(/^(el|la|los|las|un|una)\s+/gi, '');
+    const patrones = [
+      /^(hola|buenas|buen d[ií]a|buenas tardes|buenas noches|por favor|che|hola quetal|hola que tal)[,\s]+/i,
+      /^(mandame|mandanos|m[aá]ndame|enviame|env[ií]ame|necesito|quiero|preciso|solicito|me mand[aá]s|me envi[aá]s|podr[ií]as mandarme|pod[eé]s mandarme)\s+(un\s+)?(remis|rem[ií]s|auto|m[oó]vil|coche|viaje)\s+(a|hacia|para|en)\s+/i,
+      /^(estoy\s+en|estamos\s+en|salgo\s+de|salimos\s+de|desde|buscame\s+en|buscame\s+por|pasame\s+a\s+buscar\s+por|pasame\s+a\s+buscar\s+en|pasen\s+por|pasen\s+a\s+buscar\s+por)\s+/i,
+      /^(voy\s+hasta|voy\s+hacia|voy\s+para|voy\s+a|me\s+voy\s+hasta|me\s+voy\s+a|me\s+voy\s+para|tengo\s+que\s+ir\s+hasta|tengo\s+que\s+ir\s+a|tengo\s+que\s+ir\s+para|ir\s+hasta|ir\s+a|ir\s+para)\s+/i,
+      /^(llevame\s+a|llevame\s+hasta|llevame\s+para|ll[eé]vame\s+a|ll[eé]vame\s+hasta|ll[eé]vame\s+para|vamos\s+a|vamos\s+al|vamos\s+hacia|vamos\s+hasta|vamos\s+para)\s+/i,
+      /^(ser[ií]a\s+en|ser[ií]a\s+hasta|ser[ií]a\s+a|es\s+en|es\s+hasta|es\s+a|destino\s*:?|origen\s*:?)\s+/i,
+      /^(hasta\s+el|hasta\s+la|hasta\s+los|hasta\s+las|hasta|hacia\s+el|hacia\s+la|hacia|para\s+el|para\s+la|para|al\s+la|al|a\s+la|a\s+el|a|de\s+la|del|de|en\s+la|en\s+el|en)\s+/i,
+      /^(el|la|los|las|un|una)\s+/i,
+    ];
+
+    let cambiado = true;
+    while (cambiado) {
+      cambiado = false;
+      for (const p of patrones) {
+        if (p.test(t)) {
+          t = t.replace(p, '').trim();
+          cambiado = true;
+        }
+      }
+    }
 
     // Eliminar puntos finales o comas sueltas
     t = t.replace(/[.,;!?]+$/, '').trim();

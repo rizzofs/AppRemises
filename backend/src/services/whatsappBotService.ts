@@ -198,12 +198,8 @@ async function geocodificarDireccion(
     return geocodeCache.get(cacheKey)!;
   }
 
-  // 2. Limpiar preposiciones comunes ("hasta el", "al", "hacia el", "en la", etc.)
-  let limpia = q.replace(
-    /^(hasta\s+el|hasta\s+la|hasta|hacia\s+el|hacia\s+la|hacia|al\s+la|al|a\s+la|a\s+el|a|de\s+la|del|de|en\s+la|en\s+el|en)\s+/gi,
-    ''
-  );
-  limpia = limpia.replace(/^(el|la|los|las|un|una)\s+/gi, '').trim();
+  // 2. Limpiar preposiciones y frases conversacionales ("voy hasta", "hasta el", "estoy en", etc.)
+  let limpia = transcriptionService.extraerDireccion(q);
 
   // Verificar si la versión limpia coincide con un punto de interés
   const puntoLimpio = buscarPuntoInteres(limpia);
@@ -805,15 +801,16 @@ export const whatsappBotService = {
           sesion.origenLon = location.longitude;
           sesion.origen = location.address || location.name || `Ubicación GPS (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)})`;
         } else if (texto && texto.trim().length >= 3) {
-          // Validar que la dirección exista en el mapa de Chivilcoy
-          const geoO = await geocodificarDireccion(texto.trim());
+          // Limpiar frases introductorias ("estoy en...", "salgo de...") y validar dirección
+          const direccionLimpia = transcriptionService.extraerDireccion(texto.trim());
+          const geoO = await geocodificarDireccion(direccionLimpia);
           if (!geoO) {
             return await whatsappService.enviarTexto(
               cleanFrom,
-              `⚠️ No pudimos encontrar la dirección *"${texto.trim()}"* en el mapa de Chivilcoy.\n\nPor favor verificá:\n• Que el nombre de la calle y la altura estén bien escritos (ej: *Rivadavia 250*).\n• Si es una esquina, asegurate de que ambas calles se crucen (ej: *Sarmiento y Belgrano*).\n• O compartinos tu *ubicación GPS* directa desde el clip 📎 de WhatsApp.`
+              `⚠️ No pudimos encontrar la dirección *"${direccionLimpia}"* en el mapa de Chivilcoy.\n\nPor favor verificá:\n• Que el nombre de la calle y la altura estén bien escritos (ej: *Rivadavia 250*).\n• Si es una esquina, asegurate de que ambas calles se crucen (ej: *Sarmiento y Belgrano*).\n• O compartinos tu *ubicación GPS* directa desde el clip 📎 de WhatsApp.`
             );
           }
-          sesion.origen = geoO.nombreOficial || texto.trim();
+          sesion.origen = geoO.nombreOficial || direccionLimpia;
           sesion.origenLat = geoO.lat;
           sesion.origenLon = geoO.lon;
         } else {
@@ -845,7 +842,7 @@ export const whatsappBotService = {
           textoLower.includes('cambiar');
 
         if (esAfirmativo) {
-          const dirO = sesion.audioDireccionPendiente || 'Origen confirmado por audio';
+          const dirO = transcriptionService.extraerDireccion(sesion.audioDireccionPendiente || 'Origen confirmado por audio');
           const geoO = await geocodificarDireccion(dirO);
           if (!geoO) {
             sesion.estado = 'ESPERANDO_ORIGEN';
@@ -903,15 +900,16 @@ export const whatsappBotService = {
           sesion.destinoLon = location.longitude;
           sesion.destino = location.address || location.name || `Destino GPS (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)})`;
         } else if (texto && texto.trim().length >= 3) {
-          // Validar que el destino exista en el mapa de Chivilcoy
-          const geoD = await geocodificarDireccion(texto.trim());
+          // Limpiar frases como "voy hasta...", "llevame a..." y validar en el mapa
+          const direccionLimpia = transcriptionService.extraerDireccion(texto.trim());
+          const geoD = await geocodificarDireccion(direccionLimpia);
           if (!geoD) {
             return await whatsappService.enviarTexto(
               cleanFrom,
-              `⚠️ No pudimos encontrar el destino *"${texto.trim()}"* en el mapa de Chivilcoy.\n\nPor favor verificá el nombre de la calle (ej: *Av. Sarmiento 500*), punto de referencia (ej: *Hospital*, *Terminal*) o compartí tu ubicación GPS 📎:`
+              `⚠️ No pudimos encontrar el destino *"${direccionLimpia}"* en el mapa de Chivilcoy.\n\nPor favor verificá el nombre de la calle (ej: *Av. Sarmiento 500*), punto de referencia (ej: *Hospital*, *Terminal*) o compartí tu ubicación GPS 📎:`
             );
           }
-          sesion.destino = geoD.nombreOficial || texto.trim();
+          sesion.destino = geoD.nombreOficial || direccionLimpia;
           sesion.destinoLat = geoD.lat;
           sesion.destinoLon = geoD.lon;
         } else {
@@ -1013,7 +1011,7 @@ export const whatsappBotService = {
           textoLower.includes('cambiar');
 
         if (esAfirmativo) {
-          const dirD = sesion.audioDireccionPendiente || 'Destino confirmado por audio';
+          const dirD = transcriptionService.extraerDireccion(sesion.audioDireccionPendiente || 'Destino confirmado por audio');
           const geoD = await geocodificarDireccion(dirD);
           if (!geoD) {
             sesion.estado = 'ESPERANDO_DESTINO';
