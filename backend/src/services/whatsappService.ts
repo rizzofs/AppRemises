@@ -34,10 +34,19 @@ export const whatsappService = {
 
   /**
    * Limpia el número de teléfono para el formato internacional de WhatsApp (E.164)
-   * ej: +54 9 2346 123456 -> 5492346123456
+   * ej: +54 9 2346 123456 -> 542346123456 (Quirk de Argentina en Meta API)
    */
   formatearNumero(numero: string): string {
-    return numero.replace(/\D/g, '');
+    let clean = numero.replace(/\D/g, '');
+    // Quirk de números móviles de Argentina (+54) en Meta Cloud API:
+    // Los webhooks entrantes traen 549... (13 dígitos con el prefijo móvil '9').
+    // Pero Meta exige que la llamada al API se haga a 54... (sin el 9),
+    // y Meta internamente lo mapea a wa_id 549...
+    // Si se envía con 549 en sandbox, Meta rechaza con código 131030.
+    if (clean.startsWith('549') && clean.length === 13) {
+      clean = '54' + clean.slice(3);
+    }
+    return clean;
   },
 
   /**
