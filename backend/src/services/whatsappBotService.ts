@@ -75,44 +75,172 @@ function resetSesion(telefono: string) {
 // MOTOR DE GEOCODIFICACIÓN Y RUTEADOR REAL (OPENSTREETMAP NOMINATIM + OSRM)
 // ==============================================================================
 
-const geocodeCache = new Map<string, { lat: number; lon: number; display?: string }>();
+const geocodeCache = new Map<string, { lat: number; lon: number; nombreOficial?: string; display?: string }>();
 const osrmDistanceCache = new Map<string, number>();
+
+interface PuntoInteres {
+  alias: RegExp[];
+  nombre: string;
+  direccion: string;
+  lat: number;
+  lon: number;
+}
+
+// Puntos de referencia emblemáticos y frecuencias urbanas en Chivilcoy
+const PUNTOS_INTERES_CHIVILCOY: PuntoInteres[] = [
+  {
+    alias: [/policl[ií]nica/i, /sanatorio/i, /cl[ií]nica del trabajo/i],
+    nombre: 'Policlínica (Brandsen 360)',
+    direccion: 'Brandsen 360, Chivilcoy',
+    lat: -34.9051772,
+    lon: -60.0205314,
+  },
+  {
+    alias: [/hospital/i, /guardia del hospital/i, /hospital municipal/i],
+    nombre: 'Hospital Municipal (Av. Hijas de San José 31)',
+    direccion: 'Av. Hijas de San José 31, Chivilcoy',
+    lat: -34.9119734,
+    lon: -60.0372253,
+  },
+  {
+    alias: [/terminal/i, /terminal de [oó]mnibus/i],
+    nombre: 'Terminal de Ómnibus (Humberto Primo y Av. Villarino)',
+    direccion: 'Humberto Primo, Chivilcoy',
+    lat: -34.888547,
+    lon: -60.01236,
+  },
+  {
+    alias: [/plaza principal/i, /plaza 25 de mayo/i, /\bcentro\b/i],
+    nombre: 'Plaza 25 de Mayo (Centro)',
+    direccion: 'Plaza 25 de Mayo, Chivilcoy',
+    lat: -34.896867,
+    lon: -60.0190293,
+  },
+  {
+    alias: [/estaci[oó]n de tren/i, /estaci[oó]n sud/i],
+    nombre: 'Estación Sud (Av. Ceballos)',
+    direccion: 'Av. Ceballos, Chivilcoy',
+    lat: -34.9045,
+    lon: -60.012,
+  },
+  {
+    alias: [/cementerio/i],
+    nombre: 'Cementerio Municipal (Av. José León Suárez)',
+    direccion: 'Av. José León Suárez, Chivilcoy',
+    lat: -34.878,
+    lon: -60.005,
+  },
+  {
+    alias: [/banco naci[oó]n/i],
+    nombre: 'Banco Nación (Av. Soárez y San Martín)',
+    direccion: 'Av. Soárez 2, Chivilcoy',
+    lat: -34.8965,
+    lon: -60.0195,
+  },
+  {
+    alias: [/banco provincia/i],
+    nombre: 'Banco Provincia (Pellegrini 2)',
+    direccion: 'Pellegrini 2, Chivilcoy',
+    lat: -34.897,
+    lon: -60.0185,
+  },
+  {
+    alias: [/parque martija/i],
+    nombre: 'Parque Martija (Ruta 30)',
+    direccion: 'Ruta Provincial 30, Chivilcoy',
+    lat: -34.865,
+    lon: -60.105,
+  },
+  {
+    alias: [/palacio municipal/i, /municipalidad/i],
+    nombre: 'Palacio Municipal (25 de Mayo 35)',
+    direccion: '25 de Mayo 35, Chivilcoy',
+    lat: -34.8962,
+    lon: -60.0188,
+  },
+];
+
+function buscarPuntoInteres(texto: string): PuntoInteres | null {
+  const t = texto.trim().toLowerCase();
+  for (const p of PUNTOS_INTERES_CHIVILCOY) {
+    for (const r of p.alias) {
+      if (r.test(t)) {
+        return p;
+      }
+    }
+  }
+  return null;
+}
 
 /**
  * Geocodifica una dirección escrita en lenguaje natural (ej: "Eustaquia Sánchez 64", "José León Suárez y calle 21")
- * Prioriza la ciudad de Chivilcoy y maneja intersecciones / esquinas comunes.
+ * Prioriza puntos de interés reconocidos de Chivilcoy y resuelve intersecciones / esquinas comunes.
  */
-async function geocodificarDireccion(rawQuery: string): Promise<{ lat: number; lon: number } | null> {
+async function geocodificarDireccion(
+  rawQuery: string
+): Promise<{ lat: number; lon: number; nombreOficial?: string; display?: string } | null> {
   const q = (rawQuery || '').trim();
-  if (!q || q.length < 3) return null;
+  if (!q || q.length < 2) return null;
+
+  // 1. Verificar si coincide con un punto de interés conocido de Chivilcoy
+  const puntoDirecto = buscarPuntoInteres(q);
+  if (puntoDirecto) {
+    return {
+      lat: puntoDirecto.lat,
+      lon: puntoDirecto.lon,
+      nombreOficial: puntoDirecto.nombre,
+      display: puntoDirecto.direccion,
+    };
+  }
 
   const cacheKey = q.toLowerCase();
   if (geocodeCache.has(cacheKey)) {
     return geocodeCache.get(cacheKey)!;
   }
 
-  // Generar variantes ordenadas de búsqueda para no fallar con formatos coloquiales
+  // 2. Limpiar preposiciones comunes ("hasta el", "al", "hacia el", "en la", etc.)
+  let limpia = q.replace(
+    /^(hasta\s+el|hasta\s+la|hasta|hacia\s+el|hacia\s+la|hacia|al\s+la|al|a\s+la|a\s+el|a|de\s+la|del|de|en\s+la|en\s+el|en)\s+/gi,
+    ''
+  );
+  limpia = limpia.replace(/^(el|la|los|las|un|una)\s+/gi, '').trim();
+
+  // Verificar si la versión limpia coincide con un punto de interés
+  const puntoLimpio = buscarPuntoInteres(limpia);
+  if (puntoLimpio) {
+    const resPunto = {
+      lat: puntoLimpio.lat,
+      lon: puntoLimpio.lon,
+      nombreOficial: puntoLimpio.nombre,
+      display: puntoLimpio.direccion,
+    };
+    geocodeCache.set(cacheKey, resPunto);
+    return resPunto;
+  }
+
+  // 3. Generar variantes ordenadas de búsqueda en OpenStreetMap
+  const queryFinal = limpia.length >= 3 ? limpia : q;
   const variantes: string[] = [];
-  const hasCityConstraint = /chivilcoy|buenos\s+aires|caba|lujan|mercedes/i.test(q);
-  const base = hasCityConstraint ? q : `${q}, Chivilcoy`;
+  const hasCityConstraint = /chivilcoy|buenos\s+aires|caba|lujan|mercedes/i.test(queryFinal);
+  const base = hasCityConstraint ? queryFinal : `${queryFinal}, Chivilcoy`;
   variantes.push(base);
 
-  // 1. Si incluye " y calle X", normalizar a " y X"
-  if (/ y calle /i.test(q)) {
-    const simplificada = q.replace(/ y calle /gi, ' y ');
+  // Si incluye " y calle X", normalizar a " y X"
+  if (/ y calle /i.test(queryFinal)) {
+    const simplificada = queryFinal.replace(/ y calle /gi, ' y ');
     variantes.push(hasCityConstraint ? simplificada : `${simplificada}, Chivilcoy`);
   }
 
-  // 2. Si incluye intersección (" y " o " esq "), buscar también la primera calle
-  if (/\s+y\s+|\s+esq\.?\s+/i.test(q)) {
-    const partes = q.split(/\s+y\s+|\s+esq\.?\s+/i);
+  // Si incluye intersección (" y " o " esq "), buscar también la primera calle
+  if (/\s+y\s+|\s+esq\.?\s+/i.test(queryFinal)) {
+    const partes = queryFinal.split(/\s+y\s+|\s+esq\.?\s+/i);
     if (partes[0] && partes[0].trim().length >= 3) {
       variantes.push(`${partes[0].trim()}, Chivilcoy`);
     }
   }
 
-  // 3. Si tiene número al final, buscar también el nombre de la calle sola
-  const matchNumero = q.match(/^([a-zA-ZáéíóúÁÉÍÓÚñÑ\s\.\d]+?)\s+(\d{1,5})$/);
+  // Si tiene número al final, buscar también el nombre de la calle sola
+  const matchNumero = queryFinal.match(/^([a-zA-ZáéíóúÁÉÍÓÚñÑ\s\.\d]+?)\s+(\d{1,5})$/);
   if (matchNumero && matchNumero[1]) {
     variantes.push(`${matchNumero[1].trim()}, Chivilcoy`);
   }
@@ -474,7 +602,11 @@ export const whatsappBotService = {
         );
       }
 
-      const direccionLimpia = transcriptionService.extraerDireccion(transcripcion);
+      let direccionLimpia = transcriptionService.extraerDireccion(transcripcion);
+      const puntoEncontrado = buscarPuntoInteres(direccionLimpia) || buscarPuntoInteres(transcripcion);
+      if (puntoEncontrado) {
+        direccionLimpia = puntoEncontrado.nombre;
+      }
       sesion.audioTextoOriginal = transcripcion;
       sesion.audioDireccionPendiente = direccionLimpia;
 
@@ -667,6 +799,9 @@ export const whatsappBotService = {
           if (geoO) {
             sesion.origenLat = geoO.lat;
             sesion.origenLon = geoO.lon;
+            if (geoO.nombreOficial) {
+              sesion.origen = geoO.nombreOficial;
+            }
           }
         } else {
           return await whatsappService.enviarTexto(
@@ -702,6 +837,9 @@ export const whatsappBotService = {
           if (geoO) {
             sesion.origenLat = geoO.lat;
             sesion.origenLon = geoO.lon;
+            if (geoO.nombreOficial) {
+              sesion.origen = geoO.nombreOficial;
+            }
           }
           sesion.estado = 'ESPERANDO_DESTINO';
           return await whatsappService.enviarTexto(
@@ -721,6 +859,9 @@ export const whatsappBotService = {
           if (geoO) {
             sesion.origenLat = geoO.lat;
             sesion.origenLon = geoO.lon;
+            if (geoO.nombreOficial) {
+              sesion.origen = geoO.nombreOficial;
+            }
           }
           sesion.estado = 'ESPERANDO_DESTINO';
           return await whatsappService.enviarTexto(
@@ -751,6 +892,9 @@ export const whatsappBotService = {
           if (geoD) {
             sesion.destinoLat = geoD.lat;
             sesion.destinoLon = geoD.lon;
+            if (geoD.nombreOficial) {
+              sesion.destino = geoD.nombreOficial;
+            }
           }
         } else {
           return await whatsappService.enviarTexto(
@@ -765,6 +909,9 @@ export const whatsappBotService = {
           if (geoO) {
             sesion.origenLat = geoO.lat;
             sesion.origenLon = geoO.lon;
+            if (geoO.nombreOficial) {
+              sesion.origen = geoO.nombreOficial;
+            }
           }
         }
 
@@ -853,6 +1000,9 @@ export const whatsappBotService = {
           if (geoD) {
             sesion.destinoLat = geoD.lat;
             sesion.destinoLon = geoD.lon;
+            if (geoD.nombreOficial) {
+              sesion.destino = geoD.nombreOficial;
+            }
           }
 
           if ((!sesion.origenLat || !sesion.origenLon) && sesion.origen) {
@@ -860,6 +1010,9 @@ export const whatsappBotService = {
             if (geoO) {
               sesion.origenLat = geoO.lat;
               sesion.origenLon = geoO.lon;
+              if (geoO.nombreOficial) {
+                sesion.origen = geoO.nombreOficial;
+              }
             }
           }
 
@@ -937,6 +1090,9 @@ export const whatsappBotService = {
           if (geoD) {
             sesion.destinoLat = geoD.lat;
             sesion.destinoLon = geoD.lon;
+            if (geoD.nombreOficial) {
+              sesion.destino = geoD.nombreOficial;
+            }
           }
 
           let dist = 2.5;

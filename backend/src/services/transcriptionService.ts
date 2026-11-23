@@ -103,8 +103,8 @@ export const transcriptionService = {
   /**
    * Limpia frases introductorias habituales en audios de remís para extraer la dirección
    * Ej: "Hola, mandame un auto a Rivadavia 250" -> "Rivadavia 250"
-   * Ej: "Estoy en Eustaquia Sánchez 64" -> "Eustaquia Sánchez 64"
-   * Ej: "Llevame al Hospital Municipal" -> "Hospital Municipal"
+   * Ej: "Estoy en la policlínica" -> "policlínica"
+   * Ej: "Hasta el hospital" -> "hospital"
    */
   extraerDireccion(texto: string): string {
     let t = texto.trim();
@@ -119,11 +119,15 @@ export const transcriptionService = {
       ''
     );
     t = t.replace(/^(estoy\s+en|estamos\s+en|desde|origen|salgo\s+de)\s+/gi, '');
-    t = t.replace(/^(llevame|ll[eé]vame|vamos\s+a|vamos\s+al|vamos\s+hacia|para\s+el|para\s+la|hacia\s+el|hacia\s+la|al|a\s+la|a)\s+/gi, '');
+    t = t.replace(
+      /^(hasta\s+el|hasta\s+la|hasta\s+los|hasta\s+las|hasta|llevame|ll[eé]vame|vamos\s+a|vamos\s+al|vamos\s+hacia|para\s+el|para\s+la|hacia\s+el|hacia\s+la|al|a\s+la|a\s+el|a|de\s+la|del|de|en\s+la|en\s+el|en)\s+/gi,
+      ''
+    );
+    t = t.replace(/^(el|la|los|las|un|una)\s+/gi, '');
 
     // Eliminar puntos finales o comas sueltas
     t = t.replace(/[.,;!?]+$/, '').trim();
 
-    return t.length >= 3 ? t : texto.trim();
+    return t.length >= 2 ? t : texto.trim();
   },
 };
