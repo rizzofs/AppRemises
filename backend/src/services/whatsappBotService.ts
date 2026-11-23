@@ -88,27 +88,164 @@ interface PuntoInteres {
 
 // Puntos de referencia emblemáticos y frecuencias urbanas en Chivilcoy
 const PUNTOS_INTERES_CHIVILCOY: PuntoInteres[] = [
+  // --- Boliches, Discotecas y Bares Nocturnos ---
   {
-    alias: [/policl[ií]nica/i, /sanatorio/i, /cl[ií]nica del trabajo/i],
-    nombre: 'Policlínica (Brandsen 360)',
-    direccion: 'Brandsen 360, Chivilcoy',
-    lat: -34.9051772,
-    lon: -60.0205314,
+    alias: [/ozono/i, /ozono\s*planet/i, /ozono\s*megadisco/i],
+    nombre: 'Ozono Megadisco (Av. José León Suárez 1103)',
+    direccion: 'Av. José León Suárez 1103, Chivilcoy',
+    lat: -34.8814513,
+    lon: -60.0011988,
   },
   {
-    alias: [/hospital/i, /guardia del hospital/i, /hospital municipal/i],
+    alias: [/babako/i, /babakos/i, /babaco/i],
+    nombre: "Babako's Disco (Av. Antonio de Tomaso 851)",
+    direccion: 'Av. Antonio de Tomaso 851, Chivilcoy',
+    lat: -34.8797418,
+    lon: -60.0408011,
+  },
+  {
+    alias: [/ruta\s*30\s*bar/i, /bar\s*ruta\s*30/i],
+    nombre: 'Ruta 30 Bar (Lavalle 100)',
+    direccion: 'Lavalle 100, Chivilcoy',
+    lat: -34.8994017,
+    lon: -60.0189655,
+  },
+  {
+    alias: [/sam\s*cervecer[ií]a/i, /cervecer[ií]a\s*sam/i, /\bsam\s*bar\b/i],
+    nombre: 'SAM Cervecería (Olavarría 60)',
+    direccion: 'Olavarría 60, Chivilcoy',
+    lat: -34.8907786,
+    lon: -60.0247803,
+  },
+  {
+    alias: [/grey\s*bar/i, /bar\s*grey/i],
+    nombre: 'Grey Bar (Pellegrini 424)',
+    direccion: 'Carlos Pellegrini 424, Chivilcoy',
+    lat: -34.8903598,
+    lon: -60.0133635,
+  },
+  {
+    alias: [/ambros[ií]a/i],
+    nombre: 'Ambrosía Resto Bar (Rivadavia 25)',
+    direccion: 'Rivadavia 25, Chivilcoy',
+    lat: -34.8957329,
+    lon: -60.0185349,
+  },
+
+  // --- Salud y Centros Médicos ---
+  {
+    alias: [/hospital/i, /guardia del hospital/i, /hospital municipal/i, /santiago fornos/i],
     nombre: 'Hospital Municipal (Av. Hijas de San José 31)',
     direccion: 'Av. Hijas de San José 31, Chivilcoy',
     lat: -34.9119734,
     lon: -60.0372253,
   },
   {
-    alias: [/terminal/i, /terminal de [oó]mnibus/i],
-    nombre: 'Terminal de Ómnibus (Humberto Primo y Av. Villarino)',
-    direccion: 'Humberto Primo, Chivilcoy',
-    lat: -34.888547,
-    lon: -60.01236,
+    alias: [/policl[ií]nica/i, /cl[ií]nica del trabajo/i],
+    nombre: 'Policlínica (Brandsen 360)',
+    direccion: 'Brandsen 360, Chivilcoy',
+    lat: -34.9051772,
+    lon: -60.0205314,
   },
+  {
+    alias: [/sanatorio\s*chivilcoy/i, /\bsanatorio\b/i],
+    nombre: 'Sanatorio Chivilcoy (Av. Soárez 321)',
+    direccion: 'Av. Soárez 321, Chivilcoy',
+    lat: -34.891907,
+    lon: -60.0129891,
+  },
+
+  // --- Clubes Deportivos y Sociales ---
+  {
+    alias: [/22 de octubre/i, /club 22/i],
+    nombre: 'Club 22 de Octubre (Av. 22 de Octubre 179)',
+    direccion: 'Av. 22 de Octubre 179, Chivilcoy',
+    lat: -34.9054481,
+    lon: -60.0232202,
+  },
+  {
+    alias: [/club col[oó]n/i, /cancha de col[oó]n/i, /bar col[oó]n/i, /\bcol[oó]n\b/i],
+    nombre: 'Club Colón (Vicente López 170)',
+    direccion: 'Vicente López 170, Chivilcoy',
+    lat: -34.8919066,
+    lon: -60.018989,
+  },
+  {
+    alias: [/racing/i, /club racing/i, /estadio norte/i, /grilon arena/i],
+    nombre: 'Racing Club (Av. Soárez 313)',
+    direccion: 'Av. Soárez 313, Chivilcoy',
+    lat: -34.8919578,
+    lon: -60.0132627,
+  },
+  {
+    alias: [/gimnasia/i, /club gimnasia/i, /cancha de gimnasia/i],
+    nombre: 'Club Gimnasia (Av. Antonio de Tomaso 449)',
+    direccion: 'Av. Antonio de Tomaso 449, Chivilcoy',
+    lat: -34.8852128,
+    lon: -60.0338578,
+  },
+  {
+    alias: [/san lorenzo/i, /club san lorenzo/i],
+    nombre: 'Club San Lorenzo (Río Juramento 220)',
+    direccion: 'Río Juramento 220, Chivilcoy',
+    lat: -34.8955594,
+    lon: -60.01057,
+  },
+  {
+    alias: [/cer[aá]mica/i, /cer[aá]mica argentina/i, /club cer[aá]mica/i],
+    nombre: 'Cerámica Argentina (Deán Funes 225)',
+    direccion: 'Deán Funes 225, Chivilcoy',
+    lat: -34.8971137,
+    lon: -60.0122093,
+  },
+
+  // --- Supermercados ---
+  {
+    alias: [/\bvea\b/i, /supermercado vea/i],
+    nombre: 'Supermercado Vea (Pellegrini 150)',
+    direccion: 'Carlos Pellegrini 150, Chivilcoy',
+    lat: -34.8941633,
+    lon: -60.0177289,
+  },
+  {
+    alias: [/la an[oó]nima/i, /an[oó]nima/i],
+    nombre: 'La Anónima (Av. Soárez 52)',
+    direccion: 'Av. Soárez 52, Chivilcoy',
+    lat: -34.8953196,
+    lon: -60.0174422,
+  },
+
+  // --- Instituciones Educativas ---
+  {
+    alias: [/colegio nacional/i, /\bnacional\b/i, /secundaria 3/i],
+    nombre: 'Colegio Nacional (Av. Calixto Calderón 25)',
+    direccion: 'Av. Calixto Calderón 25, Chivilcoy',
+    lat: -34.9032889,
+    lon: -60.0267372,
+  },
+  {
+    alias: [/escuela normal/i, /la normal/i, /isfd 6/i, /instituto 6/i],
+    nombre: 'Escuela Normal (Av. José León Suárez 25)',
+    direccion: 'Av. José León Suárez 25, Chivilcoy',
+    lat: -34.8905012,
+    lon: -60.0112796,
+  },
+  {
+    alias: [/escuela comercial/i, /el comercial/i, /secundaria 4/i],
+    nombre: 'Escuela Comercial (Av. Antonio de Tomaso 26)',
+    direccion: 'Av. Antonio de Tomaso 26, Chivilcoy',
+    lat: -34.8909041,
+    lon: -60.0272738,
+  },
+  {
+    alias: [/escuela industrial/i, /el industrial/i, /escuela t[eé]cnica/i, /t[eé]cnica 1/i],
+    nombre: 'Escuela Técnica 1 (Industrial) (Pellegrini 338)',
+    direccion: 'Carlos Pellegrini 338, Chivilcoy',
+    lat: -34.8914936,
+    lon: -60.0147406,
+  },
+
+  // --- Plazas y Parques ---
   {
     alias: [/plaza principal/i, /plaza 25 de mayo/i, /\bcentro\b/i],
     nombre: 'Plaza 25 de Mayo (Centro)',
@@ -117,18 +254,90 @@ const PUNTOS_INTERES_CHIVILCOY: PuntoInteres[] = [
     lon: -60.0190293,
   },
   {
-    alias: [/estaci[oó]n de tren/i, /estaci[oó]n sud/i],
+    alias: [/plaza col[oó]n/i],
+    nombre: 'Plaza Colón',
+    direccion: 'Plaza Colón, Chivilcoy',
+    lat: -34.8908759,
+    lon: -60.0192553,
+  },
+  {
+    alias: [/plaza espa[ñn]a/i],
+    nombre: 'Plaza España',
+    direccion: 'Plaza España, Chivilcoy',
+    lat: -34.8896774,
+    lon: -60.0116277,
+  },
+  {
+    alias: [/plaza mitre/i],
+    nombre: 'Plaza Mitre',
+    direccion: 'Plaza Mitre, Chivilcoy',
+    lat: -34.8967027,
+    lon: -60.0117616,
+  },
+  {
+    alias: [/plaza belgrano/i],
+    nombre: 'Plaza Belgrano',
+    direccion: 'Plaza Belgrano, Chivilcoy',
+    lat: -34.9028737,
+    lon: -60.0188456,
+  },
+  {
+    alias: [/plaza moreno/i],
+    nombre: 'Plaza Moreno',
+    direccion: 'Plaza Moreno, Chivilcoy',
+    lat: -34.9029951,
+    lon: -60.0102956,
+  },
+  {
+    alias: [/plaza varela/i, /plaza florencio varela/i],
+    nombre: 'Plaza Florencio Varela',
+    direccion: 'Plaza Florencio Varela, Chivilcoy',
+    lat: -34.8970396,
+    lon: -60.0263349,
+  },
+  {
+    alias: [/parque infantil/i, /parque rivadavia/i],
+    nombre: 'Parque Infantil Bernardino Rivadavia',
+    direccion: 'Parque Infantil, Chivilcoy',
+    lat: -34.8903708,
+    lon: -60.0265812,
+  },
+  {
+    alias: [/parque martija/i, /\bmartija\b/i],
+    nombre: 'Parque Martija (Ruta 30)',
+    direccion: 'Ruta Provincial 30, Chivilcoy',
+    lat: -34.865,
+    lon: -60.105,
+  },
+
+  // --- Transporte, Gobierno y Bancos ---
+  {
+    alias: [/terminal/i, /terminal de [oó]mnibus/i],
+    nombre: 'Terminal de Ómnibus (Humberto Primo y Av. Villarino)',
+    direccion: 'Humberto Primo, Chivilcoy',
+    lat: -34.888547,
+    lon: -60.01236,
+  },
+  {
+    alias: [/estaci[oó]n de tren/i, /estaci[oó]n sud/i, /\bestaci[oó]n\b/i],
     nombre: 'Estación Sud (Av. Ceballos)',
     direccion: 'Av. Ceballos, Chivilcoy',
     lat: -34.9045,
     lon: -60.012,
   },
   {
-    alias: [/cementerio/i],
+    alias: [/cementerio/i, /cementerio municipal/i],
     nombre: 'Cementerio Municipal (Av. José León Suárez)',
     direccion: 'Av. José León Suárez, Chivilcoy',
     lat: -34.878,
     lon: -60.005,
+  },
+  {
+    alias: [/palacio municipal/i, /municipalidad/i, /\bla muni\b/i],
+    nombre: 'Palacio Municipal (25 de Mayo 35)',
+    direccion: '25 de Mayo 35, Chivilcoy',
+    lat: -34.8962,
+    lon: -60.0188,
   },
   {
     alias: [/banco naci[oó]n/i],
@@ -143,20 +352,6 @@ const PUNTOS_INTERES_CHIVILCOY: PuntoInteres[] = [
     direccion: 'Pellegrini 2, Chivilcoy',
     lat: -34.897,
     lon: -60.0185,
-  },
-  {
-    alias: [/parque martija/i],
-    nombre: 'Parque Martija (Ruta 30)',
-    direccion: 'Ruta Provincial 30, Chivilcoy',
-    lat: -34.865,
-    lon: -60.105,
-  },
-  {
-    alias: [/palacio municipal/i, /municipalidad/i],
-    nombre: 'Palacio Municipal (25 de Mayo 35)',
-    direccion: '25 de Mayo 35, Chivilcoy',
-    lat: -34.8962,
-    lon: -60.0188,
   },
 ];
 
