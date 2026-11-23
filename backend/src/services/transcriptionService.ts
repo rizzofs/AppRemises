@@ -1,3 +1,5 @@
+import { whatsappService } from './whatsappService';
+
 // ==============================================================================
 // SERVICIO DE TRANSCRIPCIÓN DE AUDIO POR IA (WHATSAPP CLOUD API + GROQ WHISPER)
 // ==============================================================================
@@ -8,13 +10,21 @@ export const transcriptionService = {
    */
   async transcribirAudioWhatsApp(audioId: string): Promise<string | null> {
     try {
-      const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN;
+      const WHATSAPP_TOKEN =
+        process.env.WHATSAPP_ACCESS_TOKEN ||
+        process.env.WHATSAPP_TOKEN ||
+        whatsappService.getCredentials().token;
+
       const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
       if (!WHATSAPP_TOKEN || !GROQ_API_KEY || !audioId) {
-        console.warn('transcribirAudioWhatsApp: Faltan credenciales (WHATSAPP_TOKEN, GROQ_API_KEY) o audioId');
+        console.warn(
+          `transcribirAudioWhatsApp: Faltan credenciales (Token: ${Boolean(WHATSAPP_TOKEN)}, Groq: ${Boolean(GROQ_API_KEY)}) o audioId: ${audioId}`
+        );
         return null;
       }
+
+      console.log(`🎙️ [AudioTranscription] Consultando mediaId ${audioId} en Meta Graph API...`);
 
       // 1. Obtener URL de descarga del media desde Meta Graph API
       const metaRes = await fetch(`https://graph.facebook.com/v21.0/${audioId}`, {
@@ -34,6 +44,8 @@ export const transcriptionService = {
         return null;
       }
 
+      console.log(`🎙️ [AudioTranscription] Descargando binario de audio (${metaData.mime_type})...`);
+
       // 2. Descargar el archivo binario del audio desde Meta
       const audioRes = await fetch(metaData.url, {
         headers: {
@@ -50,6 +62,10 @@ export const transcriptionService = {
       const arrayBuffer = await audioRes.arrayBuffer();
       const mimeType = metaData.mime_type || 'audio/ogg';
       const extension = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'm4a' : 'mp3';
+
+      console.log(
+        `🎙️ [AudioTranscription] Audio descargado (${arrayBuffer.byteLength} bytes). Enviando a Groq Whisper Large v3...`
+      );
 
       // 3. Enviar a Groq Whisper (whisper-large-v3)
       const formData = new FormData();
@@ -75,6 +91,8 @@ export const transcriptionService = {
 
       const groqData = (await groqRes.json()) as { text?: string };
       const texto = (groqData.text || '').trim();
+
+      console.log(`🎙️ [AudioTranscription] Transcripción exitosa: "${texto}"`);
       return texto.length > 0 ? texto : null;
     } catch (error) {
       console.error('Error en transcribirAudioWhatsApp:', error);
