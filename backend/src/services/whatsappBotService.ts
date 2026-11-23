@@ -66,9 +66,109 @@ function resetSesion(telefono: string) {
   sesionesMap.delete(cleanTel);
 }
 
-// Cálculo de distancia euclidiana / haversine para estimar Km
-function calcularDistanciaKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371; // Radio de la Tierra en km
+// ==============================================================================
+// MOTOR DE GEOCODIFICACIÓN Y RUTEADOR REAL (OPENSTREETMAP NOMINATIM + OSRM)
+// ==============================================================================
+
+const geocodeCache = new Map<string, { lat: number; lon: number; display?: string }>();
+const osrmDistanceCache = new Map<string, number>();
+
+/**
+ * Geocodifica una dirección escrita en lenguaje natural (ej: "Eustaquia Sánchez 64", "José León Suárez y calle 21")
+ * Prioriza la ciudad de Chivilcoy y maneja intersecciones / esquinas comunes.
+ */
+async function geocodificarDireccion(rawQuery: string): Promise<{ lat: number; lon: number } | null> {
+  const q = (rawQuery || '').trim();
+  if (!q || q.length < 3) return null;
+
+  const cacheKey = q.toLowerCase();
+  if (geocodeCache.has(cacheKey)) {
+    return geocodeCache.get(cacheKey)!;
+  }
+
+  // Generar variantes ordenadas de búsqueda para no fallar con formatos coloquiales
+  const variantes: string[] = [];
+  const hasCityConstraint = /chivilcoy|buenos\s+aires|caba|lujan|mercedes/i.test(q);
+  const base = hasCityConstraint ? q : `${q}, Chivilcoy`;
+  variantes.push(base);
+
+  // 1. Si incluye " y calle X", normalizar a " y X"
+  if (/ y calle /i.test(q)) {
+    const simplificada = q.replace(/ y calle /gi, ' y ');
+    variantes.push(hasCityConstraint ? simplificada : `${simplificada}, Chivilcoy`);
+  }
+
+  // 2. Si incluye intersección (" y " o " esq "), buscar también la primera calle
+  if (/\s+y\s+|\s+esq\.?\s+/i.test(q)) {
+    const partes = q.split(/\s+y\s+|\s+esq\.?\s+/i);
+    if (partes[0] && partes[0].trim().length >= 3) {
+      variantes.push(`${partes[0].trim()}, Chivilcoy`);
+    }
+  }
+
+  // 3. Si tiene número al final, buscar también el nombre de la calle sola
+  const matchNumero = q.match(/^([a-zA-ZáéíóúÁÉÍÓÚñÑ\s\.\d]+?)\s+(\d{1,5})$/);
+  if (matchNumero && matchNumero[1]) {
+    variantes.push(`${matchNumero[1].trim()}, Chivilcoy`);
+  }
+
+  const viewboxParam = 'viewbox=-60.15,-34.83,-59.88,-34.96&bounded=0';
+
+  for (const query of variantes) {
+    try {
+      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+        query
+      )}&countrycodes=ar&limit=1&addressdetails=1&${viewboxParam}`;
+
+      const res = await fetch(url, {
+        headers: { 'User-Agent': 'AppRemises/1.0 (coordinacion@remises.com)' },
+        signal: AbortSignal.timeout(3000),
+      });
+
+      const data = (await res.json()) as any[];
+      if (Array.isArray(data) && data.length > 0 && data[0].lat && data[0].lon) {
+        const resultado = {
+          lat: parseFloat(data[0].lat),
+          lon: parseFloat(data[0].lon),
+          display: data[0].display_name,
+        };
+        geocodeCache.set(cacheKey, resultado);
+        return resultado;
+      }
+    } catch (err) {
+      // Continuar con la siguiente variante si hay timeout
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Calcula la distancia real de viaje en auto por calles utilizando OSRM (Open Source Routing Machine).
+ * Si OSRM no responde en 3 segundos, utiliza Haversine con coeficiente urbano de curvas.
+ */
+async function calcularDistanciaReal(lat1: number, lon1: number, lat2: number, lon2: number): Promise<number> {
+  const routeKey = `${lat1.toFixed(4)},${lon1.toFixed(4)}->${lat2.toFixed(4)},${lon2.toFixed(4)}`;
+  if (osrmDistanceCache.has(routeKey)) {
+    return osrmDistanceCache.get(routeKey)!;
+  }
+
+  try {
+    const url = `http://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
+    const data = (await res.json()) as any;
+    if (data.routes && data.routes.length > 0) {
+      const km = data.routes[0].distance / 1000;
+      const kmRedondeado = Math.round(km * 10) / 10;
+      osrmDistanceCache.set(routeKey, kmRedondeado);
+      return kmRedondeado;
+    }
+  } catch (err) {
+    console.warn('OSRM timeout/error, utilizando estimación Haversine urbana:', err);
+  }
+
+  // Fallback Haversine con factor 1.35 de recorrido urbano en cuadrícula
+  const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -78,8 +178,9 @@ function calcularDistanciaKm(lat1: number, lon1: number, lat2: number, lon2: num
       Math.sin(dLon / 2) *
       Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const d = R * c;
-  return Math.round(d * 10) / 10;
+  const linealKm = R * c;
+  const kmEstimado = Math.round(linealKm * 1.35 * 10) / 10;
+  return kmEstimado;
 }
 
 // ==============================================================================
@@ -450,6 +551,12 @@ export const whatsappBotService = {
           sesion.origen = location.address || location.name || `Ubicación GPS (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)})`;
         } else if (texto && texto.trim().length >= 3) {
           sesion.origen = texto.trim();
+          // Geocodificar la dirección de origen para obtener coordenadas precisas
+          const geoO = await geocodificarDireccion(sesion.origen);
+          if (geoO) {
+            sesion.origenLat = geoO.lat;
+            sesion.origenLon = geoO.lon;
+          }
         } else {
           return await whatsappService.enviarTexto(
             cleanFrom,
@@ -471,6 +578,12 @@ export const whatsappBotService = {
           sesion.destino = location.address || location.name || `Destino GPS (${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)})`;
         } else if (texto && texto.trim().length >= 3) {
           sesion.destino = texto.trim();
+          // Geocodificar la dirección de destino
+          const geoD = await geocodificarDireccion(sesion.destino);
+          if (geoD) {
+            sesion.destinoLat = geoD.lat;
+            sesion.destinoLon = geoD.lon;
+          }
         } else {
           return await whatsappService.enviarTexto(
             cleanFrom,
@@ -478,14 +591,31 @@ export const whatsappBotService = {
           );
         }
 
-        // Calcular distancia y precio estimado
-        let dist = 2.5; // Distancia estándar urbana por defecto
+        // Si el origen no tenía coordenadas (por ejemplo, si falló en el primer intento), intentar nuevamente
+        if ((!sesion.origenLat || !sesion.origenLon) && sesion.origen) {
+          const geoO = await geocodificarDireccion(sesion.origen);
+          if (geoO) {
+            sesion.origenLat = geoO.lat;
+            sesion.origenLon = geoO.lon;
+          }
+        }
+
+        // Calcular distancia real (vía OSRM o Haversine)
+        let dist = 2.5; // Distancia estándar urbana en caso extremo de no poder geocodificar
         if (sesion.origenLat && sesion.origenLon && sesion.destinoLat && sesion.destinoLon) {
-          dist = calcularDistanciaKm(sesion.origenLat, sesion.origenLon, sesion.destinoLat, sesion.destinoLon);
+          dist = await calcularDistanciaReal(
+            sesion.origenLat,
+            sesion.origenLon,
+            sesion.destinoLat,
+            sesion.destinoLon
+          );
           if (dist < 0.5) dist = 0.8;
         }
 
-        const precioGpsPuro = dist > 1 ? bajadaBandera + (dist - 1) * valorKm : bajadaBandera;
+        // Cálculo de precio según tarifario vigente de la remisería
+        // La bajada de bandera cubre los primeros 1 km; los km adicionales se cobran al valorKm
+        const kmAdicionales = Math.max(0, dist - 1);
+        const precioGpsPuro = bajadaBandera + kmAdicionales * valorKm;
         const precioEstimado = Math.round(precioGpsPuro / 100) * 100;
 
         sesion.distanciaKm = dist;
@@ -654,6 +784,7 @@ export const whatsappBotService = {
         `🗓️ *Fecha y Hora:* *${fechaTexto}*\n` +
         `🟢 *Origen:* ${origen}\n` +
         `🔴 *Destino:* ${destino}\n` +
+        `📏 *Distancia:* ~${sesion.distanciaKm || 2.5} km\n` +
         `💵 *Precio estimado:* *$${precio.toLocaleString('es-AR')}*\n` +
         `🔒 *PIN de seguridad:* *${codigoPin}*\n` +
         `━━━━━━━━━━━━━━━━━━━\n\n` +
